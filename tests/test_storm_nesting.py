@@ -186,6 +186,19 @@ def test_amr_refluxing_conserves_across_interface():
     assert d["no_reflux"] > 1e-6, d          # a real leak exists to fix
     assert d["reflux"] < 1e-12, d            # refluxing conserves to machine precision
     assert d["reflux"] < d["no_reflux"] / 1e6
+    assert d["free_stream"] < 1e-12, d       # a uniform field stays uniform (correctness)
+
+
+def test_amr_conservative_prolong_is_inverse_of_restrict():
+    """The regridding operator (coarse->fine) is conservative and inverts
+    average-down on a constant block: restrict(prolong(x)) == x."""
+    import numpy as _np
+    from storm_dynamics import amr
+    x = _np.random.default_rng(0).random((5, 7))
+    f = amr.conservative_prolong(x, 3)
+    assert f.shape == (15, 21)
+    back = f.reshape(5, 3, 7, 3).mean(axis=(1, 3))
+    assert _np.allclose(back, x)             # exact inverse -> conservative
 
 
 def test_two_way_feedback_phase3a_influences_parent():

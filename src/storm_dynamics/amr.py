@@ -121,13 +121,39 @@ class TwoLevelReflux:
         return abs(self.total_mass() - m0) / abs(m0)
 
 
+    # ---- free-stream preservation: a uniform field must stay uniform ----
+    def free_stream_error(self, nsteps: int = 30, reflux: bool = True) -> float:
+        """Set a uniform field and return the max deviation from uniform after
+        ``nsteps`` -- an AMR correctness test (a sign error in refluxing or a bad
+        coarse-fine transfer shows up as spurious structure at the interface)."""
+        self.qc[:] = 2.0
+        self.qf[:] = 2.0
+        for _ in range(nsteps):
+            self.step(reflux=reflux)
+        return float(max(np.abs(self.qc - 2.0).max(), np.abs(self.qf - 2.0).max()))
+
+
+def conservative_prolong(coarse_block: np.ndarray, refine: int) -> np.ndarray:
+    """Coarse -> fine conservative interpolation (the regridding operator, the
+    companion to :func:`storm_dynamics.nesting.conservative_restrict`).
+
+    Piecewise-constant injection: each coarse cell fills its ``refine x refine``
+    fine cells.  This is exactly conservative (the fine integral equals the coarse
+    integral) and is the inverse of average-down on a constant block:
+    ``restrict(prolong(x)) == x``.
+    """
+    r = refine
+    return np.repeat(np.repeat(coarse_block, r, axis=0), r, axis=1)
+
+
 def demo(nsteps: int = 40) -> dict:
-    """Relative mass drift with and without refluxing (fresh state each)."""
+    """Relative mass drift with and without refluxing, and the free-stream error."""
     return {"no_reflux": TwoLevelReflux().run(nsteps, reflux=False),
-            "reflux": TwoLevelReflux().run(nsteps, reflux=True)}
+            "reflux": TwoLevelReflux().run(nsteps, reflux=True),
+            "free_stream": TwoLevelReflux().free_stream_error(nsteps, reflux=True)}
 
 
-__all__ = ["TwoLevelReflux", "demo"]
+__all__ = ["TwoLevelReflux", "conservative_prolong", "demo"]
 
 
 if __name__ == "__main__":
