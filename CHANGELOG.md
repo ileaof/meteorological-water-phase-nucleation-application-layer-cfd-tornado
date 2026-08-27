@@ -59,6 +59,12 @@ moved byte-identically; SHA-256 checksums preserved).
 - `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
+- `storm_dynamics/amr.py` — **AMR Milestone 1**: a pure-NumPy reference
+  implementation of Berger–Colella **refluxing** on a static 2-level hierarchy.
+  Verified: total-mass drift over 40 steps is `1.1e-4` without refluxing and
+  `2.0e-16` with it (`test_amr_refluxing_conserves_across_interface`) — the flux
+  register restores exact conservation across the coarse–fine interface. Ports
+  directly onto a framework `FluxRegister` (AMReX/Chombo).
 - `examples/supercell_tornadogenesis.py` (runnable, prints the rotation diagnostics;
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ

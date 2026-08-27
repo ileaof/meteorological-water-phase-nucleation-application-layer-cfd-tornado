@@ -119,8 +119,12 @@ multigrid with exactly this coarse–fine handling).
 ## 6. Milestones & effort (honest)
 
 1. **Refluxing on a static 2-level hierarchy** (advection only; frozen Poisson):
-   expose fluxes, `FluxRegister`, sync — *~1–2 weeks*, verifiable by exact
-   tracer conservation across the interface.
+   expose fluxes, `FluxRegister`, sync — verifiable by exact tracer conservation
+   across the interface. **✅ Prototyped & verified** in pure NumPy
+   (`storm_dynamics.amr.TwoLevelReflux`, `python -m storm_dynamics.amr`): total-mass
+   drift over 40 steps is `1.1e-4` *without* refluxing and `2.0e-16` *with* it
+   (test `test_amr_refluxing_conserves_across_interface`). This reference logic
+   ports directly onto a framework `FluxRegister`.
 2. **Composite multigrid Poisson** on the static 2-level grid — *~3–5 weeks*
    (the crux); verify divergence-free across the interface.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.

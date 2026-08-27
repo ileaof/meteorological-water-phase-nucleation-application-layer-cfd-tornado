@@ -177,6 +177,17 @@ def test_conservative_restriction_preserves_overlap_integral():
         assert abs(v["coarse_after_minus_fine"]) < 1e-6, (nm, v)   # exact conservation
 
 
+def test_amr_refluxing_conserves_across_interface():
+    """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
+    a static coarse-fine interface -- WITHOUT it the total mass drifts (interface
+    leak); WITH it the drift is machine precision."""
+    from storm_dynamics import amr
+    d = amr.demo(nsteps=40)
+    assert d["no_reflux"] > 1e-6, d          # a real leak exists to fix
+    assert d["reflux"] < 1e-12, d            # refluxing conserves to machine precision
+    assert d["reflux"] < d["no_reflux"] / 1e6
+
+
 def test_two_way_feedback_phase3a_influences_parent():
     """M3 phase 3a: approximate two-way feedback runs stably and the nest's finer
     solution measurably changes the parent overlap (a closed parent<->nest loop)."""
