@@ -109,6 +109,16 @@ fresh inflow. Boundary comparison — updraft over the window: frozen 7.3→4.1
 
 </details>
 
+**Phase 3a — two-way (the nest improves the parent).** Feeding the nest's finer
+solution back onto the parent closes the loop:
+
+![Parent mid-level w with one-way vs two-way feedback, and the difference showing the nest's imprint](docs/media/storm/twoway_parent_compare.png)
+
+*Same case, parent updraft (mid-level w): **one-way 6.7 m/s → two-way 10.5 m/s**.
+Right panel: the difference — the orange patch is exactly where the nest
+strengthened the parent updraft (+3.8 m/s), the signature of two-way coupling.
+Injection feedback (not rigorous refluxing); stable, water ≈ −0.1%.*
+
 > **Honest scope.** Delivered: nesting phases 1 (static/frozen), 2
 > (concurrent/time-evolving boundary), 2b (storm-following), and **3a (approximate
 > two-way** — the nest's finer solution blended back onto the parent, improving it).
