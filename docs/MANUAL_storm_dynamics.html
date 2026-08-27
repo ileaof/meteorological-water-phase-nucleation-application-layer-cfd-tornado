@@ -444,6 +444,13 @@ PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell 
 # compute backend: --device cpu (default) | gpu (NVIDIA + CuPy) | auto
 python examples/supercell_tornadogenesis.py --scenario supercell --device auto
 
+# finer grid on GPU with graphs + an animated GIF + a CSV time series
+# (--animate captures 2-D vorticity frames; --csv writes the rotation trackers)
+python examples/supercell_tornadogenesis.py --scenario supercell \
+    --nx 40 --ny 40 --nz 48 --Lx 40000 --Ly 40000 --Lz 16000 \
+    --duration 1800 --device gpu --plots --animate --csv --fps 10 \
+    --outdir outputs/storm_m1_fine_gpu
+
 # tests
 PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
 <div class="note"><strong>CPU or GPU.</strong> The core is backend-agnostic (every hot-loop module uses
@@ -451,6 +458,11 @@ PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_mi
 (regression-tested). <code>cpu</code> is the default; <code>gpu</code> requires an NVIDIA GPU + CuPy and fails
 loudly if absent; <code>auto</code> falls back to CPU. At demonstration grid sizes (&le;64k cells) the direct
 pressure solve stays on the host and CPU is usually faster; GPU pays off at larger grids (CG on the GPU).</div>
+<div class="note"><strong>Outputs.</strong> <code>--plots</code> writes the hodograph, rotation-slice and
+time-series PNGs; <code>--animate</code> (with <code>--fps</code>) writes an animated GIF of the evolving
+mid-level / near-surface vertical vorticity (Pillow &mdash; no ffmpeg); <code>--csv</code> writes the
+rotation / conservation time series to <code>history.csv</code>. All land in <code>--outdir</code> (default
+<code>outputs/storm_&lt;scenario&gt;</code>).</div>
 <p>Declarative configs load via the Python API:</p>
 <pre><code>from storm_dynamics.config import storm_config_from_yaml
 from storm_dynamics.core import StormSimulation
