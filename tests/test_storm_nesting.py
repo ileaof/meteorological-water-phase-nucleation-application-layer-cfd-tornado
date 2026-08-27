@@ -97,3 +97,32 @@ def test_nest_inherits_parent_and_runs_stable():
     assert abs(c["total_water_rel_err"]) < 1.5e-2            # conserves
     assert c["mass_continuity_residual_norm"] < 1e-2         # projection, not limiters
     assert rep["nest"]["dx_m"] < parent.grid.dx              # genuinely finer
+
+
+def test_concurrent_nest_phase2_is_stable():
+    """M3 phase 2: the concurrent nest (parent stepping alongside, time-evolving
+    boundaries) runs stably and conserves over a short window -- and the
+    interior-masked ζ separates the physical vortex from the sponge edge."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    from storm_dynamics import rotation as rot
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=32,
+                              Lx=27000, Ly=27000, Lz=15000, duration=720.0,
+                              dt_max=3.0, hodograph_kind="quarter_circle", drag=True,
+                              z_stretch=1.05, U_max=18.0, z_turn=2000.0, C_s=0.22)
+    parent = StormSimulation(scfg)
+    parent.run()
+    wc = np.asarray(parent.grid.backend.to_cpu(rot._centered_velocity(parent.state, parent.grid)[2]))
+    i, j = np.unravel_index(np.argmax(wc.max(axis=2)), wc.shape[:2])
+    spec = nst.NestSpec.around(parent.grid, float(parent.grid.xc[i]),
+                               float(parent.grid.yc[j]), half=7000.0, refine=3, nz=38)
+    nest, rep = nst.run_concurrent_nest(parent, spec, window=60.0)
+    r = rep["rotation"]; c = rep["conservation"]
+    assert np.isfinite(r["zeta_abs_max"])                      # no blow-up
+    assert max(h["w_max"] for h in nest.history) < 45.0        # physical
+    assert abs(c["total_water_rel_err"]) < 3e-2               # conserves (looser over the window)
+    assert c["mass_continuity_residual_norm"] < 1e-2
+    assert "concurrent" in rep["nest"]["mode"]
+    # interior-masked ζ is finite and no larger than the edge-inclusive value
+    zi = nst.interior_near_surface_zeta(nest)
+    assert np.isfinite(zi) and zi <= r["near_surface_zeta_max"] + 1e-9

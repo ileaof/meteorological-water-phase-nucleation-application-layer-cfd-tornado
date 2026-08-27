@@ -1,9 +1,11 @@
 # Handoff — storm_dynamics (rotating supercell / tornadogenesis core)
 
 **Status:** M1 (rotating supercell) delivered & verified; M2 (low-level rotation)
-delivered & verified; **M3 phase 1 (static one-way nesting) delivered** — the
-finer nest intensifies the near-surface ζ ~2.4× over a short window; full AMR /
-two-way / concurrent time-evolving boundaries remain future work.
+delivered & verified; **M3 phases 1 & 2 (one-way nesting) delivered** — phase 1
+(static/frozen-parent) intensifies near-surface ζ ~2.4× over a short window;
+phase 2 (concurrent/time-evolving parent boundary) sustains the nest as long as
+the parent drives it. Remaining: storm-following moving nest, much higher
+refinement, two-way / adaptive (AMR) nesting.
 
 ## Objective
 
@@ -127,14 +129,20 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
 - **M2 quantification / tuning:** confirm near-surface ζ magnitude and its
   location on the forward-flank cold-pool interface; may want a finer near-surface
   Δz (`z_stretch`) and a stronger/earlier cold pool.
-- **M3 phase 1 done** (`nesting.py`, `examples/tornado_nest.py`,
-  `tests/test_storm_nesting.py`): static one-way nest — exact parent→nest
-  trilinear interpolation, finer nest grid, stable/conserving nested integration
-  with Davies-style border relaxation to the frozen parent. Verified: near-surface
-  ζ intensifies ~2.4× over a 120 s window at 3× refinement (Δx 1.3 km→0.44 km).
-  **Remaining M3:** concurrent time-evolving parent boundaries (parent stepping
-  alongside the nest, so the storm is sustained beyond a short window), much higher
-  refinement toward O(10–100 m), and two-way / adaptive (AMR) nesting.
+- **M3 phases 1 & 2 done** (`nesting.py`, `examples/tornado_nest.py` [`--concurrent`],
+  `tests/test_storm_nesting.py`): one-way nest — exact parent→nest trilinear
+  interpolation, finer nest grid, stable/conserving nested integration with
+  Davies-style border relaxation. **Phase 1** (frozen parent): near-surface ζ
+  intensifies ~2.4× over a 120 s window at 3× refinement (Δx 1.3 km→0.44 km);
+  valid only ~2–3 min before the frozen border decays the storm (ζ max then drifts
+  to the edge — use `interior_near_surface_zeta` to read the physical interior
+  vortex). **Phase 2** (`run_concurrent_nest`): the parent steps alongside the nest
+  and feeds time-evolving boundaries, sustaining the nest as long as the parent
+  drives it; a small SGS boost (`les_boost`) + tighter CFL keep the sharpening
+  vortex stable. **Remaining M3:** a storm-following MOVING nest (a fixed nest
+  loses features that advect out), much higher refinement toward O(10–100 m), and
+  two-way / adaptive (AMR) nesting. Gotcha: the nest deep-copies `parent.dyn`
+  (shared reference would let nest tweaks mutate the parent).
 - **Figures done:** `plotting.py` + the example's `--plots` flag write the
   rotation slices (the split couplet), hodograph and time series. **Still
   optional:** NetCDF field output (the core returns a report dict + `history` +

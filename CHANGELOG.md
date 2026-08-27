@@ -26,13 +26,20 @@ moved byte-identically; SHA-256 checksums preserved).
   config `device:`, example `--device cpu|gpu|auto`; default `cpu`). The core is
   backend-agnostic (all hot loops use `grid.xp`); GPU parity with CPU is
   regression-tested (`test_storm_gpu_matches_cpu`, skipped without a GPU).
-- **M3 phase 1 — static one-way nested-grid refinement** (`storm_dynamics.nesting`,
+- **M3 one-way nested-grid refinement** (`storm_dynamics.nesting`,
   `examples/tornado_nest.py`, `tests/test_storm_nesting.py`): mature the storm on the
   coarse parent, interpolate the vortex region onto a finer nest (exact trilinear
-  interpolation), and integrate the nest for a short window with Davies-style border
-  relaxation to the frozen parent. The finer grid intensifies the near-surface ζ
-  ~2.4× over the window (Δx 1.3 km→0.44 km, 3× finer) while conserving. Full AMR /
-  two-way / concurrent time-evolving boundaries remain future work.
+  interpolation), and integrate the nest — reusing the whole solver — with
+  Davies-style border relaxation.
+  - **Phase 1** (frozen parent boundary): the finer grid intensifies the
+    near-surface ζ ~2.4× over a short window (Δx 1.3 km→0.44 km, 3× finer) while
+    conserving; valid only ~2–3 min before the frozen border decays the storm.
+  - **Phase 2** (`run_concurrent_nest`, example `--concurrent`): the parent steps
+    alongside the nest and feeds time-evolving boundaries, sustaining the nest as
+    long as the parent drives it (a modest SGS boost + tighter CFL keep it stable).
+  - `interior_near_surface_zeta` reports the physical interior vortex, excluding the
+    boundary sponge. Storm-following moving nest, much higher refinement, and
+    two-way / adaptive (AMR) nesting remain future work.
 - `examples/supercell_tornadogenesis.py` (runnable, prints the rotation diagnostics;
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ

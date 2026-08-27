@@ -206,11 +206,16 @@ class NestedStormSimulation:
     a :class:`NestSpec`; then :meth:`run` for a short window.
     """
 
-    def __init__(self, parent, spec: NestSpec):
+    def __init__(self, parent, spec: NestSpec, les_boost: float = 1.25,
+                 cfl: float = 0.25):
         from .core import _pressure_method
         self.spec = spec
         self.scfg = parent.scfg
-        self.dyn = parent.dyn
+        # deep-copy dyn so nest tweaks never mutate the parent; the finer,
+        # potentially under-resolved nest gets a little more SGS dissipation
+        # (les_boost x C_s) and a tighter CFL for stability as its vortex sharpens.
+        self.dyn = _copy.deepcopy(parent.dyn)
+        self.dyn.les.C_s = parent.dyn.les.C_s * float(les_boost)
         self.backend = parent.backend
         # nest config: reuse the parent's, but non-periodic walls + nest geometry
         cfg = _copy.deepcopy(parent.cfg)
@@ -221,8 +226,9 @@ class NestedStormSimulation:
         cfg.domain.Lx, cfg.domain.Ly, cfg.domain.Lz = g.Lx, g.Ly, g.Lz
         cfg.boundaries.x_west = cfg.boundaries.x_east = "wall"
         cfg.boundaries.y = "free_slip"
-        # finer dx -> smaller advective dt; keep the parent's cfl
-        cfg.time.dt_max = min(cfg.time.dt_max, parent.cfg.time.dt_max)
+        # finer dx -> tighter CFL + smaller dt cap for the fine vertical spacing
+        cfg.time.cfl = min(cfg.time.cfl, float(cfl))
+        cfg.time.dt_max = min(cfg.time.dt_max, 2.0)
         self.cfg = cfg
         # interpolated base state + initial condition
         self.base = interpolate_base_to_nest(parent.base, g)
@@ -266,6 +272,12 @@ class NestedStormSimulation:
         self._t0 = _time.perf_counter()
 
     # ---- boundary / relaxation ----
+    def set_target(self, tgt: dict) -> None:
+        """Set the relaxation target (parent state interpolated onto the nest).
+        For phase 1 this is the frozen initial state; for phase 2
+        (:func:`run_concurrent_nest`) it is updated each nest step."""
+        self._tgt = tgt
+
     def _apply_nest_bcs(self):
         _zero_gradient_velocity(self.state)
         _zero_gradient_scalars(self.state)
@@ -368,7 +380,97 @@ from .core import StormSimulation as _SS
 NestedStormSimulation._capture_frame = _SS._capture_frame
 
 
+# ---------------------------------------------------------------------------
+# M3 phase 2 -- concurrent one-way nesting (time-evolving parent boundaries)
+# ---------------------------------------------------------------------------
+def _interp_targets(parent_state: FlowState, parent_grid: Grid,
+                    nest_grid: Grid, spec: NestSpec) -> dict:
+    """Interpolate just the relaxation fields (u, v, w, theta, qv) onto the nest."""
+    xp = nest_grid.xp
+    to = parent_grid.backend.to_cpu
+    out = {}
+    for nm, kind in (("u", "u"), ("v", "v"), ("w", "w"),
+                     ("theta", "c"), ("qv", "c")):
+        out[nm] = xp.asarray(_interp(parent_grid, np.asarray(to(getattr(parent_state, nm))),
+                                     kind, spec, nest_grid))
+    return out
+
+
+def _blend(a: dict, b: dict, alpha: float) -> dict:
+    return {k: (1.0 - alpha) * a[k] + alpha * b[k] for k in a}
+
+
+def interior_near_surface_zeta(nest, margin: int | None = None,
+                               z_near: float = 500.0) -> float:
+    """Peak |near-surface ζ| in the nest INTERIOR, excluding the boundary
+    relaxation band (the sponge, where nudging can generate edge vorticity that
+    is not a physical vortex).  This is the honest low-level-rotation measure for
+    a nest."""
+    g = nest.grid
+    m = margin if margin is not None else (nest.spec.relax_width + 2)
+    _, _, zeta = _rot.vorticity_3d(nest.state, g)
+    zl = g.backend.to_cpu(zeta)[:, :, int(np.argmin(np.abs(np.asarray(
+        g.backend.to_cpu(g.zc)) - z_near)))]
+    if 2 * m >= min(g.nx, g.ny):
+        return float(np.max(np.abs(zl)))
+    return float(np.max(np.abs(zl[m:-m, m:-m])))
+
+
+def run_concurrent_nest(parent, spec: NestSpec, window: float,
+                        record_interval=None, capture_frames=False,
+                        progress=None):
+    """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
+
+    The parent keeps stepping alongside the nest; each parent step the parent
+    state is re-interpolated onto the nest, and the nest sub-cycles (finer dt)
+    with its border relaxed toward the parent target **interpolated linearly in
+    time**.  Fresh inflow keeps entering, so the storm is sustained beyond the
+    frozen-boundary short window -- still one-way and at fixed refinement.
+
+    Returns ``(nest, report)``.
+    """
+    from .core import StormSimulation as SS
+    nest = NestedStormSimulation(parent, spec)
+    nest._capture_frames = bool(capture_frames); nest.frames = []
+    g = nest.grid
+    initial = _diag.initial_budgets(nest.state, nest.rho_ref)
+    interval = record_interval or max(1, nest.cfg.output.interval_steps)
+    # bracketing targets (parent now / after the next parent step)
+    tgt_prev = _interp_targets(parent.state, parent.grid, g, spec)
+    nest.set_target(tgt_prev)
+    nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+    parent._Km = getattr(parent, "_Km", None)
+    t = 0.0
+    while t < window - 1e-9:
+        dtp = parent._dt()
+        if t + dtp > window:
+            dtp = window - t
+        parent._step(dtp)                       # advance the parent
+        tgt_next = _interp_targets(parent.state, parent.grid, g, spec)
+        # sub-cycle the nest across [t, t+dtp], blending the target in time
+        t_sub = 0.0
+        while t_sub < dtp - 1e-9:
+            dtn = min(nest._dt(), dtp - t_sub)
+            alpha = (t_sub + dtn) / dtp
+            nest.set_target(_blend(tgt_prev, tgt_next, alpha))
+            nest._step(dtn)
+            nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
+            if nest.step % interval == 0:
+                nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+        tgt_prev = tgt_next
+        t += dtp
+        if progress:
+            progress(t, window, nest.step)
+    nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+    rep = SS._finalise(nest, initial)
+    rep["nest"] = {"dx_m": g.dx, "dz0_m": float(g.dz_c[0]),
+                   "nx": g.nx, "ny": g.ny, "nz": g.nz, "refine": spec.refine,
+                   "mode": "concurrent (phase 2: time-evolving parent boundary)"}
+    return nest, rep
+
+
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
+    "run_concurrent_nest",
 ]

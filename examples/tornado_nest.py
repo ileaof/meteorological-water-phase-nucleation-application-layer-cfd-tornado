@@ -40,6 +40,10 @@ def main(argv=None) -> int:
     p.add_argument("--half", type=float, default=8000.0, help="nest half-width [m]")
     p.add_argument("--nest-nz", type=int, default=44)
     p.add_argument("--window", type=float, default=120.0, help="nest integration window [s]")
+    p.add_argument("--concurrent", action="store_true",
+                   help="M3 phase 2: step the parent alongside the nest so the nest "
+                        "border sees time-evolving parent boundaries (sustains the "
+                        "storm beyond the frozen-boundary short window)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--plots", action="store_true")
     p.add_argument("--animate", action="store_true")
@@ -70,26 +74,43 @@ def main(argv=None) -> int:
 
     spec = nst.NestSpec.around(parent.grid, xc, yc, half=args.half,
                                refine=args.refine, nz=args.nest_nz, z_stretch=1.06)
-    nest = nst.NestedStormSimulation(parent, spec)
-    nest.cfg.time.duration = args.window
-    r_nest0 = rot.rotation_report(nest.state, nest.grid)
+    mode = "phase 2 (concurrent, time-evolving parent boundary)" if args.concurrent \
+        else "phase 1 (frozen parent boundary)"
     print("nest region   : centred (%.1f, %.1f) km, half %.0f km" % (xc / 1000, yc / 1000, args.half / 1000))
-    print("nest grid     : %d x %d x %d  dx=%.0f m (parent %.0f m, %dx finer), dz0=%.0f m"
-          % (nest.grid.nx, nest.grid.ny, nest.grid.nz, nest.grid.dx, parent.grid.dx,
-             args.refine, float(nest.grid.dz_c[0])))
-    print("-" * 72)
-    rep = nest.run(progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"),
-                   capture_frames=args.animate)
+    print("mode          : %s" % mode)
+    if args.concurrent:
+        nest = nst.NestedStormSimulation(parent, spec)
+        r_nest0 = rot.rotation_report(nest.state, nest.grid)
+        z0_int = nst.interior_near_surface_zeta(nest)
+        print("nest grid     : %d x %d x %d  dx=%.0f m (parent %.0f m, %dx finer), dz0=%.0f m"
+              % (nest.grid.nx, nest.grid.ny, nest.grid.nz, nest.grid.dx, parent.grid.dx,
+                 args.refine, float(nest.grid.dz_c[0])))
+        print("-" * 72)
+        nest, rep = nst.run_concurrent_nest(
+            parent, spec, window=args.window, capture_frames=args.animate,
+            progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
+    else:
+        nest = nst.NestedStormSimulation(parent, spec)
+        nest.cfg.time.duration = args.window
+        r_nest0 = rot.rotation_report(nest.state, nest.grid)
+        z0_int = nst.interior_near_surface_zeta(nest)
+        print("nest grid     : %d x %d x %d  dx=%.0f m (parent %.0f m, %dx finer), dz0=%.0f m"
+              % (nest.grid.nx, nest.grid.ny, nest.grid.nz, nest.grid.dx, parent.grid.dx,
+                 args.refine, float(nest.grid.dz_c[0])))
+        print("-" * 72)
+        rep = nest.run(progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"),
+                       capture_frames=args.animate)
     print(" " * 60, end="\r")
 
     r = rep["rotation"]; pk = rep["rotation_peak"]; c = rep["conservation"]
-    print("near-surface zeta [s^-1]:")
+    z_int = nst.interior_near_surface_zeta(nest)
+    print("near-surface zeta [s^-1]  (interior = physical vortex, excludes the sponge band):")
     print("  parent (coarse, dx=%.0f m)        : %.2e" % (parent.grid.dx, r_par["near_surface_zeta_max"]))
-    print("  nest initial (interpolated)        : %.2e" % r_nest0["near_surface_zeta_max"])
-    print("  nest after %.0f s (dx=%.0f m)   : %.2e (peak %.2e)"
-          % (args.window, nest.grid.dx, r["near_surface_zeta_max"], pk["peak_near_surface_zeta"]))
-    intens = pk["peak_near_surface_zeta"] / max(r_nest0["near_surface_zeta_max"], 1e-12)
-    print("  -> intensification over the window : %.2fx" % intens)
+    print("  nest initial (interior)            : %.2e" % z0_int)
+    print("  nest final   (interior)            : %.2e" % z_int)
+    print("  nest final   (incl. sponge edge)   : %.2e" % r["near_surface_zeta_max"])
+    intens = z_int / max(z0_int, 1e-12)
+    print("  -> interior intensification        : %.2fx" % intens)
     print("w_max: parent %.1f -> nest init %.1f -> nest final %.1f m/s"
           % (r_par["w_max"], r_nest0["w_max"], r["w_max"]))
     print("conservation (nest): water %.2e | mass-continuity |div| %.2e"
@@ -97,8 +118,15 @@ def main(argv=None) -> int:
     print("=" * 72)
     for lim in rep["limitations"]:
         print("NOTE:", lim)
-    print("NOTE: one-way STATIC nest, frozen parent border, short window -- a "
-          "demonstration of the refinement method, not full AMR (M3 phase 1).")
+    if args.concurrent:
+        print("NOTE: one-way CONCURRENT nest (M3 phase 2): the parent steps alongside "
+              "the nest and feeds time-evolving boundaries, so the storm is sustained "
+              "beyond the frozen-boundary window. Still one-way + fixed refinement; a "
+              "storm-following MOVING nest, higher refinement and two-way/adaptive "
+              "(AMR) nesting remain future work.")
+    else:
+        print("NOTE: one-way STATIC nest, frozen parent border, short window -- a "
+              "demonstration of the refinement method, not full AMR (M3 phase 1).")
 
     if args.plots or args.animate:
         from storm_dynamics import plotting as splt
