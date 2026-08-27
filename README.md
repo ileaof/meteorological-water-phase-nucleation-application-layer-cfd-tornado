@@ -79,25 +79,43 @@ identical straight-hodograph/no-drag control).*
 the source of the strong positive storm-relative helicity (0–1 km ≈ 148 m²/s²)
 that feeds the low-level vortex.*
 
-### M3 (phase 1) — static nested-grid refinement of the vortex
+### M3 — nested-grid refinement of the vortex (phases 1, 2, 2b)
 
 Mature the storm on the coarse **parent**, then integrate a finer **nest** over
-the updraft / low-level-rotation region for a short window, with the nest border
-relaxed toward the parent. The finer grid **sharpens** the near-surface vortex.
+the updraft / low-level-rotation region, with the nest border relaxed toward the
+parent. The finer grid **sharpens** the near-surface vortex.
+
+**Phase 2b — storm-following nest (the sustained, long animation).** Running the
+nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
+**sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing
+the whole window) while conserving to ~0.35% — a strengthening updraft and a
+concentrated low-level vortex a fixed nest would have lost.
+
+![Storm-following nest: the updraft and low-level vortex sustained and intensifying over 500 s](docs/media/storm/nest_evolution_follow.gif)
+
+*Storm-following nest (`--follow`, Δx = 0.44 km, motion C ≈ (9, −18) m/s): 500 s
+of a sustained, intensifying updraft and low-level rotation. Mid-level ζ (left)
+and near-surface ζ (right).*
+
+<details><summary><b>Phase 1 — static nest (short window), and the boundary comparison</b></summary>
 
 ![Nested finer-grid slices: a concentrated near-surface vorticity couplet at 0.44 km resolution](docs/media/storm/nest_slices.png)
 
-*A 3×-finer nest (Δx 1.3 km → 0.44 km) over the vortex region. Right panel: the
-near-surface ζ concentrates into a tighter cyclonic/anticyclonic couplet with
-rotating inflow — over a 120 s window the finer grid **intensifies near-surface ζ
-≈ 2.4×** (to ~3.3×10⁻³ s⁻¹, above the coarse parent at the same location) while
-the updraft is sustained and water/mass conserve.*
+*Phase 1 (frozen parent border, 120 s): the finer grid **intensifies near-surface
+ζ ≈ 2.4×** over a short window, then decays as the frozen border stops feeding
+fresh inflow. Boundary comparison — updraft over the window: frozen 7.3→4.1
+(decays) · concurrent fixed 7.6→2.0 (decays) · **concurrent following 5→23
+(grows)**.*
 
-> **Honest scope.** This is **M3 phase 1**: a *one-way, static, short-window*
-> nest (`storm_dynamics.nesting` / `examples/tornado_nest.py`) — a demonstration
-> of the refinement method. It is **not** full AMR. A genuinely resolved
-> O(10–100 m) tornado needs concurrent time-evolving parent boundaries, much
-> higher refinement, and two-way / adaptive nesting (the remaining M3 work).
+</details>
+
+> **Honest scope.** Delivered: one-way nesting — phase 1 (static/frozen), phase 2
+> (concurrent/time-evolving boundary), phase 2b (storm-following). All in
+> `storm_dynamics.nesting` / `examples/tornado_nest.py` (`--concurrent`, `--follow`).
+> Still **one-way** (no nest→parent feedback) and **fixed refinement**; a genuinely
+> resolved O(10–100 m) tornado needs **much higher refinement** (`--refine 5–6`,
+> costlier) and **two-way / adaptive (AMR)** nesting — a separate project, the
+> remaining M3 work.
 
 Reproduce with:
 
