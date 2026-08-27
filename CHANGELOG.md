@@ -59,6 +59,12 @@ moved byte-identically; SHA-256 checksums preserved).
 - `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
+- `scripts/build_pyamrex_wsl.sh` — turnkey, reproducible pyAMReX build for
+  WSL2/Ubuntu (the M3 "full AMR" framework path). Validated on WSL: pyAMReX `26.08`
+  builds and imports (Miniforge **Python 3.12**; `JOBS=2` to avoid the pybind OOM
+  on a 7 GB WSL). The default build exposes `MultiFab`/`Geometry` and the AMR
+  hierarchy (`AmrCore`/`AmrMesh`) but **not** `MLMG`/`FluxRegister` — the port needs
+  those bindings enabled (see `docs/amr_design.md`).
 - `storm_dynamics/amr.py` — **AMR Milestone 1**: a pure-NumPy reference
   implementation of Berger–Colella **refluxing** on a static 2-level hierarchy.
   Verified: total-mass drift over 40 steps is `1.1e-4` without refluxing and

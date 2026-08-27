@@ -145,6 +145,40 @@ microphysics, the nucleation kernel) ports as the per-level right-hand side; the
 AMR infrastructure comes from the framework. That turns "several months from
 scratch" into "port the physics onto a proven AMR core."
 
+### Getting pyAMReX built (WSL2, reproducible)
+
+`scripts/build_pyamrex_wsl.sh` is the turnkey recipe, with every blocker found on a
+fresh WSL2/Ubuntu baked in:
+
+- **Python** — pyAMReX ≥ 26.8 needs **Python ≥ 3.11**; use a conda (Miniforge)
+  **3.12** env. Ubuntu 22.04's system Python 3.10 is too old; the Miniforge *base*
+  is 3.14, too new. 3.12 is the sweet spot.
+- **Memory** — the pybind11 bindings are memory-hungry; a full-parallel build
+  **OOM-kills `cc1plus`** on a 7 GB WSL. Build with few jobs (`JOBS=2`), or raise
+  WSL RAM in `%UserProfile%\.wslconfig` (`[wsl2]` → `memory=12GB`) then
+  `wsl --shutdown`.
+- **Toolchain present out of the box on WSL2/Ubuntu 22.04**: g++ 11.4, make;
+  install `cmake`/`ninja` via `pip` (no sudo). The GPU (e.g. RTX 4050) is visible
+  in WSL via `nvidia-smi`, so an `AMReX_GPU_BACKEND=CUDA` build is possible once the
+  CPU build is working.
+
+### pyAMReX validation (what the default build exposes)
+
+Built and imported (pyAMReX `26.08`, CPU, 3D) and probed on WSL:
+
+- ✅ **Data model**: `MultiFab`, `Geometry`, `BoxArray`, `DistributionMapping`
+  work — a `set_val(3)` / `sum` / `mult` round-trip is exact.
+- ✅ **AMR hierarchy**: `AmrCore`, `AmrMesh`, `AmrInfo`, `AmrParGDB` are present —
+  the regridding / level-hierarchy backbone the port builds on. A `Poisson` class
+  is also exposed.
+- ❌ **Missing in the default build**: `MLMG` / `MLABecLaplacian` (the composite
+  multigrid solve), `FluxRegister` / `YAFluxRegister` (refluxing), and the
+  interp/coarsen operators are **not** bound. The port therefore needs pyAMReX
+  rebuilt with the **LinearSolvers + AmrCore Python bindings enabled** (or those
+  pieces driven from C++). This is the concrete next environment step before the
+  physics port — the data model and hierarchy are ready; the solver/reflux
+  bindings are the gap.
+
 ## 8. Verification plan
 
 - **Conservative restriction**: overlap integral preserved (done, error `0`).
