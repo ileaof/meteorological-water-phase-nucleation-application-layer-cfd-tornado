@@ -1,0 +1,25 @@
+# storm_dynamics -- M1 rotating supercell (storm-splitting) reference.
+#
+# Unidirectional (straight-hodograph) shear over the Weisman-Klemp sounding: a
+# warm bubble splits into left- and right-moving cells with a mid-level
+# mesocyclone (Klemp & Wilhelmson 1978; Weisman & Klemp 1982).  IDEALISED, not a
+# forecast (see docs/storm_dynamics_guide.md).
+#
+# Load with: storm_dynamics.config.storm_config_from_yaml(path)
+preset: storm
+nx: 32
+ny: 32
+nz: 40
+Lx: 40000.0
+Ly: 40000.0
+Lz: 16000.0
+duration: 3600.0
+dt_max: 3.0
+dynamics: anelastic
+periodic: true
+hodograph_kind: unidirectional
+latitude_deg: 36.0
+coriolis: true
+drag: false            # M1 mid-level splitting does not require surface friction
+les_model: smagorinsky
+outdir: outputs/storm_supercell

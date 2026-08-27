@@ -1,0 +1,32 @@
+# storm_dynamics -- M2 low-level rotation (tornadogenesis proxy).
+#
+# Curved (quarter-circle) hodograph -> strong storm-relative helicity, plus the
+# surface bulk-drag law and the evaporative cold pool (baroclinic vorticity
+# source): near-surface vertical vorticity develops on the cold-pool / forward-
+# flank interface (Rotunno & Klemp 1985).  IDEALISED, not a forecast, and the
+# vortex is under-resolved at demonstration resolution (see the guide).
+#
+# Load with: storm_dynamics.config.storm_config_from_yaml(path)
+preset: storm
+nx: 36
+ny: 36
+nz: 44
+Lx: 36000.0
+Ly: 36000.0
+Lz: 15000.0
+duration: 3600.0
+dt_max: 2.5
+dynamics: anelastic
+periodic: true
+hodograph_kind: quarter_circle
+U_max: 18.0            # asymptotic hodograph speed (moderated so w stays physical
+                       # -- a coarse grid over-amplifies a strong low-level-SRH updraft)
+z_turn: 2000.0         # concentrate the curvature in 0-2 km -> low-level SRH
+latitude_deg: 36.0
+coriolis: true
+drag: true             # surface friction is essential to low-level rotation
+les_model: smagorinsky
+C_s: 0.22
+z_stretch: 1.05        # cluster levels near the surface (dz_0 ~ 100 m) to resolve
+                       # the drag / corner-flow layer and keep w physical
+outdir: outputs/storm_tornadogenesis

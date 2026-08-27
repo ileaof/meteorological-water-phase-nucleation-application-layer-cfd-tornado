@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotating Supercell &amp; Tornadogenesis Manual</title>
+<style>
+  :root{
+    --ground:#F4F7FA; --surface:#EAEFF4; --surface-2:#DDE6EE;
+    --ink:#16242E; --ink-soft:#41525E; --ink-faint:#6B7C87;
+    --ink-2:var(--ink-soft); --ink-3:var(--ink-faint);
+    --rule:#C9D4DE; --rule-soft:#DCE4EC;
+    --liquid:#2E6F9E; --ice:#7A6FAE; --vapour:#39B6D4; --crit:#B4453B;
+    --term-bg:#0C141A; --term-ink:#DCE6EE; --term-dim:#7E92A0;
+    --accent:var(--liquid); --cold:var(--liquid); --warm:var(--crit);
+    --ok:#1E7A4C;
+    --code-bg:var(--surface); --warn-bg:#F6ECE1; --warn-rule:#C9A469;
+    --maxw:860px;
+    --serif:"Iowan Old Style","Palatino Linotype","Palatino",Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:"JetBrains Mono","SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E151B; --surface:#16202A; --surface-2:#1E2A36;
+      --ink:#DCE6EE; --ink-soft:#A6B6C2; --ink-faint:#7E92A0;
+      --rule:#243240; --rule-soft:#1E2A36;
+      --liquid:#5FA8D6; --ice:#A99CD6; --vapour:#5BD0EA; --crit:#E07060;
+      --term-bg:#070D12; --term-ink:#DCE6EE; --term-dim:#5E7280;
+      --ok:#4ADE80; --warn-bg:#261A12; --warn-rule:#B9763A;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E151B; --surface:#16202A; --surface-2:#1E2A36;
+    --ink:#DCE6EE; --ink-soft:#A6B6C2; --ink-faint:#7E92A0;
+    --rule:#243340; --rule-soft:#1E2A36;
+    --liquid:#5FA8D6; --ice:#A99CD6; --vapour:#5BD0EA; --crit:#E07060;
+    --term-bg:#070D12; --term-ink:#DCE6EE; --term-dim:#5E7280;
+    --ok:#4ADE80; --warn-bg:#261A12; --warn-rule:#B9763A;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--sans); font-size:16.5px; line-height:1.62;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1,h2,h3,h4{font-family:var(--serif); font-weight:700; line-height:1.18; text-wrap:balance; letter-spacing:-.005em}
+  .mf{font-style:italic; color:var(--warm); font-family:var(--serif)}
+  code,.mono{font-family:var(--mono)}
+  strong{color:var(--ink)}
+
+  /* layout */
+  .shell{display:grid; grid-template-columns:240px minmax(0,1fr); gap:52px; max-width:1200px; margin:0 auto; padding:0 28px}
+  @media (max-width:960px){ .shell{grid-template-columns:1fr; gap:0} }
+
+  /* TOC */
+  .toc{position:sticky; top:0; align-self:start; max-height:100vh; overflow-y:auto;
+    padding:28px 0 34px; font-size:13px; line-height:1.5; color:var(--ink-soft)}
+  @media (max-width:960px){ .toc{position:static; max-height:none; padding:12px 0 8px; border-bottom:1px solid var(--rule)} }
+  .toc h4{font-family:var(--sans); font-size:10.5px; font-weight:600; letter-spacing:.11em;
+    text-transform:uppercase; color:var(--ink-faint); margin:20px 0 4px}
+  .toc h4:first-child{margin-top:0}
+  .toc .part-label{font-family:var(--serif); font-size:13.5px; font-weight:700; color:var(--ink); margin:0 0 8px; padding:0 10px}
+  .toc ol{list-style:none; padding:0; margin:0 0 6px}
+  .toc li{margin:2px 0}
+  .toc a{color:var(--ink-soft); display:block; padding:4px 10px; border-radius:3px; border-left:2px solid transparent; line-height:1.35}
+  .toc a:hover{background:var(--surface); color:var(--ink); text-decoration:none}
+  .toc a.active{color:var(--accent); border-left-color:var(--accent); background:var(--surface)}
+
+  /* main */
+  .doc{min-width:0; max-width:var(--maxw); padding:0 0 90px}
+  section{padding-top:34px; margin-top:16px; border-top:1px solid var(--rule-soft)}
+  .part + section{border-top:none; margin-top:0; padding-top:22px}
+  h2{font-size:27px; margin:0 0 8px; scroll-margin-top:1rem}
+  h2 .num{font-family:var(--mono); font-size:14px; font-weight:500; color:var(--accent); letter-spacing:0; margin-right:.5em; vertical-align:.02em}
+  h3{font-size:19px; margin:26px 0 4px; color:var(--ink); scroll-margin-top:1rem}
+  h4{font-size:15.5px; margin:20px 0 2px; font-family:var(--sans); font-weight:600; letter-spacing:.01em}
+  p{margin:10px 0}
+  ul,ol{padding-left:1.3em}
+  li{margin:3px 0}
+  code{font-size:.85em; background:var(--surface); padding:1px 5px; border-radius:4px; color:var(--ink)}
+
+  /* eyebrow */
+  .eyebrow{font-family:var(--sans); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:600; margin:0 0 6px}
+
+  /* masthead / hero */
+  .masthead{padding:44px 0 4px}
+  h1.title{font-family:var(--serif); font-size:40px; margin:0 0 10px; letter-spacing:-.01em; line-height:1.1}
+  .lede{font-family:var(--serif); font-size:18px; color:var(--ink-soft); max-width:60ch; margin:.6rem 0 1rem; line-height:1.5}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 6px}
+  .chip{font-family:var(--sans); font-size:12px; padding:5px 11px; border:1px solid var(--rule); border-radius:999px; color:var(--ink-soft); background:var(--surface)}
+  .chip.ok{border-color:var(--ok); color:var(--ok)}
+  .legend{display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 4px}
+  .legend .chip{display:inline-flex; align-items:center; gap:7px}
+  .legend .chip i{width:9px; height:9px; border-radius:50%; display:inline-block}
+  .legend .cyc i{background:var(--crit)} .legend .acyc i{background:var(--liquid)}
+  .legend .up i{background:var(--ink)} .legend .cold i{background:var(--vapour)}
+
+  .duo-rule{height:4px; border:none; border-radius:2px; margin:26px 0; background:linear-gradient(90deg,var(--warm),var(--cold))}
+  hr.divider{border:none; border-top:1px solid var(--rule-soft); margin:32px 0}
+
+  /* part dividers */
+  .part{margin:40px 0 8px; padding-top:22px; border-top:2px solid var(--rule)}
+  .part .pk{font-family:var(--sans); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--warm); font-weight:600; margin:0 0 4px}
+  .part h2{font-family:var(--serif); font-size:30px; margin:0 0 6px}
+  .part .psub{color:var(--ink-soft); margin:0 0 6px; font-size:15px; font-family:var(--serif); max-width:62ch; line-height:1.5}
+
+  /* equations */
+  .eq{font-family:var(--mono); font-size:13.5px; background:var(--surface); border:1px solid var(--rule);
+    border-left:3px solid var(--cold); padding:12px 16px; border-radius:7px; margin:12px 0; line-height:1.7; overflow-x:auto; white-space:pre}
+  .eq.warm{border-left-color:var(--warm)}
+
+  /* code blocks */
+  pre{font-family:var(--mono); font-size:13px; line-height:1.55; background:var(--surface); border:1px solid var(--rule);
+    border-left:3px solid var(--accent); border-radius:7px; padding:12px 15px; overflow-x:auto; margin:12px 0; color:var(--ink)}
+  pre code{background:none; border:none; padding:0; font-size:inherit; color:inherit}
+
+  /* terminal */
+  .term{font-family:var(--mono); font-size:13px; line-height:1.55; background:var(--term-bg); color:var(--term-ink);
+    padding:13px 15px; white-space:pre; margin:6px 0 14px; border:1px solid #000; border-radius:7px; overflow-x:auto;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.03)}
+  .term .dim{color:var(--term-dim)}
+  .term .ok{color:#7FD1A4}
+  .term .bad{color:#E89286}
+  .term-bar{font-family:var(--sans); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint);
+    margin:16px 0 0; display:flex; align-items:center; gap:8px}
+  .term-bar::before{content:""; width:8px; height:8px; border-radius:50%; background:var(--crit); opacity:.7}
+
+  /* tables */
+  .tablewrap{overflow-x:auto; margin:14px 0}
+  table{border-collapse:collapse; width:100%; font-size:13.5px}
+  th,td{padding:7px 11px; text-align:left; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+  th{font-family:var(--sans); font-weight:600; font-size:11.5px; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--ink-faint); border-bottom:1px solid var(--rule)}
+  td{font-variant-numeric:tabular-nums}
+  td code{font-size:12px}
+  tbody tr:hover td{background:var(--surface)}
+
+  /* callouts (warn) */
+  .callout{background:var(--warn-bg); border:1px solid var(--warn-rule); border-left:3px solid var(--crit);
+    border-radius:7px; padding:12px 15px; margin:16px 0; font-size:14.5px}
+  .callout .ct{font-family:var(--sans); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--crit); margin:0 0 4px; font-weight:700; display:block}
+  .callout ol{margin:6px 0 0}
+
+  /* note (soft callout) */
+  .note{background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--ice);
+    padding:12px 15px; border-radius:7px; margin:14px 0; color:var(--ink-soft); font-size:14.5px}
+  .note strong{color:var(--ink)}
+
+  /* lead-in */
+  .lead-in{color:var(--ink-soft); font-style:italic; margin:18px 0 4px; font-size:14px; font-family:var(--serif)}
+
+  /* data list */
+  .data{display:grid; grid-template-columns:max-content 1fr; gap:5px 18px; margin:14px 0;
+    font-variant-numeric:tabular-nums; font-family:var(--mono); font-size:13px}
+  .data dt{color:var(--ink-faint)}
+  .data dd{margin:0; color:var(--ink)}
+
+  /* step list */
+  ol.steps{list-style:none; counter-reset:st; padding:0; margin:16px 0; position:relative}
+  ol.steps::before{content:""; position:absolute; left:13px; top:20px; bottom:12px; width:2px; background:var(--rule)}
+  ol.steps li{counter-increment:st; position:relative; padding:4px 0 4px 40px; margin:6px 0}
+  ol.steps li::before{content:counter(st); position:absolute; left:0; top:2px; width:28px; height:28px;
+    border-radius:50%; background:var(--ground); border:2px solid var(--cold); color:var(--cold);
+    font-family:var(--mono); font-size:12px; font-weight:600; display:flex; align-items:center;
+    justify-content:center; line-height:1}
+
+  /* architecture block */
+  .arch{font-family:var(--mono); font-size:12.5px; background:var(--surface); border:1px solid var(--rule);
+    border-radius:7px; padding:15px; overflow-x:auto; white-space:pre; line-height:1.5; margin:14px 0; color:var(--ink)}
+
+  /* footer */
+  footer{margin-top:56px; padding-top:20px; border-top:1px solid var(--rule-soft); color:var(--ink-faint); font-size:12.5px}
+
+  @media (max-width:960px){
+    .doc{padding:0 0 60px}
+    h1.title{font-size:30px}
+    .part h2{font-size:24px}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="toc">
+  <h4>Part I · Overview</h4>
+  <div class="part-label">Scope &amp; architecture</div>
+  <ol>
+    <li><a href="#s1">1 · What this package is</a></li>
+    <li><a href="#s2">2 · Why the demo can't rotate</a></li>
+    <li><a href="#s3">3 · Architecture &amp; reuse</a></li>
+  </ol>
+  <h4>Part II · The rotational core</h4>
+  <div class="part-label">Items 1&ndash;7</div>
+  <ol>
+    <li><a href="#s4">4 · Momentum advection</a></li>
+    <li><a href="#s5">5 · Coriolis (f-plane)</a></li>
+    <li><a href="#s6">6 · LES closure</a></li>
+    <li><a href="#s7">7 · Surface drag</a></li>
+    <li><a href="#s8">8 · Curved hodograph &amp; SRH</a></li>
+    <li><a href="#s9">9 · Cold pool &amp; kernel</a></li>
+    <li><a href="#s10">10 · Rotation diagnostics</a></li>
+  </ol>
+  <h4>Part III · Running</h4>
+  <div class="part-label">Milestones &amp; limits</div>
+  <ol>
+    <li><a href="#s11">11 · Install &amp; quick start</a></li>
+    <li><a href="#s12">12 · Configuration</a></li>
+    <li><a href="#s13">13 · M1 &mdash; rotating supercell</a></li>
+    <li><a href="#s14">14 · M2 &mdash; low-level rotation</a></li>
+    <li><a href="#s15">15 · Numerics &amp; conservation</a></li>
+    <li><a href="#s16">16 · Can &amp; cannot claim</a></li>
+    <li><a href="#s17">17 · File map</a></li>
+    <li><a href="#s18">18 · References</a></li>
+  </ol>
+</nav>
+
+<main class="doc">
+<header class="masthead">
+  <p class="eyebrow">Reference Manual · storm_dynamics</p>
+  <h1 class="title">Rotating Supercell <span class="mf">&amp;</span> Tornadogenesis</h1>
+  <p class="lede">An idealised rotating deep-convection core &mdash; supercell &rarr; mid-level mesocyclone &rarr;
+  near-surface rotation &mdash; forked from the <code>meteorological_flow</code> dynamical core and reusing the
+  repository's already-validated physics (grid, anelastic projection, conservative transport, moist buoyancy, bulk
+  microphysics, and the SHA-256-guarded nucleation kernel) unchanged.</p>
+  <div class="chips">
+    <span class="chip">Idealised &mdash; not a forecast</span>
+    <span class="chip">Fork of meteorological_flow</span>
+    <span class="chip">Anelastic · C-grid · LES</span>
+    <span class="chip ok">M1 verified</span>
+    <span class="chip ok">M2 verified</span>
+  </div>
+  <div class="legend">
+    <span class="chip cyc"><i></i>cyclonic &zeta; (&gt;0)</span>
+    <span class="chip acyc"><i></i>anticyclonic &zeta; (&lt;0)</span>
+    <span class="chip up"><i></i>updraft w</span>
+    <span class="chip cold"><i></i>cold pool</span>
+  </div>
+</header>
+<hr class="duo-rule">
+
+<div class="part">
+  <p class="pk">Part I</p>
+  <h2>Overview &amp; scope</h2>
+  <p class="psub">What the package does, why the demonstration core cannot rotate, and how the fork reuses the
+  validated physics without touching it. The immutable <code>_engine</code> kernel is never modified, so
+  <code>met-water-nucleation --validate</code> stays green.</p>
+</div>
+
+<section id="s1">
+<h2><span class="num">§1</span>What this package is</h2>
+<p><code>storm_dynamics</code> adds the physics a deep-convective storm needs in order to <strong>rotate</strong>, and
+&mdash; under a curved hodograph with surface friction and an evaporative cold pool &mdash; to spin up
+<strong>near-surface vertical vorticity</strong>, the proxy for tornadogenesis. It is a <em>fork of the dynamical
+core</em> of <code>meteorological_flow</code>: only the momentum/dynamics are rewritten; everything else is imported
+and used as a physics library.</p>
+<div class="callout">
+  <span class="ct">Scope &mdash; be honest</span>
+  This is <strong>idealised simulation, not operational forecasting</strong>. There is <strong>no data
+  assimilation, no real-event initial or boundary condition, and no observational verification</strong>. The
+  deliverable is a <em>rotational dynamical core</em> validated against the <strong>classical</strong>
+  idealised-supercell results (Klemp &amp; Wilhelmson 1978; Weisman &amp; Klemp 1982; Rotunno &amp; Klemp 1985).
+  Nothing here forecasts a real tornado, storm, or event, and the vortex is <strong>under-resolved</strong> at
+  demonstration resolution.
+</div>
+<p>The core produces the diagnostics that <em>prove</em> a storm rotated: the 3-D vorticity, the vertical vorticity
+&zeta; (mesocyclone / tornado indicator), updraft helicity, storm-relative helicity (SRH), and column trackers for
+the mid-level mesocyclone and the near-surface &zeta;.</p>
+</section>
+
+<section id="s2">
+<h2><span class="num">§2</span>Why the demonstration core can't rotate</h2>
+<p>The <code>meteorological_flow</code> storm makes three choices that are correct for a demonstration of
+nucleation-coupled convection but fatal to rotation:</p>
+<ol>
+<li><strong>Momentum advection is switched off</strong> (a documented v1 simplification). With no
+<code>(u&middot;&nabla;)u</code>, there is no <strong>tilting</strong> of horizontal (shear) vorticity into the
+vertical and no <strong>stretching</strong> of vertical vorticity by the updraft &mdash; the two terms that
+<em>make</em> a mesocyclone.</li>
+<li><strong>Rayleigh drag</strong> (<code>gamma_damp</code>) linearly relaxes the velocity every step &mdash; it
+would damp the very rotation we want.</li>
+<li>A hard <strong>velocity clip</strong> at &plusmn;120&nbsp;m/s caps peak winds unphysically.</li>
+</ol>
+<p><code>storm_dynamics</code> fixes all three (&sect;4, &sect;6).</p>
+</section>
+
+<section id="s3">
+<h2><span class="num">§3</span>Architecture &amp; reuse</h2>
+<p>A fork &mdash; not a destructive rewrite. The rotational core is new; the rest is imported unchanged.</p>
+<div class="arch">        environment (curved hodograph)        warm-bubble trigger
+                    |                                  |
+                    v                                  v
+  +-------------------------------------------------------------------+
+  |  storm_dynamics.core.StormSimulation   (NEW rotational core)      |
+  |   momentum advection  Coriolis  LES  surface drag  rotation diag  |
+  +-----------------------------+-------------------------------------+
+                                |  imports as a physics library (unchanged)
+                                v
+  +-------------------------------------------------------------------+
+  |  meteorological_flow:  Grid · PressureSolver(anelastic) ·         |
+  |     advect_center_massflux · buoyancy · MicrophysicsCoupler       |
+  |  precip_microphysics  ·  nucleation_adapter  ·  _engine (guarded) |
+  +-------------------------------------------------------------------+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Reused unchanged</th><th>What it provides</th></tr></thead>
+<tbody>
+<tr><td><code>grid.Grid</code></td><td>staggered C-grid, operators, periodic laterals</td></tr>
+<tr><td><code>pressure_solver</code></td><td>Chorin / anelastic projection (periodic-capable)</td></tr>
+<tr><td><code>advection.advect_center_massflux</code></td><td>conservative flux-form MUSCL scalar transport</td></tr>
+<tr><td><code>buoyancy</code>, <code>diffusion</code></td><td>perturbation moist buoyancy; scalar diffusion</td></tr>
+<tr><td><code>microphysics_coupling</code> + <code>precip_microphysics</code></td><td>evaporative cold pool + sedimentation</td></tr>
+<tr><td><code>base_state.weisman_klemp</code></td><td>WK thermodynamic sounding (CAPE ~2000&ndash;2500)</td></tr>
+<tr><td><code>nucleation_adapter</code> + <code>_engine</code></td><td>the validated nucleation kernel (read-only)</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Integrity.</strong> The immutable <code>met_water_nucleation._engine</code> is never touched.
+Its two reference scripts are pinned to their canonical CRLF byte form by <code>.gitattributes</code>, so
+<code>--validate</code> (tests [1]&ndash;[21] + the SHA-256 checksum guard) stays green.</div>
+</section>
+
+<div class="part">
+  <p class="pk">Part II</p>
+  <h2>The rotational core</h2>
+  <p class="psub">The seven pieces the fork adds, in the order they were built &mdash; each verified before the
+  next. Item&nbsp;1 (momentum advection) is the enabling term: without tilting and stretching there is no rotation.</p>
+</div>
+
+<section id="s4">
+<h2><span class="num">§4</span>Conservative momentum advection <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 1</span></h2>
+<p>Flux/divergence form on each staggered control volume, with a 2nd-order MUSCL (minmod) reconstruction in the
+spirit of <code>advect_center_massflux</code>:</p>
+<div class="eq">&part;u_i/&part;t = &minus; &part;/&part;x_j ( u_j u_i )      (flux / divergence form)</div>
+<p>Because the transporting velocity is the projection's discretely divergence-free field, the flux form equals the
+advective form <code>u_j &part;u_i/&part;x_j</code> while telescoping to the boundary flux &mdash; so the
+domain-integrated momentum of each component is conserved (to the boundary flux) at any intensity,
+<strong>with no velocity clip</strong>. Horizontal neighbours wrap (periodic laterals); the vertical is bounded
+(<code>w=0</code> at the ground, outflow/damping at the top).</p>
+<div class="note"><strong>Verified.</strong> A spatially uniform flow gives <em>exactly</em> zero tendency
+(machine 0); the domain-integrated momentum tendency telescopes to <code>~1e&minus;17</code> (machine precision)
+for all three components, on uniform and vertically stretched grids.</div>
+</section>
+
+<section id="s5">
+<h2><span class="num">§5</span>f-plane Coriolis <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 2</span></h2>
+<p>A constant Coriolis parameter <code>f = 2&Omega;&nbsp;sin(&phi;)</code> for a Tornado-Alley latitude (~36&nbsp;N):</p>
+<div class="eq">du/dt = + f v&prime;        dv/dt = &minus; f u&prime;        f(36&deg;N) &asymp; 8.6&times;10&#8315;&#8309; s&#8315;&#185;</div>
+<p>The force is applied to the <strong>perturbation</strong> wind
+<code>(u&prime;,v&prime;) = (u&minus;u&#8320;, v&minus;v&#8320;)</code>, treating the environmental hodograph as a
+steady (geostrophically balanced) base state &mdash; the standard idealised-model choice (there is no imposed
+synoptic pressure-gradient to balance the full base wind). Coriolis is weak at storm scale over the ~1&ndash;2&nbsp;h
+integration but is included for completeness and hemispheric sign.</p>
+</section>
+
+<section id="s6">
+<h2><span class="num">§6</span>LES subgrid closure <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 3</span></h2>
+<p>The demonstration Rayleigh drag + velocity clip are replaced by a <strong>Smagorinsky</strong> eddy-viscosity
+closure, so the subgrid dissipation is set by the resolved strain rate:</p>
+<div class="eq">K_m = (C_s &Delta;)&sup2; |S| &middot; f_stab(Ri)      |S| = &radic;(2 S_ij S_ij)      &Delta; = (dx dy dz)^(1/3)
+K_h = K_m / Pr_t        f_stab = &radic;( max(0, 1 &minus; Ri/Ri_c) )    (Lilly stability correction)</div>
+<p>Momentum feels <code>d u_i/dt = &part;/&part;x_j ( K_m &part;u_i/&part;x_j )</code> and scalars feel
+<code>K_h</code>. Momentum diffusion is applied to the <em>perturbation</em>, so the environmental hodograph is not
+mixed away. The only remaining velocity bound is an <strong>extreme numerical guard</strong>
+(<code>v_guard</code>, default 150&nbsp;m/s), documented as a safety rail that should never bite in a resolved run &mdash;
+not a physical cap.</p>
+<div class="note"><code>les_model</code>: <code>smagorinsky</code> (implemented) &middot; <code>none</code> (background
+viscosity only) &middot; <code>tke15</code> (prognostic Deardorff TKE-1.5 &mdash; documented future work, raises
+<code>NotImplementedError</code>).</div>
+</section>
+
+<section id="s7">
+<h2><span class="num">§7</span>Surface bulk-drag <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 4</span></h2>
+<p>Surface friction is essential to low-level rotation: it retards the near-ground wind, tilting the frictionally
+generated horizontal vorticity and driving the convergent <strong>corner flow</strong> that intensifies a
+near-surface vortex. A bulk drag law retards the lowest model level:</p>
+<div class="eq warm">&tau; = &rho; C_d |V| V        du/dt|&#8320; = &minus; C_d |V| u / dz&#8320;        |V| = max( &radic;(u&sup2;+v&sup2;), U_min )</div>
+<p><code>C_d ~ 0.01&ndash;0.02</code> over land. Only the lowest cell is retarded (implicitly, so a strong low-level
+wind at coarse <code>dz&#8320;</code> cannot overshoot); the LES carries the momentum flux upward.</p>
+</section>
+
+<section id="s8">
+<h2><span class="num">§8</span>Curved hodograph &amp; SRH <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 5</span></h2>
+<p>The WK sounding's thermodynamics are reused unchanged; only the winds are replaced. A <strong>quarter-circle</strong>
+hodograph turns the wind through the lowest <code>z_turn</code> (veering with height), then holds constant &mdash; the
+curvature is the source of storm-relative helicity that selects the right-moving supercell and feeds low-level
+rotation. Storm-relative helicity (Davies-Jones):</p>
+<div class="eq">SRH = &int;&#8320;&#688; [ (v&minus;c_y) &part;u/&part;z &minus; (u&minus;c_x) &part;v/&part;z ] dz    (right-mover motion c from Bunkers)</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Hodograph</th><th>SRH&#8320;&#8331;&#8321;</th><th>SRH&#8320;&#8331;&#8323;</th><th>shear&#8320;&#8331;&#8326;</th><th>role</th></tr></thead>
+<tbody>
+<tr><td>unidirectional (straight)</td><td>~37</td><td>~130</td><td>~22 m/s</td><td>M1 storm splitting</td></tr>
+<tr><td>quarter-circle (curved)</td><td>~146</td><td>~470</td><td>~34 m/s</td><td>M2 low-level rotation</td></tr>
+</tbody></table></div>
+<p>Both are positive (right-mover); the curved hodograph adds large positive SRH. Units m&sup2;/s&sup2;.</p>
+</section>
+
+<section id="s9">
+<h2><span class="num">§9</span>Cold pool &amp; nucleation kernel <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 6</span></h2>
+<p>The reused <code>MicrophysicsCoupler</code> supplies growth/conversion, latent heat, sedimentation, and the
+<strong>evaporative cold pool</strong> &mdash; the baroclinic vorticity source at the heart of low-level
+tornadogenesis. Optionally (off by default), the validated 2nd-order <strong>nucleation kernel</strong> rate
+<code>J</code> is evaluated on the post-transport state each step and fed to the microphysics as the embryo source
+(eq39 pathway), <em>exactly as <code>meteorological_flow</code> does</em>:</p>
+<pre><code>build_storm_config(couple_nucleation=True, nucleation_method="lookup")
+# or the example flag:  --kernel-nucleation</code></pre>
+<p>Building the lookup table is slow, so it is opt-in; the CCN/IN activation already drives the cold pool. The
+report records <code>kernel_coupled</code>.</p>
+</section>
+
+<section id="s10">
+<h2><span class="num">§10</span>Rotation diagnostics <span style="font-family:var(--mono);font-size:13px;color:var(--ink-faint)">item 7</span></h2>
+<p>The numbers that prove rotation, from <code>storm_dynamics.rotation</code>:</p>
+<div class="eq">&zeta; = &part;v/&part;x &minus; &part;u/&part;y            (vertical vorticity: mesocyclone / tornado indicator)
+UH = &int; w &zeta; dz  over 2&ndash;5 km  (w&gt;0, &zeta;&gt;0)     (updraft helicity: rotation-track measure)
+(&xi;, &eta;, &zeta;) = &nabla; &times; u                    (full 3-D vorticity)</div>
+<p>Trackers follow the <strong>mid-level mesocyclone</strong> (max |&zeta;| at ~3&ndash;6 km) and the
+<strong>near-surface</strong> &zeta; (max at ~0&ndash;1 km &mdash; the tornadogenesis proxy) over time; SRH and bulk
+shear come from the hodograph. <code>storm_dynamics.plotting</code> renders these as maps (the split couplet) and
+time series.</p>
+</section>
+
+<div class="part">
+  <p class="pk">Part III</p>
+  <h2>Running &amp; milestones</h2>
+  <p class="psub">Install, configure, and reproduce the two milestones &mdash; the rotating supercell (M1) and the
+  low-level rotation proxy (M2) &mdash; with the diagnostics that prove the result, plus the honest boundary of what
+  the numbers mean.</p>
+</div>
+
+<section id="s11">
+<h2><span class="num">§11</span>Install &amp; quick start</h2>
+<p>The repository is self-contained (numpy / scipy / matplotlib). Run from <code>src</code> on the path:</p>
+<pre><code># M1 - rotating supercell (storm splitting); --plots writes the rotation figures
+PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell --plots
+
+# M2 - low-level rotation (curved hodograph + drag + cold pool)
+PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
+    --nx 40 --ny 40 --nz 48 --duration 3600 --plots
+
+# optional: couple the validated nucleation kernel (eq39 embryo source; slower)
+PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell --kernel-nucleation
+
+# compute backend: --device cpu (default) | gpu (NVIDIA + CuPy) | auto
+python examples/supercell_tornadogenesis.py --scenario supercell --device auto
+
+# tests
+PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
+<div class="note"><strong>CPU or GPU.</strong> The core is backend-agnostic (every hot-loop module uses
+<code>grid.xp</code>), so it runs on CPU (NumPy) or GPU (CuPy) with <em>identical</em> results
+(regression-tested). <code>cpu</code> is the default; <code>gpu</code> requires an NVIDIA GPU + CuPy and fails
+loudly if absent; <code>auto</code> falls back to CPU. At demonstration grid sizes (&le;64k cells) the direct
+pressure solve stays on the host and CPU is usually faster; GPU pays off at larger grids (CG on the GPU).</div>
+<p>Declarative configs load via the Python API:</p>
+<pre><code>from storm_dynamics.config import storm_config_from_yaml
+from storm_dynamics.core import StormSimulation
+sim = StormSimulation(storm_config_from_yaml("configs/storm_supercell.yaml"))
+report = sim.run()
+print(report["rotation"])   # zeta, updraft helicity, SRH, ...</code></pre>
+</section>
+
+<section id="s12">
+<h2><span class="num">§12</span>Configuration</h2>
+<p>A <code>StormConfig</code> carries the reused <code>SimulationConfig</code> (<code>.sim</code>) plus the
+storm-dynamics knobs (<code>.dyn</code>). Build with <code>build_storm_config(...)</code> or a YAML.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Knob</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>hodograph_kind</code></td><td>quarter_circle</td><td>unidirectional (M1) | quarter_circle (M2)</td></tr>
+<tr><td><code>U_max</code>, <code>z_turn</code></td><td>25, 3000</td><td>hodograph speed [m/s] and turning depth [m]</td></tr>
+<tr><td><code>latitude_deg</code>, <code>coriolis</code></td><td>36, on</td><td>f-plane latitude; Coriolis on/off</td></tr>
+<tr><td><code>les_model</code>, <code>C_s</code></td><td>smagorinsky, 0.2</td><td>LES closure and Smagorinsky constant</td></tr>
+<tr><td><code>drag</code></td><td>on</td><td>surface bulk-drag law</td></tr>
+<tr><td><code>z_stretch</code></td><td>1.0</td><td>&gt;1 clusters levels near the surface (M2)</td></tr>
+<tr><td><code>couple_nucleation</code></td><td>off</td><td>feed the validated kernel J as embryo source</td></tr>
+</tbody></table></div>
+<div class="note"><strong>The fork forces <code>gamma_damp = 0</code></strong> (no Rayleigh drag) and 2nd-order MUSCL
+transport; the LES closure is the dissipation instead.</div>
+</section>
+
+<section id="s13">
+<h2><span class="num">§13</span>M1 &mdash; rotating supercell</h2>
+<p>Unidirectional shear over the WK sounding: a saturated warm bubble grows into a deep updraft that
+<strong>splits</strong> into left- and right-moving cells (cyclonic <em>and</em> anticyclonic vertical vorticity of
+comparable magnitude) with a <strong>mid-level mesocyclone</strong> &mdash; the Klemp-Wilhelmson / Weisman-Klemp
+storm-splitting reference.</p>
+<p class="term-bar">supercell &mdash; 32&times;32&times;40, &Delta;x&asymp;1.25 km, 40 min</p>
+<div class="term">grid            : 32 x 32 x 40  (dx=1250 m, dz=400 m)
+hodograph       : unidirectional     f = 8.572e-05 1/s  (lat 36.0 N)
+SRH 0-1 / 0-3 km: 48 / 130 m^2/s^2       shear 0-1/0-6 km: 6.4 / 22.4 m/s
+<span class="dim">--------------------------------------------------------------------</span>
+w_max / w_min   : <span class="ok">+19.6</span> / -6.8 m/s
+zeta max / min  : <span class="ok">+5.04e-02</span> / <span class="ok">-4.96e-02</span> 1/s   (storm splitting = both signs)
+mid-level meso  : <span class="ok">1.06e-02</span> 1/s   (peak 1.13e-02)
+updraft helicity: <span class="ok">231.4</span> m^2/s^2  (peak 341.4)
+<span class="dim">--------------------------------------------------------------------</span>
+conservation    : water rel-err -1.5e-02 | energy 2.1e-03 | mass |div| 1.6e-04</div>
+<p class="note"><strong>What this shows.</strong> A near-symmetric cyclonic/anticyclonic &zeta; couplet straddling
+the updraft is the split-supercell mesocyclone; |&zeta;| at mid-levels exceeds the ~5&times;10&#8315;&sup3;&nbsp;s&#8315;&sup1;
+mesocyclone threshold, and updraft helicity &gt;100&nbsp;m&sup2;/s&sup2; is solidly supercellular. The regression test uses
+a faster 24&times;24&times;36 / 20-min run (~30&nbsp;s) that still splits and forms a mesocyclone.</p>
+</section>
+
+<section id="s14">
+<h2><span class="num">§14</span>M2 &mdash; low-level rotation (tornadogenesis proxy)</h2>
+<p>Curved (quarter-circle) hodograph &rarr; strong storm-relative helicity, plus the surface drag law and the
+evaporative cold pool. Near-surface vertical vorticity develops on the cold-pool / forward-flank interface &mdash; the
+target of the project.</p>
+<p class="term-bar">tornadogenesis &mdash; curved + drag vs. straight control (identical numerics)</p>
+<div class="term">CURVED+DRAG : SRH01=170  w_max=<span class="ok">18</span>  near-surface zeta peak=<span class="ok">3.33e-03</span>  final=<span class="ok">3.29e-03</span>  (sustained)
+STRAIGHT+NOD: SRH01=38   w_max=23  near-surface zeta peak=2.48e-03  final=<span class="bad">1.37e-03</span>  (decays)
+<span class="dim">--------------------------------------------------------------------</span>
+ratio (curved / straight) final near-surface zeta = <span class="ok">~2.4x</span>
+water rel-err = -7.3e-04     mass-continuity residual = 1.9e-04</div>
+<p class="note"><strong>What this shows.</strong> The curved hodograph + friction <strong>sustain</strong> near-surface
+&zeta; (~3.3&times;10&#8315;&sup3;&nbsp;s&#8315;&sup1;, roughly steady) while the straight / no-drag control peaks lower and
+<strong>decays</strong> &mdash; ~2.4&times; the low-level rotation of the control &mdash; with a physical updraft
+(w&asymp;18&nbsp;m/s) and unchanged conservation.</p>
+<div class="callout">
+  <span class="ct">Stability &mdash; resolution matters</span>
+  A strong low-level-SRH environment on a coarse uniform grid over-amplifies the updraft (grid-scale <code>w</code>
+  blow-up to ~110&nbsp;m/s, above the parcel CAPE limit). The shipped M2 config fixes this by clustering vertical
+  levels (<code>z_stretch=1.05</code>, dz&#8320;&asymp;100&nbsp;m), moderating the hodograph
+  (<code>U_max=18</code>, <code>z_turn=2000</code>) and using a slightly larger <code>C_s=0.22</code>. These are
+  documented demonstration choices, not tuning of the physics.
+</div>
+</section>
+
+<section id="s15">
+<h2><span class="num">§15</span>Numerics &amp; conservation</h2>
+<ul>
+<li><strong>Core:</strong> anelastic (<code>div(&rho;&#8320;u)=0</code>), reference density <code>&rho;&#8320;(z)</code>
+from the sounding &mdash; appropriate for a 10&ndash;16 km column (Boussinesq is stretched past validity there).</li>
+<li><strong>Time stepping:</strong> explicit predictor + pressure projection, adaptive CFL that now includes the
+advected momentum and the peak LES viscosity.</li>
+<li><strong>Conservation:</strong> water/energy close to the parent solver's levels; the continuity residual comes
+from the projection (<code>~1e&minus;5</code> normalised), not from limiters. Water/energy are conserved up to the
+boundary flux through the damping top &mdash; the expected, documented non-conservation channel.</li>
+<li><strong>No velocity clip:</strong> the only bound is the documented <code>v_guard</code> extreme rail.</li>
+</ul>
+<div class="note"><strong>Anelastic residual.</strong> Use the &rho;&#8320;-weighted
+<code>mass_continuity_residual_norm</code> (&asymp;1e&minus;5). The <em>plain</em> <code>div(u)</code> is
+intentionally nonzero for the anelastic system (<code>= &minus;w &part;&rho;&#8320;/&part;z / &rho;&#8320;</code>).</div>
+</section>
+
+<section id="s16">
+<h2><span class="num">§16</span>What it can &mdash; and cannot &mdash; claim</h2>
+<h4>Can</h4>
+<ul>
+<li>The rotational <strong>dynamics</strong> are present and correct in kind: tilting and stretching produce a
+mid-level mesocyclone and storm splitting from a sheared environment (M1), reproducing the classical behaviour.</li>
+<li>Under a curved hodograph with surface friction and an evaporative cold pool, <strong>near-surface vertical
+vorticity develops and is sustained</strong> (M2) &mdash; the qualitative tornadogenesis pathway.</li>
+<li>Conservation (water, energy, mass continuity) holds to the parent solver's levels.</li>
+</ul>
+<h4>Cannot</h4>
+<ul>
+<li><strong>It does not forecast</strong> any real storm, tornado, or event. No assimilation, no observed initial
+state, no verification against observations.</li>
+<li><strong>It does not resolve the tornado vortex.</strong> At &Delta;x ~ 1 km the near-surface &zeta; is a
+<em>proxy</em>; peak &zeta;, updraft helicity and wind magnitudes are indicative, not quantitative. Quantitative
+low-level rotation needs O(100 m) grids (M3) and is explicit future work.</li>
+<li><strong>Idealisations:</strong> f-plane, analytic sounding, single warm-bubble trigger, single-moment bulk
+microphysics, fixed Smagorinsky constant &mdash; the standard idealised-modelling choices, which bound what the
+numbers mean.</li>
+</ul>
+<div class="callout">
+  <span class="ct">Non-goals (explicit)</span>
+  Data assimilation, real-event initial/boundary conditions, operational forecasting, and verification against
+  observations are <strong>out of scope</strong>. The deliverable is an idealised rotating-storm dynamics simulator
+  built on the repository's already-validated physics.
+</div>
+</section>
+
+<section id="s17">
+<h2><span class="num">§17</span>File map</h2>
+<div class="arch">src/storm_dynamics/
+  config.py      StormConfig; build_storm_config / storm_config_from_yaml; coriolis_f
+  soundings.py   curved / unidirectional hodograph (item 5); SRH, shear, storm motion
+  momentum.py    conservative flux-form staggered momentum advection (item 1)
+  coriolis.py    f-plane Coriolis on the perturbation wind (item 2)
+  turbulence.py  Smagorinsky LES: strain -> K_m, momentum + scalar SGS (item 3)
+  surface_drag.py bulk aerodynamic drag on the lowest level (item 4)
+  rotation.py    zeta, 3D vorticity, updraft helicity, trackers, report (item 7)
+  core.py        StormSimulation: the anelastic time loop wiring 1-7 (item 6)
+  plotting.py    rotation slices (the split couplet), hodograph, time series
+  handoff.md     decisions, milestone status, remaining work
+tests/test_storm_dynamics.py     16 unit tests (momentum/Coriolis/LES/drag/SRH/kernel)
+tests/test_storm_milestones.py   M1 (splitting + mesocyclone) + M2 (low-level rotation)
+examples/supercell_tornadogenesis.py   runnable demo (--plots, --kernel-nucleation)
+configs/storm_supercell.yaml · configs/storm_tornadogenesis.yaml
+docs/storm_dynamics_guide.md · docs/MANUAL_storm_dynamics.html (this file)</div>
+</section>
+
+<section id="s18">
+<h2><span class="num">§18</span>References</h2>
+<ul>
+<li>Klemp, J. B., &amp; Wilhelmson, R. B. (1978). <em>The simulation of three-dimensional convective storm
+dynamics.</em> J. Atmos. Sci., 35, 1070&ndash;1096.</li>
+<li>Weisman, M. L., &amp; Klemp, J. B. (1982). <em>The dependence of numerically simulated convective storms on
+vertical wind shear and buoyancy.</em> Mon. Wea. Rev., 110, 504&ndash;520.</li>
+<li>Rotunno, R., &amp; Klemp, J. B. (1982, 1985). <em>Shear-induced pressure gradient on thunderstorm motion;
+On the rotation and propagation of simulated supercell thunderstorms.</em> MWR 110, 136&ndash;151; JAS 42, 271&ndash;292.</li>
+<li>Davies-Jones, R. (1984). <em>Streamwise vorticity: the origin of updraft rotation in supercell storms.</em>
+J. Atmos. Sci., 41, 2991&ndash;3006.</li>
+<li>Bryan, G. H., &amp; Fritsch, J. M. (2002). <em>A benchmark simulation for moist nonhydrostatic numerical
+models.</em> Mon. Wea. Rev., 130, 2917&ndash;2928 (the CM1-style nonhydrostatic reference).</li>
+<li>Lilly, D. K. (1962). <em>On the numerical simulation of buoyant convection.</em> Tellus, 14, 148&ndash;172
+(Smagorinsky/Lilly SGS closure).</li>
+<li>Bunkers, M. J., et al. (2000). <em>Predicting supercell motion using a new hodograph technique.</em>
+Wea. Forecasting, 15, 61&ndash;79.</li>
+</ul>
+</section>
+
+<footer>
+<p>This manual documents <code>src/storm_dynamics/</code>, an idealised rotating deep-convection core forked from
+<code>meteorological_flow</code> and built on the repository's validated physics. The nucleation core is read-only and
+SHA-256-guarded; the storm layer reuses it and modifies no validated equation. See the companion
+<code>docs/storm_dynamics_guide.md</code> and <code>src/storm_dynamics/handoff.md</code>. Idealised
+demonstration &mdash; not operational weather prediction.</p>
+</footer>
+</main>
+</div>
+<script>
+const links=[...document.querySelectorAll('.toc a')];
+const secs=[...document.querySelectorAll('section[id]')];
+const obs=new IntersectionObserver(es=>{
+  es.forEach(e=>{ if(e.isIntersecting){
+    const id=e.target.id; links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+id));
+  }});
+},{rootMargin:'-10% 0px -75% 0px'});
+secs.forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>

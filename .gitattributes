@@ -1,0 +1,7 @@
+# The two SHA-256-guarded nucleation reference scripts under _engine/ have their
+# expected checksum computed over the CRLF byte form.  Pin their line endings so a
+# checkout on any platform reproduces the exact validated bytes and `--validate`
+# (met_water_nucleation) stays green.  Do NOT edit these files -- they are the
+# immutable, integrity-guarded kernel reference.
+src/met_water_nucleation/_engine/Nucleation_model_H2O_vapour_solid_Sim_2026_paper.py -text
+src/met_water_nucleation/_engine/Nucleation_model_H2O_vapour_liquid_Sim_2026.py    -text
