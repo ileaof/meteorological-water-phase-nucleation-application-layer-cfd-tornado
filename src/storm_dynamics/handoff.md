@@ -151,9 +151,14 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
   blended back onto the parent overlap (`restrict_nest_to_parent`, ground-frame,
   tapered). Verified stable and it improves the parent (updraft ~6→9 m/s vs a
   no-feedback control; water ≈ −0.1%). Injection feedback, NOT refluxing.
-  **Remaining M3 (full AMR — a separate project):** rigorous coarse–fine flux
-  conservation (Berger–Colella refluxing) + multilevel Poisson, adaptive/dynamic
-  refinement, and much higher refinement toward O(10–100 m). Gotchas: nest deep-copies
+  **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
+  first rigorous conservation piece — average-down of a cell-aligned, matched-z nest
+  preserves the overlap scalar integral EXACTLY (machine precision, tested). **Full
+  AMR is a separate multi-month project — NOT implemented; the plan is in
+  `docs/amr_design.md`:** flux-conservative refluxing (Berger–Colella flux
+  registers), a multilevel-Poisson composite solve (a new solver, the crux), and
+  adaptive/dynamic regridding (Berger–Oliger), normally built on a framework
+  (AMReX/Chombo/p4est). Gotchas: nest deep-copies
   `parent.dyn`; follow uses a *constant* C (real motion varies → ζ max can sit near
   the edge, read `interior_near_surface_zeta`); periodic-parent sampling clamps
   rather than wraps (keep the storm interior over the window).

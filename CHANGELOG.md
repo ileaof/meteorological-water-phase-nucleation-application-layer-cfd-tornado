@@ -48,10 +48,17 @@ moved byte-identically; SHA-256 checksums preserved).
     parent overlap (converted to the ground frame, tapered at the edge), so the parent
     is improved by the nest (parent updraft ~6→9 m/s vs a no-feedback control), the
     loop stays stable, water ≈ −0.1%. Injection feedback, **not** rigorous refluxing.
+  - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
+    first rigorous conservation piece — average-down of a cell-aligned, matched-z
+    nest preserves the overlap scalar integral **exactly** (machine precision; test
+    `test_conservative_restriction_preserves_overlap_integral`).
   - `interior_near_surface_zeta` reports the physical interior vortex, excluding the
-    boundary sponge. Remaining for full AMR: rigorous coarse–fine flux conservation
-    (Berger–Colella refluxing) + multilevel Poisson, adaptive/dynamic refinement, and
-    much higher refinement (O(10–100 m)).
+    boundary sponge. **Not** implemented (see `docs/amr_design.md` for the plan):
+    flux-conservative refluxing, a multilevel-Poisson composite solve, and
+    adaptive/dynamic regridding — full AMR, a separate multi-month project.
+- `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
+  AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
+  milestones/effort, framework recommendation, verification plan).
 - `examples/supercell_tornadogenesis.py` (runnable, prints the rotation diagnostics;
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ

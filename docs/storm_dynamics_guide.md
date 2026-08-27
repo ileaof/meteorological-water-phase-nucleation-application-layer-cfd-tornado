@@ -168,16 +168,22 @@ resolved updraft propagates back), the loop stays **stable**, and water conserve
 to ~−0.1%. This is **injection** feedback (sample fine at coarse points), **not**
 rigorous flux-conservative refluxing.
 
-> **Honest scope / remaining M3.** Delivered: phases 1, 2, 2b (one-way) and **3a
-> (approximate two-way)**. What's left for *full* AMR is a genuine separate
-> project: **rigorous conservation at the coarse–fine interface** (Berger–Colella
-> refluxing) with a **multilevel pressure (Poisson) solve**, and **adaptive,
-> dynamic** refinement (block-structured patches created/moved/destroyed by a
-> refinement criterion, with nested time-stepping) — typically built on a
-> framework (AMReX, Chombo, p4est). The storm-following frame also uses a
-> *constant* C (a real storm's motion varies, so the near-surface ζ maximum can sit
-> near the nest edge — read the *interior*-masked ζ), and reaching O(10–100 m)
-> needs much higher refinement (`--refine 5–6` / finer parent, far costlier).
+**Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`). The
+first *rigorous* conservation piece: average-down of a cell-aligned, matched-z
+nest preserves the overlap scalar integral **exactly** (to machine precision) —
+the AMR "average-down" operator, distinct from the phase-3a injection.
+
+> **Honest scope / remaining M3 → full AMR is a separate project.** Delivered:
+> phases 1, 2, 2b (one-way), 3a (approximate two-way), and conservative
+> restriction. **Not** implemented (the plan is in
+> [`docs/amr_design.md`](amr_design.md)): flux-conservative **refluxing**
+> (Berger–Colella flux registers at the coarse–fine interface), a **multilevel
+> Poisson** solve for the anelastic projection on the composite grid (a new
+> solver — the crux), and **adaptive, dynamic** regridding (Berger–Oliger:
+> tag/cluster/regrid + nested time-stepping). These are coupled and normally built
+> on a framework (AMReX/Chombo/p4est) — a multi-month effort. Also: the
+> storm-following frame uses a *constant* C, and reaching O(10–100 m) needs much
+> higher refinement (`--refine 5–6` / finer parent, far costlier).
 
 ## What this model **can** claim
 

@@ -155,6 +155,28 @@ def test_storm_following_nest_phase2b_sustains():
     assert len(rep["nest"]["storm_motion"]) == 2                   # C recorded
 
 
+def test_conservative_restriction_preserves_overlap_integral():
+    """The first rigorous AMR conservation piece: average-down (conservative
+    restriction) of a cell-aligned, matched-z nest preserves the scalar integral
+    over the overlap EXACTLY (to machine precision) -- unlike phase-3a injection."""
+    from types import SimpleNamespace
+    pg = Grid(nx=24, ny=24, nz=20, Lx=24000, Ly=24000, Lz=12000, periodic=True, z_stretch=1.05)
+    spec = nst.NestSpec.aligned(pg, i0=6, j0=6, ncx=8, ncy=8, refine=3)
+    ng = nst.build_nest_grid(spec, pg)
+    assert ng.nz == pg.nz and np.allclose(np.asarray(ng.zc), np.asarray(pg.zc))  # matched z
+    assert ng.nx == 8 * 3 and ng.ny == 8 * 3                                     # aligned
+    parent = SimpleNamespace(grid=pg, state=FlowState.zeros(pg))
+    nest = SimpleNamespace(grid=ng, state=FlowState.zeros(ng))
+    xc = np.asarray(ng.xc).reshape(-1, 1, 1); yc = np.asarray(ng.yc).reshape(1, -1, 1)
+    zc = np.asarray(ng.zc).reshape(1, 1, -1); ones = np.ones(ng.center_shape)
+    nest.state.theta = (300 + 5 * np.sin(2 * np.pi * xc / ng.Lx) *
+                        np.cos(2 * np.pi * yc / ng.Ly) * np.exp(-zc / 6000)) * ones
+    nest.state.qv = 1e-3 * (1 + 0.5 * np.cos(3 * np.pi * xc / ng.Lx)) * ones
+    res = nst.conservative_restrict(nest, parent, spec)
+    for nm, v in res.items():
+        assert abs(v["coarse_after_minus_fine"]) < 1e-6, (nm, v)   # exact conservation
+
+
 def test_two_way_feedback_phase3a_influences_parent():
     """M3 phase 3a: approximate two-way feedback runs stably and the nest's finer
     solution measurably changes the parent overlap (a closed parent<->nest loop)."""

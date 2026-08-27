@@ -73,6 +73,19 @@ class NestSpec:
         y0 = max(0.0, min(yc - half, parent_grid.Ly - 2 * half))
         return cls(x0=x0, y0=y0, Lx=2 * half, Ly=2 * half, **kw)
 
+    @classmethod
+    def aligned(cls, parent_grid: Grid, i0: int, j0: int, ncx: int, ncy: int,
+                refine: int = 3, **kw) -> "NestSpec":
+        """A nest **cell-aligned** to the parent: its SW corner sits on parent cell
+        ``(i0, j0)`` and it covers ``ncx x ncy`` parent cells, refined ``refine``.
+        With the parent's vertical grid (matched z, set here) the fine cells nest
+        *exactly* into the coarse ones, so :func:`conservative_restrict` (average
+        down) preserves the overlap integral to machine precision."""
+        kw.setdefault("nz", parent_grid.nz)
+        kw.setdefault("z_stretch", parent_grid.z_stretch)
+        return cls(x0=i0 * parent_grid.dx, y0=j0 * parent_grid.dy,
+                   Lx=ncx * parent_grid.dx, Ly=ncy * parent_grid.dy, refine=refine, **kw)
+
 
 def build_nest_grid(spec: NestSpec, parent_grid: Grid, backend=None) -> Grid:
     """Build the (non-periodic) finer nest :class:`Grid` for ``spec``."""
@@ -480,6 +493,44 @@ def restrict_nest_to_parent(nest, parent, spec: NestSpec, cx: float, cy: float,
             setattr(parent.state, nm, xp.maximum(a, 0.0))
 
 
+def conservative_restrict(nest, parent, spec: NestSpec) -> dict:
+    """**Conservative** average-down of the nest scalars onto the parent overlap
+    (the first rigorous piece of the AMR conservation machinery, distinct from the
+    phase-3a *injection* feedback).
+
+    For a **cell-aligned, matched-z** nest (:meth:`NestSpec.aligned`), each coarse
+    cell contains exactly ``refine x refine`` fine cells in the same z-column, so
+    replacing the coarse value by the fine block-mean preserves the scalar integral
+    over the overlap **exactly** (to machine precision).  Returns the per-field
+    overlap-integral change (should be ~0).
+
+    NOTE: this is conservative *restriction* (average down of the covered region).
+    Full flux-conservative **refluxing** at the coarse-fine interface, and a
+    multilevel Poisson solve, are the remaining AMR pieces (see docs/amr_design.md).
+    """
+    pg = parent.grid; ng = nest.grid; xp = pg.xp
+    r = spec.refine
+    i0 = int(round(spec.x0 / pg.dx)); j0 = int(round(spec.y0 / pg.dy))
+    ncx, ncy = ng.nx // r, ng.ny // r
+    if ng.nx != ncx * r or ng.ny != ncy * r or ng.nz != pg.nz:
+        raise ValueError("conservative_restrict needs a cell-aligned, matched-z nest "
+                         "(build the spec with NestSpec.aligned)")
+    dzc = pg.dz_c[None, None, :]
+    cell_h = pg.dx * pg.dy
+    out = {}
+    for nm in ("theta", "qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        cf = getattr(nest.state, nm, None); cp = getattr(parent.state, nm, None)
+        if cf is None or cp is None:
+            continue
+        coarse = cf.reshape(ncx, r, ncy, r, ng.nz).mean(axis=(1, 3))   # exact average down
+        before = float(xp.sum(cp[i0:i0 + ncx, j0:j0 + ncy, :] * dzc) * cell_h)
+        cp[i0:i0 + ncx, j0:j0 + ncy, :] = coarse
+        after = float(xp.sum(cp[i0:i0 + ncx, j0:j0 + ncy, :] * dzc) * cell_h)
+        fine_int = float(xp.sum(cf * dzc) * (cell_h / r ** 2))
+        out[nm] = {"coarse_after_minus_fine": after - fine_int, "coarse_change": after - before}
+    return out
+
+
 def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
     """Galilean shift the nest into the storm-relative frame (subtract C).
 
@@ -583,5 +634,6 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
-    "run_concurrent_nest", "restrict_nest_to_parent", "interior_near_surface_zeta",
+    "run_concurrent_nest", "restrict_nest_to_parent", "conservative_restrict",
+    "interior_near_surface_zeta",
 ]
