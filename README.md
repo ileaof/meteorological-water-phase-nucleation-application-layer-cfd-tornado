@@ -32,6 +32,13 @@ and the SHA-256-guarded nucleation kernel **unchanged**, and runs on CPU or GPU.
 > [storm dynamics guide](docs/storm_dynamics_guide.md) and the styled
 > [HTML manual](docs/MANUAL_storm_dynamics.html).
 
+![Animated evolution of mid-level and near-surface vertical vorticity as the supercell rotates and splits over 30 minutes](docs/media/storm/rotation_evolution_supercell.gif)
+
+*Watch it rotate: mid-level ζ (left) and near-surface ζ (right) over 30 minutes
+of a finer-grid GPU run (40×40×48, Δx = 1 km) — the mid-level mesocyclone
+organises and the storm splits into cyclonic (red) and anticyclonic (blue)
+members. Produced with `--device gpu --plots --animate` (see the cookbook below).*
+
 ### M1 — rotating supercell (storm splitting + mid-level mesocyclone)
 
 Under unidirectional shear, a warm bubble grows into a deep updraft that
@@ -46,12 +53,6 @@ updraft (black contours) — a near-symmetric **cyclonic (red) / anticyclonic
 Centre: vertical velocity. Right: near-surface ζ. (40×40×48, Δx = 1 km, on GPU,
 30 min; w_max ≈ 25 m/s, mesocyclone ≈ 1.2×10⁻² s⁻¹, updraft helicity ≈ 435 m²/s²
 — note the stronger rotation at finer resolution.)*
-
-![Animated evolution of mid-level and near-surface vertical vorticity over 30 minutes](docs/media/storm/rotation_evolution_supercell.gif)
-
-*The same finer-grid GPU run, animated (`--animate`): mid-level ζ (left) and
-near-surface ζ (right) evolving over 30 minutes as the mesocyclone organises and
-the storm splits.*
 
 ![Time series of near-surface vorticity, mid-level mesocyclone, updraft helicity and vertical velocity](docs/media/storm/rotation_timeseries_supercell.png)
 
