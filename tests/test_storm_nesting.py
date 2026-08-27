@@ -153,3 +153,37 @@ def test_storm_following_nest_phase2b_sustains():
     assert abs(c["total_water_rel_err"]) < 1.5e-2                  # conserves well when centred
     assert "storm-following" in rep["nest"]["mode"]
     assert len(rep["nest"]["storm_motion"]) == 2                   # C recorded
+
+
+def test_two_way_feedback_phase3a_influences_parent():
+    """M3 phase 3a: approximate two-way feedback runs stably and the nest's finer
+    solution measurably changes the parent overlap (a closed parent<->nest loop)."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    from storm_dynamics import rotation as rot
+
+    def mature():
+        scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=32,
+                                  Lx=27000, Ly=27000, Lz=15000, duration=720.0,
+                                  dt_max=3.0, hodograph_kind="quarter_circle", drag=True,
+                                  z_stretch=1.05, U_max=18.0, z_turn=2000.0, C_s=0.22)
+        p = StormSimulation(scfg); p.run(); return p
+
+    def _spec(p):
+        wc = np.asarray(p.grid.backend.to_cpu(rot._centered_velocity(p.state, p.grid)[2]))
+        i, j = np.unravel_index(np.argmax(wc.max(axis=2)), wc.shape[:2])
+        return nst.NestSpec.around(p.grid, float(p.grid.xc[i]), float(p.grid.yc[j]),
+                                   half=7000.0, refine=3, nz=38)
+
+    p_tw = mature()
+    _, rep = nst.run_concurrent_nest(p_tw, _spec(p_tw), window=150.0, follow=True, two_way=True)
+    w_tw = float(p_tw.grid.xp.abs(p_tw.state.w).max())
+    assert np.isfinite(rep["rotation"]["zeta_abs_max"])            # stable loop, no blow-up
+    assert abs(rep["conservation"]["total_water_rel_err"]) < 1.5e-2
+    assert rep["nest"]["two_way"] and "two-way" in rep["nest"]["mode"]
+
+    p_ctl = mature()
+    nst.run_concurrent_nest(p_ctl, _spec(p_ctl), window=150.0, follow=True, two_way=False)
+    w_ctl = float(p_ctl.grid.xp.abs(p_ctl.state.w).max())
+    # the feedback measurably changed the parent (same maturation, seed) -> two-way active
+    assert abs(w_tw - w_ctl) > 0.3, (w_tw, w_ctl)

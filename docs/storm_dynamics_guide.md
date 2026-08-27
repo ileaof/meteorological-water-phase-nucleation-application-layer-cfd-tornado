@@ -158,14 +158,26 @@ and w are invariant under the constant shift, so the diagnostics are unchanged.
 the whole window**, with excellent conservation (water ≈ −0.2%, |div| ≈ 5×10⁻⁵) —
 the finer grid resolving a much stronger updraft that a fixed nest would have lost.
 
-> **Honest scope / remaining M3.** Still **one-way** (no nest→parent feedback) and
-> **fixed refinement**, and the storm-following frame uses a *constant* motion C
-> (a real storm's motion varies, so the near-surface ζ maximum can sit near the
-> nest edge — read the *interior*-masked ζ). A genuinely resolved O(10–100 m)
-> tornado still needs **much higher refinement** (`--refine 5–6`, finer parent —
-> just parameters, but far costlier) and **two-way / adaptive (AMR)** nesting,
-> which is a separate project (nest→parent feedback, block-structured adaptive
-> grids, coarse–fine flux correction). Those are the remaining M3 work.
+**Phase 3a — approximate two-way feedback** (`run_concurrent_nest(two_way=True)`,
+example `--two-way`). Closes the loop: after each parent step the nest's finer
+solution is blended back (converted to the ground frame) onto the parent cells it
+overlaps, with a taper that fades to 0 at the overlap edge. Now the parent is
+**improved by the nest** — *result:* with feedback the parent updraft ends at
+~9 m/s vs ~6 m/s in an identical run without it (the nest's stronger, better-
+resolved updraft propagates back), the loop stays **stable**, and water conserves
+to ~−0.1%. This is **injection** feedback (sample fine at coarse points), **not**
+rigorous flux-conservative refluxing.
+
+> **Honest scope / remaining M3.** Delivered: phases 1, 2, 2b (one-way) and **3a
+> (approximate two-way)**. What's left for *full* AMR is a genuine separate
+> project: **rigorous conservation at the coarse–fine interface** (Berger–Colella
+> refluxing) with a **multilevel pressure (Poisson) solve**, and **adaptive,
+> dynamic** refinement (block-structured patches created/moved/destroyed by a
+> refinement criterion, with nested time-stepping) — typically built on a
+> framework (AMReX, Chombo, p4est). The storm-following frame also uses a
+> *constant* C (a real storm's motion varies, so the near-surface ζ maximum can sit
+> near the nest edge — read the *interior*-masked ζ), and reaching O(10–100 m)
+> needs much higher refinement (`--refine 5–6` / finer parent, far costlier).
 
 ## What this model **can** claim
 

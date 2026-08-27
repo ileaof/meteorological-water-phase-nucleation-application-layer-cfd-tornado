@@ -416,6 +416,70 @@ def interior_near_surface_zeta(nest, margin: int | None = None,
     return float(np.max(np.abs(zl[m:-m, m:-m])))
 
 
+def _interp_grid(src_grid, field_host, kind, tx, ty, tz):
+    """Interpolate a source-grid field to arbitrary target points (host)."""
+    to = src_grid.backend.to_cpu
+    xc = np.asarray(to(src_grid.xc)); yc = np.asarray(to(src_grid.yc)); zc = np.asarray(to(src_grid.zc))
+    xf = np.asarray(to(src_grid.xf)); yf = np.asarray(to(src_grid.yf)); zf = np.asarray(to(src_grid.zf))
+    ax = {"c": (xc, yc, zc), "u": (xf, yc, zc), "v": (xc, yf, zc), "w": (xc, yc, zf)}[kind]
+    rgi = RegularGridInterpolator(ax, field_host, method="linear",
+                                  bounds_error=False, fill_value=None)
+    gx = np.clip(tx, ax[0][0], ax[0][-1]); gy = np.clip(ty, ax[1][0], ax[1][-1])
+    gz = np.clip(tz, ax[2][0], ax[2][-1])
+    X, Y, Z = np.meshgrid(gx, gy, gz, indexing="ij")
+    return rgi(np.stack([X.ravel(), Y.ravel(), Z.ravel()], -1)).reshape(X.shape)
+
+
+def _overlap_taper(coord, lo, hi, margin):
+    """1-D weight: 1 inside [lo+margin, hi-margin], ramping to 0 at [lo, hi], 0 outside."""
+    c = np.asarray(coord, dtype=float)
+    d = np.minimum(c - lo, hi - c)                 # distance into the overlap
+    return np.clip(d / max(margin, 1e-9), 0.0, 1.0) * ((c >= lo) & (c <= hi))
+
+
+def restrict_nest_to_parent(nest, parent, spec: NestSpec, cx: float, cy: float,
+                            t: float, rate: float = 0.5, margin_frac: float = 0.25) -> None:
+    """M3 phase 3a -- **approximate two-way** feedback: blend the nest's finer
+    solution back onto the parent cells it overlaps (converted to the ground
+    frame), with a taper that fades to 0 at the overlap edge (no discontinuity).
+
+    This is *injection* feedback (sample fine at coarse points), NOT rigorous
+    flux-conservative refluxing -- it demonstrates the nest→parent coupling; strict
+    interface conservation (Berger-Colella refluxing + multilevel Poisson) is the
+    full-AMR project.
+    """
+    pg = parent.grid; xp = pg.xp; to = pg.backend.to_cpu
+    x0 = spec.x0 + cx * t; y0 = spec.y0 + cy * t
+    Lx, Ly = spec.Lx, spec.Ly
+    mgx = margin_frac * Lx; mgy = margin_frac * Ly
+    pxc = np.asarray(to(pg.xc)); pyc = np.asarray(to(pg.yc)); pzc = np.asarray(to(pg.zc))
+    pxf = np.asarray(to(pg.xf)); pyf = np.asarray(to(pg.yf)); pzf = np.asarray(to(pg.zf))
+
+    def weight(px, py):
+        wx = _overlap_taper(px, x0, x0 + Lx, mgx)
+        wy = _overlap_taper(py, y0, y0 + Ly, mgy)
+        return rate * (wx[:, None] * wy[None, :])[:, :, None]
+
+    def blend(name, kind, px, py, pz, frame=0.0):
+        fld = getattr(nest.state, name)
+        vals = _interp_grid(nest.grid, np.asarray(nest.grid.backend.to_cpu(fld)), kind,
+                            px - x0, py - y0, pz) + frame     # -> ground frame
+        w = xp.asarray(weight(px, py))
+        cur = getattr(parent.state, name)
+        setattr(parent.state, name, cur + w * (xp.asarray(vals) - cur))
+
+    blend("u", "u", pxf, pyc, pzc, frame=cx)
+    blend("v", "v", pxc, pyf, pzc, frame=cy)
+    blend("w", "w", pxc, pyc, pzf)
+    for nm in ("theta", "qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        if getattr(parent.state, nm, None) is not None and getattr(nest.state, nm, None) is not None:
+            blend(nm, "c", pxc, pyc, pzc)
+    for nm in ("qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        a = getattr(parent.state, nm, None)
+        if a is not None:
+            setattr(parent.state, nm, xp.maximum(a, 0.0))
+
+
 def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
     """Galilean shift the nest into the storm-relative frame (subtract C).
 
@@ -433,7 +497,8 @@ def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
 
 def run_concurrent_nest(parent, spec: NestSpec, window: float,
                         record_interval=None, capture_frames=False,
-                        follow=False, storm_motion=None, progress=None):
+                        follow=False, storm_motion=None, two_way=False,
+                        two_way_rate=0.5, progress=None):
     """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
 
     The parent keeps stepping alongside the nest; each parent step the parent
@@ -496,22 +561,27 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
             nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
             if nest.step % interval == 0:
                 nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+        # phase 3a: feed the nest's finer solution back onto the parent overlap
+        if two_way:
+            restrict_nest_to_parent(nest, parent, spec, cx, cy, t + dtp, rate=two_way_rate)
         tgt_prev = tgt_next
         t += dtp
         if progress:
             progress(t, window, nest.step)
     nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
     rep = SS._finalise(nest, initial)
+    base_mode = ("concurrent + storm-following (phase 2b)" if follow
+                 else "concurrent (phase 2: time-evolving parent boundary)")
+    if two_way:
+        base_mode += " + approximate two-way feedback (phase 3a)"
     rep["nest"] = {"dx_m": g.dx, "dz0_m": float(g.dz_c[0]),
                    "nx": g.nx, "ny": g.ny, "nz": g.nz, "refine": spec.refine,
-                   "storm_motion": [cx, cy],
-                   "mode": ("concurrent + storm-following (phase 2b)" if follow
-                            else "concurrent (phase 2: time-evolving parent boundary)")}
+                   "storm_motion": [cx, cy], "two_way": bool(two_way), "mode": base_mode}
     return nest, rep
 
 
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
-    "run_concurrent_nest",
+    "run_concurrent_nest", "restrict_nest_to_parent", "interior_near_surface_zeta",
 ]

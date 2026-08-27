@@ -43,9 +43,15 @@ moved byte-identically; SHA-256 checksums preserved).
     sustained AND intensified (~7→19 m/s over 400 s, growing the whole window) with
     water ≈ −0.2% — the finer grid resolving a much stronger updraft a fixed nest
     would have lost.
+  - **Phase 3a** (`run_concurrent_nest(two_way=True)`, example `--two-way`):
+    approximate two-way feedback — the nest's finer solution is blended back onto the
+    parent overlap (converted to the ground frame, tapered at the edge), so the parent
+    is improved by the nest (parent updraft ~6→9 m/s vs a no-feedback control), the
+    loop stays stable, water ≈ −0.1%. Injection feedback, **not** rigorous refluxing.
   - `interior_near_surface_zeta` reports the physical interior vortex, excluding the
-    boundary sponge. Much higher refinement (O(10–100 m)) and two-way / adaptive
-    (AMR) nesting remain future work.
+    boundary sponge. Remaining for full AMR: rigorous coarse–fine flux conservation
+    (Berger–Colella refluxing) + multilevel Poisson, adaptive/dynamic refinement, and
+    much higher refinement (O(10–100 m)).
 - `examples/supercell_tornadogenesis.py` (runnable, prints the rotation diagnostics;
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ

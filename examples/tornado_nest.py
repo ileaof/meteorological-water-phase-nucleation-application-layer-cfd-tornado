@@ -48,6 +48,9 @@ def main(argv=None) -> int:
                    help="M3 phase 2b: storm-following nest (storm-relative frame) so "
                         "the cell stays centred and the vortex is sustained + "
                         "intensified over a long window (implies --concurrent)")
+    p.add_argument("--two-way", action="store_true",
+                   help="M3 phase 3a: approximate two-way feedback -- blend the nest's "
+                        "finer solution back onto the parent overlap (implies --concurrent)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--plots", action="store_true")
     p.add_argument("--animate", action="store_true")
@@ -78,8 +81,9 @@ def main(argv=None) -> int:
 
     spec = nst.NestSpec.around(parent.grid, xc, yc, half=args.half,
                                refine=args.refine, nz=args.nest_nz, z_stretch=1.06)
-    concurrent = args.concurrent or args.follow
-    mode = ("phase 2b (storm-following, concurrent)" if args.follow else
+    concurrent = args.concurrent or args.follow or args.two_way
+    mode = ("phase 3a (two-way feedback" + (", storm-following)" if args.follow else ")") if args.two_way else
+            "phase 2b (storm-following, concurrent)" if args.follow else
             "phase 2 (concurrent, time-evolving parent boundary)" if concurrent else
             "phase 1 (frozen parent boundary)")
     print("nest region   : centred (%.1f, %.1f) km, half %.0f km" % (xc / 1000, yc / 1000, args.half / 1000))
@@ -93,7 +97,8 @@ def main(argv=None) -> int:
                  args.refine, float(nest.grid.dz_c[0])))
         print("-" * 72)
         nest, rep = nst.run_concurrent_nest(
-            parent, spec, window=args.window, capture_frames=args.animate, follow=args.follow,
+            parent, spec, window=args.window, capture_frames=args.animate,
+            follow=args.follow, two_way=args.two_way,
             progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     else:
         nest = nst.NestedStormSimulation(parent, spec)
@@ -124,7 +129,14 @@ def main(argv=None) -> int:
     print("=" * 72)
     for lim in rep["limitations"]:
         print("NOTE:", lim)
-    if args.follow:
+    if args.two_way:
+        print("NOTE: approximate TWO-WAY feedback (M3 phase 3a): the nest's finer "
+              "solution is blended back onto the parent overlap each parent step, so "
+              "the parent is improved by the nest (a closed pai<->nest loop). This is "
+              "*injection* feedback, NOT rigorous flux-conservative refluxing -- strict "
+              "interface conservation (Berger-Colella refluxing + multilevel Poisson) is "
+              "the full-AMR project. Adaptive (dynamic) refinement also remains future work.")
+    elif args.follow:
         print("NOTE: storm-FOLLOWING nest (M3 phase 2b): the nest runs in the "
               "storm-relative frame (motion C=%s m/s) so the cell stays centred; the "
               "vortex is sustained and INTENSIFIED over the window (vs the fixed nest, "

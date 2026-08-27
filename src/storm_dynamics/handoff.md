@@ -1,12 +1,12 @@
 # Handoff — storm_dynamics (rotating supercell / tornadogenesis core)
 
-**Status:** M1 (rotating supercell) delivered & verified; M2 (low-level rotation)
-delivered & verified; **M3 phases 1, 2 & 2b (one-way nesting) delivered** — phase 1
-(static/frozen-parent) intensifies near-surface ζ ~2.4× over a short window; phase 2
-(concurrent/time-evolving boundary) sustains the nest as long as the parent drives
-it; **phase 2b (storm-following nest) intensifies the updraft ~7→19 m/s over 400 s,
-growing through the whole window, with water ≈ −0.2%.** Remaining: much higher
-refinement (O(10–100 m)) and two-way / adaptive (AMR) nesting.
+**Status:** M1 & M2 delivered & verified; **M3 phases 1, 2, 2b & 3a delivered** —
+phase 1 (static/frozen) intensifies near-surface ζ ~2.4× over a short window;
+phase 2 (concurrent/time-evolving boundary) sustains the nest; phase 2b
+(storm-following) intensifies the updraft ~7→23 m/s over 400–500 s; **phase 3a
+(approximate two-way feedback) improves the parent updraft (~6→9 m/s vs a no-
+feedback control), stable, water ≈ −0.1%.** Remaining: rigorous refluxing +
+multilevel-Poisson conservation, adaptive (dynamic) refinement, higher refinement.
 
 ## Objective
 
@@ -143,13 +143,17 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
   vortex stable. **Phase 2b** (`run_concurrent_nest(follow=True)`, example
   `--follow`): storm-relative frame — Galilean shift by the Bunkers motion C makes
   the cell quasi-stationary while the sampled parent region slides at C, so a fixed
-  nest keeps the storm centred. Verified: updraft intensifies ~7→19 m/s over 400 s
-  (growing the whole window), water ≈ −0.2%, |div| ≈ 5e-5 (vs the fixed concurrent
-  nest, where w decayed 7.6→2.0). ζ/w are invariant under the constant shift so the
-  diagnostics are unchanged. **Remaining M3:** much higher refinement toward
-  O(10–100 m) (params `--refine 5–6` / finer parent, costlier), and two-way /
-  adaptive (AMR) nesting (nest→parent feedback, block-structured adaptive grids,
-  coarse–fine flux correction) — a separate project. Gotchas: nest deep-copies
+  nest keeps the storm centred. Verified: updraft intensifies ~7→23 m/s over
+  400–500 s, water ≈ −0.2%, |div| ≈ 1e-4 (vs the fixed concurrent nest, where w
+  decayed 7.6→2.0). ζ/w are invariant under the constant shift so the diagnostics
+  are unchanged. **Phase 3a** (`run_concurrent_nest(two_way=True)`, example
+  `--two-way`): approximate two-way — after each parent step the nest solution is
+  blended back onto the parent overlap (`restrict_nest_to_parent`, ground-frame,
+  tapered). Verified stable and it improves the parent (updraft ~6→9 m/s vs a
+  no-feedback control; water ≈ −0.1%). Injection feedback, NOT refluxing.
+  **Remaining M3 (full AMR — a separate project):** rigorous coarse–fine flux
+  conservation (Berger–Colella refluxing) + multilevel Poisson, adaptive/dynamic
+  refinement, and much higher refinement toward O(10–100 m). Gotchas: nest deep-copies
   `parent.dyn`; follow uses a *constant* C (real motion varies → ζ max can sit near
   the edge, read `interior_near_surface_zeta`); periodic-parent sampling clamps
   rather than wraps (keep the storm interior over the window).

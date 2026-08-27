@@ -109,13 +109,14 @@ fresh inflow. Boundary comparison — updraft over the window: frozen 7.3→4.1
 
 </details>
 
-> **Honest scope.** Delivered: one-way nesting — phase 1 (static/frozen), phase 2
-> (concurrent/time-evolving boundary), phase 2b (storm-following). All in
-> `storm_dynamics.nesting` / `examples/tornado_nest.py` (`--concurrent`, `--follow`).
-> Still **one-way** (no nest→parent feedback) and **fixed refinement**; a genuinely
-> resolved O(10–100 m) tornado needs **much higher refinement** (`--refine 5–6`,
-> costlier) and **two-way / adaptive (AMR)** nesting — a separate project, the
-> remaining M3 work.
+> **Honest scope.** Delivered: nesting phases 1 (static/frozen), 2
+> (concurrent/time-evolving boundary), 2b (storm-following), and **3a (approximate
+> two-way** — the nest's finer solution blended back onto the parent, improving it).
+> All in `storm_dynamics.nesting` / `examples/tornado_nest.py`
+> (`--concurrent`, `--follow`, `--two-way`). What remains for *full* AMR is a
+> separate project: **rigorous coarse–fine flux conservation** (Berger–Colella
+> refluxing) with a **multilevel Poisson** solve, **adaptive/dynamic** refinement,
+> and reaching O(10–100 m) (`--refine 5–6` / finer parent, far costlier).
 
 Reproduce with:
 
