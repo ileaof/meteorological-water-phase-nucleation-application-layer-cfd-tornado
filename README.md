@@ -14,6 +14,72 @@ weather-forecasting system.
 
 Repository: [meteorological-water-phase-nucleation-application-layer-cfd](https://github.com/ileaof/meteorological-water-phase-nucleation-application-layer-cfd)
 
+---
+
+## Featured — rotating supercell & tornadogenesis (`storm_dynamics`)
+
+The [`storm_dynamics`](src/storm_dynamics/) package adds an **idealised rotating
+deep-convection core** — a fork of the `meteorological_flow` dynamical core that
+gives a storm the physics it needs to *rotate*: conservative flux-form momentum
+advection (tilting + stretching of vorticity), f-plane Coriolis, a Smagorinsky
+LES closure (replacing the demonstration Rayleigh drag + velocity clip), a
+surface bulk-drag law, and a curved (quarter-circle) hodograph. It reuses the
+grid, anelastic pressure projection, conservative transport, bulk microphysics
+and the SHA-256-guarded nucleation kernel **unchanged**, and runs on CPU or GPU.
+
+> **Idealised simulation, not a forecast.** No data assimilation, no real event,
+> no observational verification; the tornado vortex is under-resolved. See the
+> [storm dynamics guide](docs/storm_dynamics_guide.md) and the styled
+> [HTML manual](docs/MANUAL_storm_dynamics.html).
+
+### M1 — rotating supercell (storm splitting + mid-level mesocyclone)
+
+Under unidirectional shear, a warm bubble grows into a deep updraft that
+**splits** into left- and right-moving cells with a mid-level mesocyclone — the
+classical Klemp–Wilhelmson / Weisman–Klemp result.
+
+![Mid-level vorticity couplet straddling the updraft, with vertical velocity and near-surface vorticity](docs/media/storm/rotation_slices_supercell.png)
+
+*Left: mid-level vertical vorticity ζ with the perturbation wind (arrows) and the
+updraft (black contours) — a near-symmetric **cyclonic (red) / anticyclonic
+(blue) couplet** straddling the updraft is the split-supercell mesocyclone.
+Centre: vertical velocity. Right: near-surface ζ. (28×28×40, Δx≈1.3 km, 30 min;
+w_max ≈ 25 m/s, mesocyclone ≈ 1×10⁻² s⁻¹, updraft helicity ≈ 280 m²/s².)*
+
+![Time series of near-surface vorticity, mid-level mesocyclone, updraft helicity and vertical velocity](docs/media/storm/rotation_timeseries_supercell.png)
+
+*The mid-level mesocyclone spins up monotonically as tilting and stretching
+organise the rotation; near-surface ζ peaks early then decays — a straight
+hodograph with no surface friction cannot hold low-level rotation.*
+
+### M2 — low-level rotation (tornadogenesis proxy)
+
+A curved hodograph with surface drag and an evaporative cold pool **sustains**
+vertical vorticity near the surface on the cold-pool / forward-flank interface.
+
+![Mid-level couplet under a coherent updraft, with near-surface vorticity concentrating on the cold-pool interface](docs/media/storm/rotation_slices_tornadogenesis.png)
+
+*The mid-level couplet now sits under a coherent rotating updraft (centre), and
+near-surface ζ (right) concentrates at the cold-pool interface with the inflow
+converging into a cyclonic patch — the low-level rotation surface friction and
+the cold pool make possible (near-surface ζ ≈ 3.5×10⁻³ s⁻¹, sustained, ≈2.4× an
+identical straight-hodograph/no-drag control).*
+
+![Curved quarter-circle hodograph with storm-relative helicity and shear annotated](docs/media/storm/hodograph_tornadogenesis.png)
+
+*The quarter-circle hodograph veers through the lowest ~2 km; that curvature is
+the source of the strong positive storm-relative helicity (0–1 km ≈ 148 m²/s²)
+that feeds the low-level vortex.*
+
+Reproduce with:
+
+```bash
+python examples/supercell_tornadogenesis.py --scenario supercell      --plots
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis --plots
+```
+
+---
+
 **Reference Manual — `met_h2o_nucleation` + `meteorological_flow`**
 
 A unified manual for the Ferreira Eq.39a/39b shifted-equilibrium nucleation
