@@ -451,6 +451,9 @@ python examples/supercell_tornadogenesis.py --scenario supercell \
     --duration 1800 --device gpu --plots --animate --csv --fps 10 \
     --outdir outputs/storm_m1_fine_gpu
 
+# M3 phase 1: static nested-grid refinement of the low-level vortex
+python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
+
 # tests
 PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
 <div class="note"><strong>CPU or GPU.</strong> The core is backend-agnostic (every hot-loop module uses
@@ -569,9 +572,13 @@ vorticity develops and is sustained</strong> (M2) &mdash; the qualitative tornad
 <ul>
 <li><strong>It does not forecast</strong> any real storm, tornado, or event. No assimilation, no observed initial
 state, no verification against observations.</li>
-<li><strong>It does not resolve the tornado vortex.</strong> At &Delta;x ~ 1 km the near-surface &zeta; is a
-<em>proxy</em>; peak &zeta;, updraft helicity and wind magnitudes are indicative, not quantitative. Quantitative
-low-level rotation needs O(100 m) grids (M3) and is explicit future work.</li>
+<li><strong>It does not fully resolve the tornado vortex.</strong> At &Delta;x ~ 1 km the near-surface &zeta; is a
+<em>proxy</em>; peak &zeta;, updraft helicity and wind magnitudes are indicative, not quantitative. <strong>M3 phase 1</strong>
+(static one-way nesting, <code>storm_dynamics.nesting</code> / <code>examples/tornado_nest.py</code>) refines a nest
+over the vortex (e.g. &Delta;x 1.3&nbsp;km&nbsp;&rarr;&nbsp;0.44&nbsp;km) and <em>intensifies</em> the near-surface
+&zeta; ~2.4&times; over a short window &mdash; the vortex sharpening under refinement &mdash; but a genuinely resolved
+O(10&ndash;100&nbsp;m) tornado still needs concurrent time-evolving parent boundaries, much higher refinement, and
+two-way/adaptive (AMR) nesting.</li>
 <li><strong>Idealisations:</strong> f-plane, analytic sounding, single warm-bubble trigger, single-moment bulk
 microphysics, fixed Smagorinsky constant &mdash; the standard idealised-modelling choices, which bound what the
 numbers mean.</li>
@@ -595,11 +602,14 @@ numbers mean.</li>
   surface_drag.py bulk aerodynamic drag on the lowest level (item 4)
   rotation.py    zeta, 3D vorticity, updraft helicity, trackers, report (item 7)
   core.py        StormSimulation: the anelastic time loop wiring 1-7 (item 6)
-  plotting.py    rotation slices (the split couplet), hodograph, time series
+  nesting.py     M3 phase 1: static one-way nest (interpolation + NestedStormSimulation)
+  plotting.py    rotation slices, hodograph, time series, animated GIF, history CSV
   handoff.md     decisions, milestone status, remaining work
-tests/test_storm_dynamics.py     16 unit tests (momentum/Coriolis/LES/drag/SRH/kernel)
+tests/test_storm_dynamics.py     unit tests (momentum/Coriolis/LES/drag/SRH/kernel/backend)
 tests/test_storm_milestones.py   M1 (splitting + mesocyclone) + M2 (low-level rotation)
-examples/supercell_tornadogenesis.py   runnable demo (--plots, --kernel-nucleation)
+tests/test_storm_nesting.py      M3 phase 1 (interpolation exact; stable nested run)
+examples/supercell_tornadogenesis.py   M1/M2 demo (--plots/--animate/--csv/--device/--kernel-nucleation)
+examples/tornado_nest.py               M3 phase 1 demo (parent + finer nest)
 configs/storm_supercell.yaml · configs/storm_tornadogenesis.yaml
 docs/storm_dynamics_guide.md · docs/MANUAL_storm_dynamics.html (this file)</div>
 </section>

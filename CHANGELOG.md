@@ -26,6 +26,13 @@ moved byte-identically; SHA-256 checksums preserved).
   config `device:`, example `--device cpu|gpu|auto`; default `cpu`). The core is
   backend-agnostic (all hot loops use `grid.xp`); GPU parity with CPU is
   regression-tested (`test_storm_gpu_matches_cpu`, skipped without a GPU).
+- **M3 phase 1 — static one-way nested-grid refinement** (`storm_dynamics.nesting`,
+  `examples/tornado_nest.py`, `tests/test_storm_nesting.py`): mature the storm on the
+  coarse parent, interpolate the vortex region onto a finer nest (exact trilinear
+  interpolation), and integrate the nest for a short window with Davies-style border
+  relaxation to the frozen parent. The finer grid intensifies the near-surface ζ
+  ~2.4× over the window (Δx 1.3 km→0.44 km, 3× finer) while conserving. Full AMR /
+  two-way / concurrent time-evolving boundaries remain future work.
 - `examples/supercell_tornadogenesis.py` (runnable, prints the rotation diagnostics;
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ

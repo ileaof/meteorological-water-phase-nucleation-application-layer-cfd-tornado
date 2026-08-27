@@ -1,0 +1,374 @@
+"""M3 (phase 1) -- static one-way nested-grid refinement.
+
+Full adaptive mesh refinement (AMR) is a separate project; this module delivers
+the classical idealised-tornado approach instead: mature the storm on the coarse
+**parent** domain, then integrate a finer **nest** over the low-level vortex
+region, with the nest's lateral boundaries relaxed toward the parent solution
+(Davies-style nudging).  This resolves the near-surface vortex at O(100 m) in the
+region of interest without refining the whole domain.
+
+Scope / honesty (see docs/storm_dynamics_guide.md):
+
+* **one-way** -- the parent drives the nest; the nest does not feed back;
+* **static** -- a fixed nest region and refinement (not adaptive);
+* **frozen-parent boundary** -- the nest border is nudged toward the parent state
+  captured at the nest start time, so the nest is valid for a **short window**
+  (minutes) after which the parent boundary would have evolved away;
+* still **idealised** and, at O(100 m), only *approaching* a resolved vortex --
+  not a converged tornado, and never a forecast.
+
+The nest reuses the whole :class:`~storm_dynamics.core.StormSimulation` stepping
+machinery (momentum advection, LES, surface drag, projection, microphysics,
+rotation diagnostics); only the initial state (interpolated from the parent), the
+base state (interpolated in z), and the boundary treatment (walls + relaxation
+nudging, instead of periodic) differ.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+from scipy.interpolate import RegularGridInterpolator
+
+from meteorological_flow.base_state import BaseState
+from meteorological_flow.grid import Grid
+from meteorological_flow.state import FlowState
+
+
+@dataclass
+class NestSpec:
+    """A static nest: a finer sub-domain of the parent over the vortex region.
+
+    ``x0, y0`` are the parent-relative offsets [m] of the nest's south-west
+    corner; ``Lx, Ly`` its horizontal extent [m].  The nest spans the **full**
+    parent depth (so the deep updraft is kept) at ``refine`` times finer
+    horizontal spacing, and ``nz`` vertical levels with optional near-surface
+    clustering ``z_stretch``.  ``relax_width`` cells of boundary nudging at
+    ``relax_rate`` [1/s] tie the border to the parent.
+    """
+    x0: float
+    y0: float
+    Lx: float
+    Ly: float
+    refine: int = 3                 # horizontal refinement factor
+    nz: int | None = None           # nest vertical cells (default: parent nz)
+    z_stretch: float = 1.03         # cluster levels near the surface
+    relax_width: int = 4            # boundary relaxation band (cells)
+    relax_rate: float = 0.02        # max nudging rate at the outermost cell [1/s]
+
+    @classmethod
+    def centered(cls, parent_grid: Grid, frac: float = 0.4, **kw) -> "NestSpec":
+        """A nest covering the central ``frac`` of the parent (x, y)."""
+        Lx = frac * parent_grid.Lx
+        Ly = frac * parent_grid.Ly
+        x0 = 0.5 * (parent_grid.Lx - Lx)
+        y0 = 0.5 * (parent_grid.Ly - Ly)
+        return cls(x0=x0, y0=y0, Lx=Lx, Ly=Ly, **kw)
+
+    @classmethod
+    def around(cls, parent_grid: Grid, xc: float, yc: float, half: float, **kw) -> "NestSpec":
+        """A square nest of half-width ``half`` [m] centred on (xc, yc), clipped
+        to the parent domain."""
+        x0 = max(0.0, min(xc - half, parent_grid.Lx - 2 * half))
+        y0 = max(0.0, min(yc - half, parent_grid.Ly - 2 * half))
+        return cls(x0=x0, y0=y0, Lx=2 * half, Ly=2 * half, **kw)
+
+
+def build_nest_grid(spec: NestSpec, parent_grid: Grid, backend=None) -> Grid:
+    """Build the (non-periodic) finer nest :class:`Grid` for ``spec``."""
+    dxp = parent_grid.dx
+    nx = max(4, int(round(spec.Lx / dxp * spec.refine)))
+    ny = max(4, int(round(spec.Ly / parent_grid.dy * spec.refine)))
+    nz = spec.nz or parent_grid.nz
+    return Grid(nx=nx, ny=ny, nz=nz, Lx=spec.Lx, Ly=spec.Ly, Lz=parent_grid.Lz,
+                z_stretch=spec.z_stretch, periodic=False,
+                backend=backend or parent_grid.backend)
+
+
+# ---------------------------------------------------------------------------
+# interpolation parent -> nest  (host/NumPy; one-time at nest init)
+# ---------------------------------------------------------------------------
+def _axis(parent_grid, kind):
+    """Parent coordinate axes (host) for a field of the given staggered kind."""
+    to = parent_grid.backend.to_cpu
+    xc = np.asarray(to(parent_grid.xc)); yc = np.asarray(to(parent_grid.yc))
+    zc = np.asarray(to(parent_grid.zc)); xf = np.asarray(to(parent_grid.xf))
+    yf = np.asarray(to(parent_grid.yf)); zf = np.asarray(to(parent_grid.zf))
+    return {"c": (xc, yc, zc), "u": (xf, yc, zc),
+            "v": (xc, yf, zc), "w": (xc, yc, zf)}[kind]
+
+
+def _target(spec, nest_grid, kind):
+    """Nest sample points in PARENT physical coordinates for a field kind."""
+    to = nest_grid.backend.to_cpu
+    xc = spec.x0 + np.asarray(to(nest_grid.xc)); yc = spec.y0 + np.asarray(to(nest_grid.yc))
+    zc = np.asarray(to(nest_grid.zc)); xf = spec.x0 + np.asarray(to(nest_grid.xf))
+    yf = spec.y0 + np.asarray(to(nest_grid.yf)); zf = np.asarray(to(nest_grid.zf))
+    return {"c": (xc, yc, zc), "u": (xf, yc, zc),
+            "v": (xc, yf, zc), "w": (xc, yc, zf)}[kind]
+
+
+def _interp(parent_grid, field_host, kind, spec, nest_grid):
+    ax = _axis(parent_grid, kind)
+    tgt = _target(spec, nest_grid, kind)
+    rgi = RegularGridInterpolator(ax, field_host, method="linear",
+                                  bounds_error=False, fill_value=None)
+    # clamp targets to the parent range (avoid wild linear extrapolation past edges)
+    gx = np.clip(tgt[0], ax[0][0], ax[0][-1])
+    gy = np.clip(tgt[1], ax[1][0], ax[1][-1])
+    gz = np.clip(tgt[2], ax[2][0], ax[2][-1])
+    X, Y, Z = np.meshgrid(gx, gy, gz, indexing="ij")
+    pts = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=-1)
+    return rgi(pts).reshape(X.shape)
+
+
+def interpolate_state_to_nest(parent_state: FlowState, parent_grid: Grid,
+                              nest_grid: Grid, spec: NestSpec) -> FlowState:
+    """Trilinearly interpolate the parent prognostic state onto the nest grid."""
+    xp = nest_grid.xp
+    to = parent_grid.backend.to_cpu
+    st = FlowState.zeros(nest_grid)
+    st.u = xp.asarray(_interp(parent_grid, np.asarray(to(parent_state.u)), "u", spec, nest_grid))
+    st.v = xp.asarray(_interp(parent_grid, np.asarray(to(parent_state.v)), "v", spec, nest_grid))
+    st.w = xp.asarray(_interp(parent_grid, np.asarray(to(parent_state.w)), "w", spec, nest_grid))
+    for nm in ("theta", "qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        a = getattr(parent_state, nm, None)
+        if a is not None:
+            setattr(st, nm, xp.asarray(np.maximum(
+                _interp(parent_grid, np.asarray(to(a)), "c", spec, nest_grid),
+                0.0 if nm != "theta" else -1e30)))
+    st.w[:, :, 0] = 0.0                          # ground
+    return st
+
+
+def interpolate_base_to_nest(parent_base: BaseState, nest_grid: Grid) -> BaseState:
+    """Interpolate the parent base-state (z-only) profiles onto the nest levels."""
+    zc_p = np.asarray(parent_base.zc)
+    zc_n = np.asarray(nest_grid.backend.to_cpu(nest_grid.zc))
+    f = lambda a: np.interp(zc_n, zc_p, np.asarray(a))
+    return BaseState(zc=zc_n, theta0=f(parent_base.theta0), qv0=f(parent_base.qv0),
+                     p0=f(parent_base.p0), T0=f(parent_base.T0), rho0=f(parent_base.rho0),
+                     u0=f(parent_base.u0), v0=f(parent_base.v0))
+
+
+def relaxation_weight(nest_grid: Grid, spec: NestSpec):
+    """A (nx,ny,1) nudging-weight field: ``relax_rate`` at the outermost cell,
+    ramping quadratically to 0 at ``relax_width`` cells in; 0 in the interior."""
+    xp = nest_grid.xp
+    nx, ny = nest_grid.nx, nest_grid.ny
+    ix = xp.arange(nx); iy = xp.arange(ny)
+    dx_edge = xp.minimum(ix, nx - 1 - ix)          # (nx,) distance to nearest x-edge
+    dy_edge = xp.minimum(iy, ny - 1 - iy)          # (ny,)
+    dist = xp.minimum(dx_edge[:, None], dy_edge[None, :])   # (nx,ny)
+    w = xp.clip(1.0 - dist / max(spec.relax_width, 1), 0.0, 1.0) ** 2
+    return (spec.relax_rate * w)[:, :, None]
+
+
+# ---------------------------------------------------------------------------
+# the nested simulation
+# ---------------------------------------------------------------------------
+import copy as _copy
+import time as _time
+
+from meteorological_flow import advection as _adv
+from meteorological_flow import buoyancy as _buo
+from meteorological_flow import diagnostics as _diag
+from meteorological_flow import thermodynamics as _th
+from meteorological_flow.pressure_solver import PressureSolver
+
+from . import momentum as _mom
+from . import rotation as _rot
+from . import surface_drag as _sfc
+from . import turbulence as _les
+
+
+def _zero_gradient_velocity(st):
+    """Outflow (zero normal gradient) lateral velocity + solid ground/top-w=0."""
+    st.u[0, :, :] = st.u[1, :, :]; st.u[-1, :, :] = st.u[-2, :, :]
+    st.v[:, 0, :] = st.v[:, 1, :]; st.v[:, -1, :] = st.v[:, -2, :]
+    st.w[:, :, 0] = 0.0; st.w[:, :, -1] = 0.0
+
+
+def _zero_gradient_scalars(st):
+    for nm in ("theta", "qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        a = getattr(st, nm, None)
+        if a is None:
+            continue
+        a[0, :, :] = a[1, :, :]; a[-1, :, :] = a[-2, :, :]
+        a[:, 0, :] = a[:, 1, :]; a[:, -1, :] = a[:, -2, :]
+
+
+class NestedStormSimulation:
+    """One-way static nest: a finer StormSimulation over the vortex region, with
+    its border relaxed toward the (frozen) interpolated parent state.
+
+    Build from a matured parent :class:`~storm_dynamics.core.StormSimulation` and
+    a :class:`NestSpec`; then :meth:`run` for a short window.
+    """
+
+    def __init__(self, parent, spec: NestSpec):
+        from .core import _pressure_method
+        self.spec = spec
+        self.scfg = parent.scfg
+        self.dyn = parent.dyn
+        self.backend = parent.backend
+        # nest config: reuse the parent's, but non-periodic walls + nest geometry
+        cfg = _copy.deepcopy(parent.cfg)
+        self.grid = build_nest_grid(spec, parent.grid, backend=self.backend)
+        g = self.grid
+        xp = g.xp
+        cfg.grid.nx, cfg.grid.ny, cfg.grid.nz = g.nx, g.ny, g.nz
+        cfg.domain.Lx, cfg.domain.Ly, cfg.domain.Lz = g.Lx, g.Ly, g.Lz
+        cfg.boundaries.x_west = cfg.boundaries.x_east = "wall"
+        cfg.boundaries.y = "free_slip"
+        # finer dx -> smaller advective dt; keep the parent's cfl
+        cfg.time.dt_max = min(cfg.time.dt_max, parent.cfg.time.dt_max)
+        self.cfg = cfg
+        # interpolated base state + initial condition
+        self.base = interpolate_base_to_nest(parent.base, g)
+        self.theta0_field = self.base.field(self.base.theta0, g.center_shape, xp=xp)
+        self.qv0_field = self.base.field(self.base.qv0, g.center_shape, xp=xp)
+        self.f = self.dyn.f_value()
+        self._u0_face = xp.broadcast_to(xp.asarray(self.base.u0, float)[None, None, :],
+                                        g.u_shape).copy()
+        self._v0_face = xp.broadcast_to(xp.asarray(self.base.v0, float)[None, None, :],
+                                        g.v_shape).copy()
+        self.state = interpolate_state_to_nest(parent.state, parent.grid, g, spec)
+        self.state.p0_field = self.base.field(self.base.p0, g.center_shape, xp=xp)
+        self.state.diagnose(cfg)
+        # frozen relaxation target (the initial interpolated parent state) + weight
+        self._tgt = {nm: getattr(self.state, nm).copy()
+                     for nm in ("u", "v", "w", "theta", "qv")}
+        self._relax = relaxation_weight(g, spec)
+        # references / density (anelastic reference from the interpolated base)
+        self.T_ref = parent.T_ref
+        self.qv_ref = parent.qv_ref
+        self.rho0 = parent.rho0
+        self.dynamics = parent.dynamics
+        rho0_prof = np.asarray(self.base.rho0, float)
+        rho0_wface_h = np.interp(g.backend.to_cpu(g.zf), g.backend.to_cpu(g.zc), rho0_prof)
+        self.rho0_c = xp.asarray(rho0_prof); self.rho0_wface = xp.asarray(rho0_wface_h)
+        if self.dynamics == "anelastic":
+            self._transport_rho_c = self.rho0_c; self._transport_rho_wf = self.rho0_wface
+            self.rho_ref = self.rho0_c
+        else:
+            self._transport_rho_c = xp.ones(g.nz); self._transport_rho_wf = xp.ones(g.nz + 1)
+            self.rho_ref = self.rho0
+        self.pressure = PressureSolver(g, method=_pressure_method(g))
+        from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
+        self.coupler = MicrophysicsCoupler()
+        self.couple_nucleation = False
+        self.tracker = _rot.TornadogenesisTracker()
+        self.history = []
+        self.step = 0; self.t = 0.0
+        self._last_res = 0.0; self._last_iters = 0
+        self._Km = None
+        self._t0 = _time.perf_counter()
+
+    # ---- boundary / relaxation ----
+    def _apply_nest_bcs(self):
+        _zero_gradient_velocity(self.state)
+        _zero_gradient_scalars(self.state)
+
+    def _relax_to_parent(self, dt):
+        """Nudge the border band toward the frozen parent target (sponge)."""
+        st = self.state
+        wu = self._relax                     # (nx,ny,1) centre-cell nudging weight
+        xp = self.grid.xp
+        # velocity relaxation weights averaged onto the staggered faces
+        wru = xp.zeros(self.grid.u_shape); wru[1:-1] = 0.5 * (wu[:-1] + wu[1:])
+        wru[0] = wu[0]; wru[-1] = wu[-1]
+        wrv = xp.zeros(self.grid.v_shape); wrv[:, 1:-1] = 0.5 * (wu[:, :-1] + wu[:, 1:])
+        wrv[:, 0] = wu[:, 0]; wrv[:, -1] = wu[:, -1]
+        st.u += wru * dt * (self._tgt["u"] - st.u)
+        st.v += wrv * dt * (self._tgt["v"] - st.v)
+        st.w += wu * dt * (self._tgt["w"] - st.w)
+        st.theta += wu * dt * (self._tgt["theta"] - st.theta)
+        st.qv = xp.maximum(st.qv + wu * dt * (self._tgt["qv"] - st.qv), 0.0)
+
+    # ---- adaptive dt (advective + LES-diffusive) ----
+    def _dt(self):
+        from .core import StormSimulation
+        return StormSimulation._dt(self)
+
+    # ---- one step ----
+    def _step(self, dt):
+        cfg = self.cfg; g = self.grid; xp = g.xp; st = self.state
+        self._apply_nest_bcs(); st.diagnose(cfg)
+        Km = _les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
+        self._Km = Km
+        st.u -= self._u0_face; st.v -= self._v0_face
+        _les.apply_les_momentum(st, g, Km, dt)
+        st.u += self._u0_face; st.v += self._v0_face
+        if self.dyn.momentum_advection:
+            _mom.add_momentum_advection(st, g, dt, order=self.dyn.momentum_order, periodic=False)
+        Bf = _buo.buoyancy_w_tendency(st, g, cfg, self.T_ref, self.qv_ref,
+                                      theta0=self.theta0_field, qv0=self.qv0_field)
+        st.w += dt * Bf
+        if self.dyn.coriolis:
+            from .coriolis import add_coriolis
+            add_coriolis(st, g, dt, self.f, self._u0_face, self._v0_face)
+        _sfc.apply_surface_drag(st, g, dt, self.dyn.drag)
+        vg = self.dyn.v_guard
+        xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v); xp.clip(st.w, -vg, vg, out=st.w)
+        self._apply_nest_bcs()
+        if self.dynamics == "anelastic":
+            res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
+        else:
+            res, it = self.pressure.project(st, dt, self.rho0)
+        self._last_res, self._last_iters = res, it
+        self._apply_nest_bcs()
+        trc, trwf = self._transport_rho_c, self._transport_rho_wf
+        adv = lambda f: _adv.advect_center_massflux(f, st.u, st.v, st.w, g, dt, trc, trwf, order=2)
+        st.theta = adv(st.theta); st.qv = xp.maximum(adv(st.qv), 0.0)
+        st.ensure_hydrometeors()
+        for nm in ("ql", "qi", "qr", "qs", "qg", "qh"):
+            setattr(st, nm, xp.maximum(adv(getattr(st, nm)), 0.0))
+        st.theta = _les.les_scalar_diffusion(st.theta, Km, g, self.dyn.les, dt, base=self.theta0_field)
+        st.qv = xp.maximum(_les.les_scalar_diffusion(st.qv, Km, g, self.dyn.les, dt, base=self.qv0_field), 0.0)
+        self._relax_to_parent(dt)                    # sponge border -> frozen parent
+        self._apply_nest_bcs(); st.diagnose(cfg)
+        self.coupler.apply(st, g, dt, nf=None)
+        self.coupler.sediment(st, g, dt, rho_ref=self._transport_rho_c)
+        self._apply_nest_bcs(); st.diagnose(cfg)
+        Tc = xp.clip(st.T, 180.0, 335.0)
+        if not bool(xp.array_equal(Tc, st.T)):
+            st.theta = _th.theta_from_T(Tc, st.P_total, _th.P0_REF, xp=xp); st.diagnose(cfg)
+        st.t = self.t + dt
+
+    def run(self, progress=None, record_interval=None, capture_frames=False) -> dict:
+        from .core import StormSimulation
+        self._capture_frames = bool(capture_frames); self.frames = []
+        initial = _diag.initial_budgets(self.state, self.rho_ref)
+        duration = self.cfg.time.duration
+        interval = record_interval or max(1, self.cfg.output.interval_steps)
+        self.tracker.update(self.t, self.state, self.grid)
+        StormSimulation._record(self, initial)
+        while self.t < duration - 1e-9:
+            dt = self._dt()
+            if self.t + dt > duration:
+                dt = duration - self.t
+            self._step(dt); self.step += 1; self.t = float(self.state.t)
+            if self.step % interval == 0 or self.t >= duration - 1e-9:
+                self.tracker.update(self.t, self.state, self.grid)
+                StormSimulation._record(self, initial)
+            if progress and (self.step % max(1, min(interval, 10)) == 0):
+                progress(self.t, duration, self.step)
+        rep = StormSimulation._finalise(self, initial)
+        rep["nest"] = {"dx_m": self.grid.dx, "dz0_m": float(self.grid.dz_c[0]),
+                       "nx": self.grid.nx, "ny": self.grid.ny, "nz": self.grid.nz,
+                       "region": {"x0": self.spec.x0, "y0": self.spec.y0,
+                                  "Lx": self.spec.Lx, "Ly": self.spec.Ly},
+                       "refine": self.spec.refine}
+        return rep
+
+
+# reuse the parent class's 2-D frame capture (generic over self.state / self.grid)
+from .core import StormSimulation as _SS
+NestedStormSimulation._capture_frame = _SS._capture_frame
+
+
+__all__ = [
+    "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
+    "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
+]

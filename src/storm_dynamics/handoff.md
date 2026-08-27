@@ -1,8 +1,9 @@
 # Handoff — storm_dynamics (rotating supercell / tornadogenesis core)
 
 **Status:** M1 (rotating supercell) delivered & verified; M2 (low-level rotation)
-implemented & running; M3 (fine vortex) intentionally not delivered — core left
-prepared.
+delivered & verified; **M3 phase 1 (static one-way nesting) delivered** — the
+finer nest intensifies the near-surface ζ ~2.4× over a short window; full AMR /
+two-way / concurrent time-evolving boundaries remain future work.
 
 ## Objective
 
@@ -126,8 +127,14 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
 - **M2 quantification / tuning:** confirm near-surface ζ magnitude and its
   location on the forward-flank cold-pool interface; may want a finer near-surface
   Δz (`z_stretch`) and a stronger/earlier cold pool.
-- **M3 (fine vortex):** nested refinement / AMR to resolve the ~10–100 m vortex —
-  a separate project; the core is prepared but this is **not** delivered.
+- **M3 phase 1 done** (`nesting.py`, `examples/tornado_nest.py`,
+  `tests/test_storm_nesting.py`): static one-way nest — exact parent→nest
+  trilinear interpolation, finer nest grid, stable/conserving nested integration
+  with Davies-style border relaxation to the frozen parent. Verified: near-surface
+  ζ intensifies ~2.4× over a 120 s window at 3× refinement (Δx 1.3 km→0.44 km).
+  **Remaining M3:** concurrent time-evolving parent boundaries (parent stepping
+  alongside the nest, so the storm is sustained beyond a short window), much higher
+  refinement toward O(10–100 m), and two-way / adaptive (AMR) nesting.
 - **Figures done:** `plotting.py` + the example's `--plots` flag write the
   rotation slices (the split couplet), hodograph and time series. **Still
   optional:** NetCDF field output (the core returns a report dict + `history` +

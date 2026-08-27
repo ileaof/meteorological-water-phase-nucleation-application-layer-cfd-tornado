@@ -120,9 +120,31 @@ tornado wind speed — the vortex is under-resolved (see the caveats below).
 > slightly larger Smagorinsky constant. These are documented demonstration
 > choices, not physical tuning of the result.
 
-### M3 — fine vortex *(stretch, not delivered)*
-Nested refinement / AMR to resolve the ~10–100 m vortex. The core is left prepared
-for it; it is out of scope for this phase.
+### M3 — fine vortex *(phase 1: static nesting delivered)*
+Nested refinement to resolve the low-level vortex at finer scale. **Full AMR**
+(adaptive, block-structured, two-way) remains a separate project; delivered here
+is **phase 1 — static one-way nesting** (`storm_dynamics.nesting`), the classical
+idealised-tornado approach: mature the storm on the coarse **parent**, interpolate
+the updraft / low-level-rotation region onto a finer **nest**, and integrate the
+nest for a short window with its border relaxed toward the parent (Davies-style
+nudging). The parent→nest trilinear interpolation is exact for linear fields; the
+nest reuses the whole solver (momentum advection, LES, drag, projection,
+microphysics), integrates stably and conserves.
+
+*Demonstration result (parent Δx≈1.3 km → nest Δx≈0.44 km, 3× finer, 120 s
+window):* the nest inherits the parent updraft, sustains it, and the finer grid
+**intensifies the near-surface ζ ~2.4×** over the window (to ~3.3×10⁻³ s⁻¹, above
+the coarse parent's value at the same location) while conserving water and mass —
+the vortex sharpening under refinement. Run it with `examples/tornado_nest.py`.
+
+> **Honest scope of phase 1.** *One-way* (parent drives nest, no feedback),
+> *static* (fixed nest region/refinement), and *frozen-parent boundary* — the nest
+> border is nudged toward the parent captured at the nest start time, so it is
+> valid only for a **short window** (minutes) before the parent boundary would
+> have evolved away. At Δx≈0.4 km the nest only *approaches* a resolved vortex; a
+> genuinely resolved O(10–100 m) tornado needs **concurrent time-evolving parent
+> boundaries** (the parent stepping alongside the nest), much **higher
+> refinement**, and ideally **two-way AMR** — the remaining M3 work.
 
 ## What this model **can** claim
 
@@ -170,6 +192,9 @@ PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario tornadogen
 # table -> slower); off by default
 PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell \
     --kernel-nucleation
+
+# M3 phase 1 — static nested-grid refinement of the low-level vortex
+PYTHONPATH=src python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
 
 # declarative configs
 python -c "from storm_dynamics.config import storm_config_from_yaml as L; \
