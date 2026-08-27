@@ -145,15 +145,27 @@ state is re-interpolated onto the nest and the nest sub-cycles (finer dt) with t
 border relaxed toward the parent target **interpolated linearly in time**. Fresh
 inflow keeps entering, so the nest is **sustained as long as the parent drives it**
 (no frozen-boundary decay) and stays stable (a modest extra Smagorinsky boost +
-tighter CFL guard the sharpening vortex). The nest **tracks the parent's
-lifecycle** — it intensifies when the parent does and follows it when it wanes.
+tighter CFL guard the sharpening vortex). A *fixed* nest still loses a cell that
+translates out of its region.
+
+**Phase 2b — storm-following nest** (`run_concurrent_nest(follow=True)`, example
+`--follow`). The nest runs in the **storm-relative frame**: a Galilean shift by the
+storm motion **C** (Bunkers) makes the cell quasi-stationary, and the *sampled*
+parent region slides at C so the storm stays centred in the fixed nest. Vorticity
+and w are invariant under the constant shift, so the diagnostics are unchanged.
+*Result (3× nest, C≈(9, −18) m/s, 400 s):* the updraft is not just sustained but
+**intensifies from ~7 m/s (coarse parent) to ~19 m/s (fine nest), growing through
+the whole window**, with excellent conservation (water ≈ −0.2%, |div| ≈ 5×10⁻⁵) —
+the finer grid resolving a much stronger updraft that a fixed nest would have lost.
 
 > **Honest scope / remaining M3.** Still **one-way** (no nest→parent feedback) and
-> **fixed refinement**. A *fixed* nest also loses a feature that advects out of its
-> region, so a **storm-following moving nest** is the natural next step; conservation
-> drifts more over long windows; and a genuinely resolved O(10–100 m) tornado still
-> needs **much higher refinement** and **two-way / adaptive (AMR)** nesting — the
-> remaining M3 work.
+> **fixed refinement**, and the storm-following frame uses a *constant* motion C
+> (a real storm's motion varies, so the near-surface ζ maximum can sit near the
+> nest edge — read the *interior*-masked ζ). A genuinely resolved O(10–100 m)
+> tornado still needs **much higher refinement** (`--refine 5–6`, finer parent —
+> just parameters, but far costlier) and **two-way / adaptive (AMR)** nesting,
+> which is a separate project (nest→parent feedback, block-structured adaptive
+> grids, coarse–fine flux correction). Those are the remaining M3 work.
 
 ## What this model **can** claim
 

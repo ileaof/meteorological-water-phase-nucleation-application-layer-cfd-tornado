@@ -1,11 +1,12 @@
 # Handoff — storm_dynamics (rotating supercell / tornadogenesis core)
 
 **Status:** M1 (rotating supercell) delivered & verified; M2 (low-level rotation)
-delivered & verified; **M3 phases 1 & 2 (one-way nesting) delivered** — phase 1
-(static/frozen-parent) intensifies near-surface ζ ~2.4× over a short window;
-phase 2 (concurrent/time-evolving parent boundary) sustains the nest as long as
-the parent drives it. Remaining: storm-following moving nest, much higher
-refinement, two-way / adaptive (AMR) nesting.
+delivered & verified; **M3 phases 1, 2 & 2b (one-way nesting) delivered** — phase 1
+(static/frozen-parent) intensifies near-surface ζ ~2.4× over a short window; phase 2
+(concurrent/time-evolving boundary) sustains the nest as long as the parent drives
+it; **phase 2b (storm-following nest) intensifies the updraft ~7→19 m/s over 400 s,
+growing through the whole window, with water ≈ −0.2%.** Remaining: much higher
+refinement (O(10–100 m)) and two-way / adaptive (AMR) nesting.
 
 ## Objective
 
@@ -139,10 +140,19 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
   vortex). **Phase 2** (`run_concurrent_nest`): the parent steps alongside the nest
   and feeds time-evolving boundaries, sustaining the nest as long as the parent
   drives it; a small SGS boost (`les_boost`) + tighter CFL keep the sharpening
-  vortex stable. **Remaining M3:** a storm-following MOVING nest (a fixed nest
-  loses features that advect out), much higher refinement toward O(10–100 m), and
-  two-way / adaptive (AMR) nesting. Gotcha: the nest deep-copies `parent.dyn`
-  (shared reference would let nest tweaks mutate the parent).
+  vortex stable. **Phase 2b** (`run_concurrent_nest(follow=True)`, example
+  `--follow`): storm-relative frame — Galilean shift by the Bunkers motion C makes
+  the cell quasi-stationary while the sampled parent region slides at C, so a fixed
+  nest keeps the storm centred. Verified: updraft intensifies ~7→19 m/s over 400 s
+  (growing the whole window), water ≈ −0.2%, |div| ≈ 5e-5 (vs the fixed concurrent
+  nest, where w decayed 7.6→2.0). ζ/w are invariant under the constant shift so the
+  diagnostics are unchanged. **Remaining M3:** much higher refinement toward
+  O(10–100 m) (params `--refine 5–6` / finer parent, costlier), and two-way /
+  adaptive (AMR) nesting (nest→parent feedback, block-structured adaptive grids,
+  coarse–fine flux correction) — a separate project. Gotchas: nest deep-copies
+  `parent.dyn`; follow uses a *constant* C (real motion varies → ζ max can sit near
+  the edge, read `interior_near_surface_zeta`); periodic-parent sampling clamps
+  rather than wraps (keep the storm interior over the window).
 - **Figures done:** `plotting.py` + the example's `--plots` flag write the
   rotation slices (the split couplet), hodograph and time series. **Still
   optional:** NetCDF field output (the core returns a report dict + `history` +

@@ -44,6 +44,10 @@ def main(argv=None) -> int:
                    help="M3 phase 2: step the parent alongside the nest so the nest "
                         "border sees time-evolving parent boundaries (sustains the "
                         "storm beyond the frozen-boundary short window)")
+    p.add_argument("--follow", action="store_true",
+                   help="M3 phase 2b: storm-following nest (storm-relative frame) so "
+                        "the cell stays centred and the vortex is sustained + "
+                        "intensified over a long window (implies --concurrent)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--plots", action="store_true")
     p.add_argument("--animate", action="store_true")
@@ -74,11 +78,13 @@ def main(argv=None) -> int:
 
     spec = nst.NestSpec.around(parent.grid, xc, yc, half=args.half,
                                refine=args.refine, nz=args.nest_nz, z_stretch=1.06)
-    mode = "phase 2 (concurrent, time-evolving parent boundary)" if args.concurrent \
-        else "phase 1 (frozen parent boundary)"
+    concurrent = args.concurrent or args.follow
+    mode = ("phase 2b (storm-following, concurrent)" if args.follow else
+            "phase 2 (concurrent, time-evolving parent boundary)" if concurrent else
+            "phase 1 (frozen parent boundary)")
     print("nest region   : centred (%.1f, %.1f) km, half %.0f km" % (xc / 1000, yc / 1000, args.half / 1000))
     print("mode          : %s" % mode)
-    if args.concurrent:
+    if concurrent:
         nest = nst.NestedStormSimulation(parent, spec)
         r_nest0 = rot.rotation_report(nest.state, nest.grid)
         z0_int = nst.interior_near_surface_zeta(nest)
@@ -87,7 +93,7 @@ def main(argv=None) -> int:
                  args.refine, float(nest.grid.dz_c[0])))
         print("-" * 72)
         nest, rep = nst.run_concurrent_nest(
-            parent, spec, window=args.window, capture_frames=args.animate,
+            parent, spec, window=args.window, capture_frames=args.animate, follow=args.follow,
             progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     else:
         nest = nst.NestedStormSimulation(parent, spec)
@@ -118,7 +124,14 @@ def main(argv=None) -> int:
     print("=" * 72)
     for lim in rep["limitations"]:
         print("NOTE:", lim)
-    if args.concurrent:
+    if args.follow:
+        print("NOTE: storm-FOLLOWING nest (M3 phase 2b): the nest runs in the "
+              "storm-relative frame (motion C=%s m/s) so the cell stays centred; the "
+              "vortex is sustained and INTENSIFIED over the window (vs the fixed nest, "
+              "which decays). Still one-way + fixed refinement; higher refinement "
+              "(O(10-100 m)) and two-way/adaptive (AMR) nesting remain future work."
+              % ([round(v, 1) for v in rep["nest"]["storm_motion"]]))
+    elif concurrent:
         print("NOTE: one-way CONCURRENT nest (M3 phase 2): the parent steps alongside "
               "the nest and feeds time-evolving boundaries, so the storm is sustained "
               "beyond the frozen-boundary window. Still one-way + fixed refinement; a "

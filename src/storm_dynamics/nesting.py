@@ -416,28 +416,68 @@ def interior_near_surface_zeta(nest, margin: int | None = None,
     return float(np.max(np.abs(zl[m:-m, m:-m])))
 
 
+def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
+    """Galilean shift the nest into the storm-relative frame (subtract C).
+
+    Vorticity and w are unchanged by a constant velocity offset, so the rotation
+    diagnostics are identical; the storm (moving at ~C in the ground frame) becomes
+    quasi-stationary in the nest, so a *fixed* nest keeps it centred."""
+    nest.state.u = nest.state.u - cx
+    nest.state.v = nest.state.v - cy
+    nest._u0_face = nest._u0_face - cx
+    nest._v0_face = nest._v0_face - cy
+    for nm in ("u", "v"):
+        if nm in nest._tgt:
+            nest._tgt[nm] = nest._tgt[nm] - (cx if nm == "u" else cy)
+
+
 def run_concurrent_nest(parent, spec: NestSpec, window: float,
                         record_interval=None, capture_frames=False,
-                        progress=None):
+                        follow=False, storm_motion=None, progress=None):
     """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
 
     The parent keeps stepping alongside the nest; each parent step the parent
-    state is re-interpolated onto the nest, and the nest sub-cycles (finer dt)
-    with its border relaxed toward the parent target **interpolated linearly in
-    time**.  Fresh inflow keeps entering, so the storm is sustained beyond the
-    frozen-boundary short window -- still one-way and at fixed refinement.
+    state is re-interpolated onto the nest and the nest sub-cycles (finer dt) with
+    its border relaxed toward the parent target **interpolated linearly in time**.
+    Fresh inflow keeps entering, so the storm is sustained beyond the
+    frozen-boundary window -- still one-way and at fixed refinement.
+
+    ``follow`` (M3 phase 2b, **storm-following nest**): run the nest in the
+    storm-relative frame (Galilean shift by the storm motion ``C``) and slide the
+    *sampled* parent region at ``C`` so the storm stays centred in a fixed nest --
+    a feature that would otherwise advect out is now tracked.  ``storm_motion``
+    ``(cx, cy)`` overrides the Bunkers estimate.
 
     Returns ``(nest, report)``.
     """
+    import dataclasses as _dc
     from .core import StormSimulation as SS
     nest = NestedStormSimulation(parent, spec)
     nest._capture_frames = bool(capture_frames); nest.frames = []
     g = nest.grid
+    cx = cy = 0.0
+    if follow:
+        if storm_motion is None:
+            from .soundings import bunkers_storm_motion
+            cx, cy = bunkers_storm_motion(parent.base)
+        else:
+            cx, cy = storm_motion
+
+    def _targets_at(pstate, t):
+        # sample the parent at the (possibly moving) nest region, in the nest frame
+        sp = _dc.replace(spec, x0=spec.x0 + cx * t, y0=spec.y0 + cy * t) if follow else spec
+        tg = _interp_targets(pstate, parent.grid, g, sp)
+        if follow:
+            tg["u"] = tg["u"] - cx; tg["v"] = tg["v"] - cy
+        return tg
+
     initial = _diag.initial_budgets(nest.state, nest.rho_ref)
     interval = record_interval or max(1, nest.cfg.output.interval_steps)
-    # bracketing targets (parent now / after the next parent step)
-    tgt_prev = _interp_targets(parent.state, parent.grid, g, spec)
+    tgt_prev = _targets_at(parent.state, 0.0)
     nest.set_target(tgt_prev)
+    if follow:
+        _shift_to_relative_frame(nest, cx, cy)   # nest + initial target -> relative frame
+        nest.state.diagnose(nest.cfg)
     nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
     parent._Km = getattr(parent, "_Km", None)
     t = 0.0
@@ -446,8 +486,7 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
         if t + dtp > window:
             dtp = window - t
         parent._step(dtp)                       # advance the parent
-        tgt_next = _interp_targets(parent.state, parent.grid, g, spec)
-        # sub-cycle the nest across [t, t+dtp], blending the target in time
+        tgt_next = _targets_at(parent.state, t + dtp)
         t_sub = 0.0
         while t_sub < dtp - 1e-9:
             dtn = min(nest._dt(), dtp - t_sub)
@@ -465,7 +504,9 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     rep = SS._finalise(nest, initial)
     rep["nest"] = {"dx_m": g.dx, "dz0_m": float(g.dz_c[0]),
                    "nx": g.nx, "ny": g.ny, "nz": g.nz, "refine": spec.refine,
-                   "mode": "concurrent (phase 2: time-evolving parent boundary)"}
+                   "storm_motion": [cx, cy],
+                   "mode": ("concurrent + storm-following (phase 2b)" if follow
+                            else "concurrent (phase 2: time-evolving parent boundary)")}
     return nest, rep
 
 

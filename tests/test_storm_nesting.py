@@ -126,3 +126,30 @@ def test_concurrent_nest_phase2_is_stable():
     # interior-masked ζ is finite and no larger than the edge-inclusive value
     zi = nst.interior_near_surface_zeta(nest)
     assert np.isfinite(zi) and zi <= r["near_surface_zeta_max"] + 1e-9
+
+
+def test_storm_following_nest_phase2b_sustains():
+    """M3 phase 2b: the storm-following (storm-relative) nest keeps the cell centred
+    so the updraft is sustained -- not decayed toward zero as a fixed nest would --
+    over a window, running stably and conserving."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    from storm_dynamics import rotation as rot
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=32,
+                              Lx=27000, Ly=27000, Lz=15000, duration=720.0,
+                              dt_max=3.0, hodograph_kind="quarter_circle", drag=True,
+                              z_stretch=1.05, U_max=18.0, z_turn=2000.0, C_s=0.22)
+    parent = StormSimulation(scfg)
+    parent.run()
+    wc = np.asarray(parent.grid.backend.to_cpu(rot._centered_velocity(parent.state, parent.grid)[2]))
+    i, j = np.unravel_index(np.argmax(wc.max(axis=2)), wc.shape[:2])
+    spec = nst.NestSpec.around(parent.grid, float(parent.grid.xc[i]),
+                               float(parent.grid.yc[j]), half=7000.0, refine=3, nz=38)
+    nest, rep = nst.run_concurrent_nest(parent, spec, window=180.0, follow=True)
+    r = rep["rotation"]; c = rep["conservation"]
+    w_hist = [h["w_max"] for h in nest.history]
+    assert np.isfinite(r["zeta_abs_max"]) and max(w_hist) < 45.0   # stable, physical
+    assert w_hist[-1] > 2.0                                        # updraft sustained (not collapsed)
+    assert abs(c["total_water_rel_err"]) < 1.5e-2                  # conserves well when centred
+    assert "storm-following" in rep["nest"]["mode"]
+    assert len(rep["nest"]["storm_motion"]) == 2                   # C recorded
