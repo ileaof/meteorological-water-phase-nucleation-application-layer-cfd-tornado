@@ -30,7 +30,10 @@ moved byte-identically; SHA-256 checksums preserved).
   `--plots` writes the rotation figures).
 - `storm_dynamics/plotting.py` — rotation figures: mid-level / near-surface ζ
   slices (the cyclonic/anticyclonic split couplet), vertical velocity, the
-  environmental hodograph with SRH/shear, and the rotation time series.
+  environmental hodograph with SRH/shear, and the rotation time series; plus an
+  **animated GIF** of the evolving vorticity (`animate_rotation`, Pillow — no
+  ffmpeg) and a history-CSV writer. Example flags `--animate` / `--fps` / `--csv`
+  (frame capture via `StormSimulation.run(capture_frames=True)`).
 - `configs/storm_supercell.yaml`, `configs/storm_tornadogenesis.yaml` (declarative).
 - `docs/storm_dynamics_guide.md` (model, what it can/cannot claim, resolution
   limits, references), `docs/MANUAL_storm_dynamics.html` (styled self-contained

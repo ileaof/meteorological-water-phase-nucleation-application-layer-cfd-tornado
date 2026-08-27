@@ -141,7 +141,9 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
 ## Done since the first handoff
 
 - **Rotation figures** (`plotting.py` + example `--plots`): mid-level / near-surface
-  ζ slices (the split couplet), w, hodograph+SRH, rotation time series.
+  ζ slices (the split couplet), w, hodograph+SRH, rotation time series. Plus an
+  **animated GIF** of the evolving vorticity (`--animate`, Pillow — no ffmpeg;
+  frame capture via `run(capture_frames=True)`) and a **history CSV** (`--csv`).
 - **Kernel-nucleation coupling** (`build_storm_config(couple_nucleation=True)` /
   example `--kernel-nucleation`): the validated 2nd-order nucleation rate J is
   evaluated on the post-transport state each step and fed to the microphysics as

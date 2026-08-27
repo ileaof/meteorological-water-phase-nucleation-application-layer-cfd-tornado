@@ -252,9 +252,14 @@ class StormSimulation:
         st.t = self.t + dt
 
     # ---- main loop ----
-    def run(self, progress=None, record_interval=None) -> dict:
+    def run(self, progress=None, record_interval=None, capture_frames=False) -> dict:
+        """Run the storm.  ``capture_frames`` stores lightweight 2-D vorticity /
+        vertical-velocity slices at each record interval into ``self.frames`` for
+        animation (see :func:`storm_dynamics.plotting.animate_rotation`)."""
         cfg = self.cfg
         self._Km = None
+        self._capture_frames = bool(capture_frames)
+        self.frames = []
         initial = diag.initial_budgets(self.state, self.rho_ref)
         duration = cfg.time.duration
         interval = record_interval or max(1, cfg.output.interval_steps)
@@ -274,6 +279,23 @@ class StormSimulation:
                 progress(self.t, duration, self.step)
         return self._finalise(initial)
 
+    def _capture_frame(self) -> None:
+        """Append a 2-D snapshot (mid-level ζ, w, near-surface ζ) for animation."""
+        g = self.grid
+        to_cpu = g.backend.to_cpu
+        _, _, zeta = rot.vorticity_3d(self.state, g)
+        _, _, wc = rot._centered_velocity(self.state, g)
+        z = to_cpu(g.zc)
+        import numpy as _np
+        kmid = int(_np.argmin(_np.abs(z - 4000.0)))
+        knear = int(_np.argmin(_np.abs(z - 500.0)))
+        self.frames.append({
+            "t": self.t,
+            "zeta_mid": to_cpu(zeta[:, :, kmid]),
+            "w_mid": to_cpu(wc[:, :, kmid]),
+            "zeta_near": to_cpu(zeta[:, :, knear]),
+        })
+
     def _record(self, initial: dict) -> None:
         st = self.state
         bud = diag.conservation_budgets(st, initial, self.rho_ref)
@@ -286,6 +308,8 @@ class StormSimulation:
                                       "near_surface_zeta_max", "updraft_helicity_max",
                                       "w_max", "w_min")}}
         self.history.append(row)
+        if getattr(self, "_capture_frames", False):
+            self._capture_frame()
 
     def _finalise(self, initial: dict) -> dict:
         cfg = self.cfg

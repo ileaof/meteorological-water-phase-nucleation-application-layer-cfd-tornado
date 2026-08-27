@@ -43,8 +43,15 @@ classical Klemp–Wilhelmson / Weisman–Klemp result.
 *Left: mid-level vertical vorticity ζ with the perturbation wind (arrows) and the
 updraft (black contours) — a near-symmetric **cyclonic (red) / anticyclonic
 (blue) couplet** straddling the updraft is the split-supercell mesocyclone.
-Centre: vertical velocity. Right: near-surface ζ. (28×28×40, Δx≈1.3 km, 30 min;
-w_max ≈ 25 m/s, mesocyclone ≈ 1×10⁻² s⁻¹, updraft helicity ≈ 280 m²/s².)*
+Centre: vertical velocity. Right: near-surface ζ. (40×40×48, Δx = 1 km, on GPU,
+30 min; w_max ≈ 25 m/s, mesocyclone ≈ 1.2×10⁻² s⁻¹, updraft helicity ≈ 435 m²/s²
+— note the stronger rotation at finer resolution.)*
+
+![Animated evolution of mid-level and near-surface vertical vorticity over 30 minutes](docs/media/storm/rotation_evolution_supercell.gif)
+
+*The same finer-grid GPU run, animated (`--animate`): mid-level ζ (left) and
+near-surface ζ (right) evolving over 30 minutes as the mesocyclone organises and
+the storm splits.*
 
 ![Time series of near-surface vorticity, mid-level mesocyclone, updraft helicity and vertical velocity](docs/media/storm/rotation_timeseries_supercell.png)
 
@@ -74,9 +81,67 @@ that feeds the low-level vortex.*
 Reproduce with:
 
 ```bash
+# M1 — rotating supercell (storm splitting), CPU (default):
 python examples/supercell_tornadogenesis.py --scenario supercell      --plots
+
+# M2 — tornadogenesis (curved hodograph + surface drag + evaporative cold pool), CPU:
 python examples/supercell_tornadogenesis.py --scenario tornadogenesis --plots
+
+# the same M2 run on GPU (NVIDIA + CuPy) -- identical physics/output, just faster
+# at larger grids; --device gpu fails loudly (not silently) if no working GPU:
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis --plots --device gpu
+
+# --device auto: GPU when available, else CPU, with the fallback reason logged:
+python examples/supercell_tornadogenesis.py --scenario supercell --device auto
+
+# couple the validated nucleation kernel (eq39 pathway) as the microphysics embryo
+# source instead of CCN/IN activation (builds a lookup table once, then cached):
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
+    --kernel-nucleation --plots --device gpu
+
+# a bigger tornadogenesis grid (finer near-surface resolution, longer run) -- GPU
+# pays off once the grid is large enough that the pressure solve uses CG:
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
+    --nx 48 --ny 48 --nz 56 --duration 3600 --plots --device gpu
+
+# finer grid on GPU with graphs + an animated GIF + a CSV time series
+# (the "finer grid, GPU, graphs, animation" recipe end to end):
+python examples/supercell_tornadogenesis.py --scenario supercell \
+    --nx 40 --ny 40 --nz 48 --Lx 40000 --Ly 40000 --Lz 16000 \
+    --duration 1800 --device gpu --plots --animate --csv --fps 10 \
+    --outdir outputs/storm_m1_fine_gpu
+
+# quick smoke test (tiny grid, short duration) to sanity-check a change fast:
+python examples/supercell_tornadogenesis.py --scenario supercell \
+    --nx 8 --ny 8 --nz 10 --duration 30 --device auto
 ```
+
+| Option | Default | What it does |
+|---|---|---|
+| `--scenario {supercell,tornadogenesis}` | `supercell` | M1 (unidirectional shear) or M2 (curved hodograph + drag) |
+| `--nx --ny --nz` | `32 32 40` | grid resolution (finer = higher fidelity, heavier) |
+| `--Lx --Ly --Lz` | `40000 40000 16000` | domain size [m] (`dx = Lx/nx`) |
+| `--duration` / `--dt-max` | `2400` / `3.0` | integration time / max time step [s] |
+| `--device {cpu,gpu,auto}` | `cpu` | compute backend (`gpu` needs NVIDIA + CuPy; `auto` falls back to CPU) |
+| `--plots` | off | write hodograph, rotation-slice and time-series PNGs |
+| `--animate` / `--fps` | off / `8` | write an animated GIF of the evolving vorticity |
+| `--csv` | off | write the rotation/conservation time series to `history.csv` |
+| `--kernel-nucleation` | off | feed the validated nucleation kernel `J` as the microphysics embryo source |
+| `--outdir` | `outputs/storm_<scenario>` | where figures / GIF / CSV are written |
+
+> **Milestones — are we on M2 or M3?** M1 (rotating supercell: splitting +
+> mid-level mesocyclone) and **M2** (sustained low-level rotation) are delivered
+> and verified. A globally finer grid (above) improves fidelity and is fully
+> supported, but it is **not M3**: M3 means *nested refinement / AMR* to resolve
+> the ~10–100 m tornado vortex, which is future work — the core is left prepared
+> for it, not yet implemented.
+
+`--device cpu` (default) preserves the original CPU-only behaviour with no GPU
+probing at all; CPU/GPU parity is regression-tested
+(`test_storm_gpu_matches_cpu`, skipped automatically when no GPU is present).
+See the [storm dynamics guide](docs/storm_dynamics_guide.md)'s "Compute backend
+(CPU / GPU)" section for the full `--device`/config semantics and when GPU is
+actually worth it at these demonstration grid sizes.
 
 ---
 

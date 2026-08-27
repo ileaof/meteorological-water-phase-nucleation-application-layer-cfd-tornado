@@ -59,6 +59,11 @@ def main(argv=None) -> int:
                         "else CPU, gpu fails loudly if unavailable")
     p.add_argument("--plots", action="store_true",
                    help="write rotation figures (hodograph, slices, time series) as PNGs")
+    p.add_argument("--animate", action="store_true",
+                   help="write an animated GIF of the evolving vertical vorticity")
+    p.add_argument("--csv", action="store_true",
+                   help="write the rotation/conservation time series to history.csv")
+    p.add_argument("--fps", type=int, default=8, help="animation frames per second")
     p.add_argument("--outdir", default=None,
                    help="output directory for figures (default outputs/storm_<scenario>)")
     args = p.parse_args(argv)
@@ -110,7 +115,7 @@ def main(argv=None) -> int:
     def progress(t, dur, step):
         print("  t=%6.0f s / %.0f  (step %d)" % (t, dur, step), end="\r")
 
-    report = sim.run(progress=progress)
+    report = sim.run(progress=progress, capture_frames=args.animate)
     print(" " * 72, end="\r")
 
     rp = report["rotation"]
@@ -136,13 +141,18 @@ def main(argv=None) -> int:
     for lim in report["limitations"]:
         print("NOTE:", lim)
 
-    if args.plots:
+    if args.plots or args.animate or args.csv:
         from storm_dynamics import plotting as splt
         outdir = args.outdir or ("outputs/storm_%s" % args.scenario)
-        paths = splt.plot_all(sim, outdir, tag=args.scenario)
         print("-" * 72)
-        for name, path in paths.items():
-            print("figure %-11s -> %s" % (name, path))
+        if args.plots:
+            for name, path in splt.plot_all(sim, outdir, tag=args.scenario).items():
+                print("figure %-11s -> %s" % (name, path))
+        if args.csv:
+            print("history     -> %s" % splt.write_history_csv(sim, outdir, tag=args.scenario))
+        if args.animate:
+            print("animation   -> %s"
+                  % splt.animate_rotation(sim, outdir, tag=args.scenario, fps=args.fps))
     return 0
 
 

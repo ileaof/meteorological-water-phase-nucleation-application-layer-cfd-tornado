@@ -180,6 +180,68 @@ def plot_all(sim, outdir, tag="") -> dict:
     }
 
 
+def animate_rotation(sim, outdir, tag="", fps=8) -> str:
+    """Animate the evolving mid-level and near-surface vertical vorticity as a GIF.
+
+    Requires the run to have captured frames (``sim.run(capture_frames=True)``).
+    Uses matplotlib + Pillow (no ffmpeg needed).  Returns the GIF path.
+    """
+    import matplotlib.animation as manim
+    frames = getattr(sim, "frames", None)
+    if not frames:
+        raise ValueError("no frames captured; run with capture_frames=True")
+    os.makedirs(outdir, exist_ok=True)
+    g = sim.grid
+    Lx = g.Lx / 1000.0; Ly = g.Ly / 1000.0
+    zmax = max(1e-6, max(float(np.abs(f["zeta_mid"]).max()) for f in frames))
+    nzmax = max(1e-6, max(float(np.abs(f["zeta_near"]).max()) for f in frames))
+    ext = [0, Lx, 0, Ly]
+
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(11, 5.2), constrained_layout=True)
+    im0 = a0.imshow(frames[0]["zeta_mid"].T, origin="lower", extent=ext, cmap="RdBu_r",
+                    vmin=-zmax, vmax=zmax, aspect="auto")
+    im1 = a1.imshow(frames[0]["zeta_near"].T, origin="lower", extent=ext, cmap="RdBu_r",
+                    vmin=-nzmax, vmax=nzmax, aspect="auto")
+    fig.colorbar(im0, ax=a0, label=r"$\zeta$ [s$^{-1}$]")
+    fig.colorbar(im1, ax=a1, label=r"$\zeta$ [s$^{-1}$]")
+    a0.set_title("mid-level $\\zeta$ (~4 km)\ncyclonic=red, anticyclonic=blue")
+    a1.set_title("near-surface $\\zeta$ (~0.5 km)\ntornadogenesis proxy")
+    for ax in (a0, a1):
+        ax.set_xlabel("x [km]"); ax.set_ylabel("y [km]")
+    sup = fig.suptitle("storm_dynamics rotation  t = %.0f s  -- IDEALISED, not a forecast"
+                       % frames[0]["t"], fontsize=12)
+
+    def update(i):
+        f = frames[i]
+        im0.set_data(f["zeta_mid"].T)
+        im1.set_data(f["zeta_near"].T)
+        sup.set_text("storm_dynamics rotation  t = %.0f s  -- IDEALISED, not a forecast" % f["t"])
+        return im0, im1, sup
+
+    anim = manim.FuncAnimation(fig, update, frames=len(frames), blit=False)
+    path = os.path.join(outdir, "rotation_evolution%s.gif" % (("_" + tag) if tag else ""))
+    anim.save(path, writer=manim.PillowWriter(fps=fps))
+    plt.close(fig)
+    return path
+
+
+def write_history_csv(sim, outdir, tag="") -> str:
+    """Write the recorded rotation/conservation time series to a CSV.  Returns path."""
+    import csv
+    os.makedirs(outdir, exist_ok=True)
+    path = os.path.join(outdir, "history%s.csv" % (("_" + tag) if tag else ""))
+    rows = sim.history
+    if not rows:
+        return path
+    cols = list(rows[0].keys())
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+    return path
+
+
 __all__ = [
     "plot_rotation_slices", "plot_hodograph", "plot_rotation_timeseries", "plot_all",
+    "animate_rotation", "write_history_csv",
 ]
