@@ -137,9 +137,15 @@ multigrid with exactly this coarse–fine handling).
    coarse cell, at the ghost point symmetric to the fine boundary about the
    interface) and a **single-valued (conservative)** interface flux. Verified
    2nd-order on a manufactured solution (error falls ~4x per 2x refinement across
-   the interface, `test_composite_poisson_1d_second_order_across_interface`). The
-   remaining step is the **2-D/3-D** extension (same normal stencil + a tangential
-   coarse interpolation for the ghost) and wiring it into the anelastic projection.
+   the interface, `test_composite_poisson_1d_second_order_across_interface`).
+   **2-D done too** (`solve_2d`): a rectangular fine patch in a periodic coarse grid,
+   with a tangential linear coarse interpolation for the ghost and the interface
+   flux oriented `d(phi)/d(+axis)` and single-valued — verified 2nd-order *including
+   the four corners* (`test_composite_poisson_2d_second_order_with_corners`, ratios
+   ~4.0). (The bug that made a first attempt blow up was a flux-orientation sign on
+   the L/B edges, found by localising the truncation residual to the edge cells.)
+   The remaining step is the **3-D** analogue and wiring it into the anelastic
+   projection RHS/correction.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

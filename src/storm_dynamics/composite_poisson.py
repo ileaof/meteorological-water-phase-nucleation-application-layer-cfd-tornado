@@ -120,14 +120,142 @@ def manufactured_error(nc, r=2):
     return float(max(ec, ef)), hc
 
 
-__all__ = ["solve_1d", "manufactured_error"]
+def solve_2d(f_coarse, f_fine, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0):
+    """Composite 2-D Poisson: periodic coarse grid (nc x nc) with a fine patch
+    (refinement ``r``) over coarse cells ``[ci0,ci1) x [cj0,cj1)``.
+
+    Normal direction: the same 2nd-order ghost as :func:`solve_1d`. Tangential:
+    linear interpolation of the coarse solution to the fine cell position. The
+    interface flux is oriented ``d(phi)/d(+axis)`` and is **single-valued**
+    (conservative). Assembled sparsely, solved directly.  Returns
+    ``(phi_coarse, phi_fine)`` (covered coarse cells are NaN).
+    """
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    covered = lambda I, J: (ci0 <= I < ci1) and (cj0 <= J < cj1)
+    cids, g = {}, 0
+    for I in range(nc):
+        for J in range(nc):
+            if not covered(I, J):
+                cids[(I, J)] = g; g += 1
+    fbase = g
+    fid = lambda a, b: fbase + a * nfy + b
+    N = fbase + nfx * nfy
+    a0, a1, a2 = _ghost_weights(r)
+    gcol = lambda k: (fid(k[1], k[2]) if k[0] == "f" else cids[(k[1], k[2])])
+
+    def tang(colfix_is_x, fixed, b):            # linear coarse interp along the edge
+        base = cj0 if colfix_is_x else ci0
+        Jc = base + b // r
+        t = ((b % r) + 0.5) / r - 0.5
+        Jn = Jc + (1 if t > 0 else -1)
+        w0, w1 = 1 - abs(t), abs(t)
+        return ({(fixed, Jc): w0, (fixed, Jn % nc): w1} if colfix_is_x
+                else {(Jc, fixed): w0, (Jn % nc, fixed): w1})
+
+    def ghost(edge, b):
+        if edge == "R":
+            d = {("f", nfx - 2, b): a0, ("f", nfx - 1, b): a1}; cc = tang(True, ci1, b)
+        elif edge == "L":
+            d = {("f", 1, b): a0, ("f", 0, b): a1}; cc = tang(True, ci0 - 1, b)
+        elif edge == "T":
+            d = {("f", b, nfy - 2): a0, ("f", b, nfy - 1): a1}; cc = tang(False, cj1, b)
+        else:
+            d = {("f", b, 1): a0, ("f", b, 0): a1}; cc = tang(False, cj0 - 1, b)
+        for (I, J), w in cc.items():
+            d[("c", I, J)] = d.get(("c", I, J), 0.0) + a2 * w
+        return d
+
+    def flux(edge, b):                          # d(phi)/d(+axis), single-valued
+        fb = {"R": (nfx - 1, b), "L": (0, b), "T": (b, nfy - 1), "B": (b, 0)}[edge]
+        key = ("f", fb[0], fb[1])
+        if edge in ("R", "T"):
+            d = {k: v / hf for k, v in ghost(edge, b).items()}
+            d[key] = d.get(key, 0.0) - 1.0 / hf
+        else:
+            d = {k: -v / hf for k, v in ghost(edge, b).items()}
+            d[key] = d.get(key, 0.0) + 1.0 / hf
+        return d
+
+    rows, cols, data, rhs = [], [], [], np.zeros(N)
+    add = lambda rr, cc, vv: (rows.append(rr), cols.append(cc), data.append(vv))
+
+    for a in range(nfx):                        # fine cells
+        for b in range(nfy):
+            row = fid(a, b)
+            if a == nfx - 1:
+                for k, w in flux("R", b).items():
+                    add(row, gcol(k), w / hf)
+            else:
+                add(row, fid(a + 1, b), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+            if a == 0:
+                for k, w in flux("L", b).items():
+                    add(row, gcol(k), -w / hf)
+            else:
+                add(row, fid(a - 1, b), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+            if b == nfy - 1:
+                for k, w in flux("T", a).items():
+                    add(row, gcol(k), w / hf)
+            else:
+                add(row, fid(a, b + 1), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+            if b == 0:
+                for k, w in flux("B", a).items():
+                    add(row, gcol(k), -w / hf)
+            else:
+                add(row, fid(a, b - 1), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+            rhs[row] = f_fine[a, b]
+
+    for (I, J), row in cids.items():            # coarse cells
+        rhs[row] = f_coarse[I, J]
+        for (dI, dJ, edge, along) in ((1, 0, "L", J), (-1, 0, "R", J),
+                                      (0, 1, "B", I), (0, -1, "T", I)):
+            In, Jn = (I + dI) % nc, (J + dJ) % nc
+            if covered(In, Jn):
+                base = (along - (cj0 if edge in ("L", "R") else ci0)) * r
+                s2 = -(1.0 if edge in ("R", "T") else -1.0)
+                for bb in range(base, base + r):
+                    for k, w in flux(edge, bb).items():
+                        add(row, gcol(k), s2 * (w / r) / hc)
+            else:
+                add(row, cids[(In, Jn)], 1 / hc ** 2); add(row, row, -1 / hc ** 2)
+
+    A = sp.csr_matrix((data, (rows, cols)), shape=(N, N)).tolil()
+    A[cids[(0, 0)], :] = 0; A[cids[(0, 0)], cids[(0, 0)]] = 1.0; rhs[cids[(0, 0)]] = anchor_value
+    sol = spla.spsolve(A.tocsr(), rhs)
+    phi_c = np.full((nc, nc), np.nan)
+    for (I, J) in cids:
+        phi_c[I, J] = sol[cids[(I, J)]]
+    phi_f = np.array([[sol[fid(a, b)] for b in range(nfy)] for a in range(nfx)])
+    return phi_c, phi_f
+
+
+def manufactured_error_2d(nc, r=2):
+    """max error of the 2-D composite solve vs phi=sin(2pi x)sin(2pi y); (err, hc)."""
+    hc = 1.0 / nc
+    ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    xc = (np.arange(nc) + 0.5) * hc
+    Xc, Yc = np.meshgrid(xc, xc, indexing="ij")
+    ex_c = np.sin(2 * np.pi * Xc) * np.sin(2 * np.pi * Yc)
+    xf = ci0 * hc + (np.arange(nfx) + 0.5) * (hc / r)
+    yf = cj0 * hc + (np.arange(nfy) + 0.5) * (hc / r)
+    Xf, Yf = np.meshgrid(xf, yf, indexing="ij")
+    ex_f = np.sin(2 * np.pi * Xf) * np.sin(2 * np.pi * Yf)
+    pc, pf = solve_2d(-8 * np.pi ** 2 * ex_c, -8 * np.pi ** 2 * ex_f,
+                      nc, r, ci0, ci1, cj0, cj1, anchor_value=ex_c[0, 0])
+    return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
+
+
+__all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d"]
 
 
 if __name__ == "__main__":
-    print("composite 2-level 1-D Poisson (2nd-order interface stencil):")
-    prev = None
-    for nc in (48, 96, 192, 384):
-        err, hc = manufactured_error(nc)
-        ratio = "" if prev is None else "  ratio=%.2f" % (prev / err)
-        print("  nc=%3d  hc=%.4f  max|err|=%.3e%s" % (nc, hc, err, ratio))
-        prev = err
+    for dim, fn, grids in (("1-D", manufactured_error, (48, 96, 192, 384)),
+                           ("2-D", manufactured_error_2d, (24, 48, 96))):
+        print("composite 2-level %s Poisson (2nd-order interface stencil):" % dim)
+        prev = None
+        for nc in grids:
+            err, hc = fn(nc)
+            ratio = "" if prev is None else "  ratio=%.2f" % (prev / err)
+            print("  nc=%3d  hc=%.4f  max|err|=%.3e%s" % (nc, hc, err, ratio))
+            prev = err

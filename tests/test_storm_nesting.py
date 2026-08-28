@@ -232,6 +232,17 @@ def test_composite_poisson_1d_second_order_across_interface():
     assert e2 < 2e-4, e2                            # accurate
 
 
+def test_composite_poisson_2d_second_order_with_corners():
+    """The 2-D composite Poisson (fine rectangular patch in a periodic coarse grid,
+    with the tangential coarse interpolation and the four corners) is 2nd-order
+    accurate through the coarse-fine interface."""
+    from storm_dynamics import composite_poisson as cp
+    e1, _ = cp.manufactured_error_2d(48)
+    e2, _ = cp.manufactured_error_2d(96)
+    assert 3.5 < e1 / e2 < 4.5, (e1, e2)            # 2nd order incl. corners
+    assert e2 < 1e-3, e2
+
+
 def test_amr_conservative_prolong_is_inverse_of_restrict():
     """The regridding operator (coarse->fine) is conservative and inverts
     average-down on a constant block: restrict(prolong(x)) == x."""
