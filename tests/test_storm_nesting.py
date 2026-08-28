@@ -12,6 +12,7 @@ refinement of the parent, not a numerical artefact.  (Whether the finer grid
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from meteorological_flow.grid import Grid
 from meteorological_flow.state import FlowState
@@ -187,6 +188,17 @@ def test_amr_refluxing_conserves_across_interface():
     assert d["reflux"] < 1e-12, d            # refluxing conserves to machine precision
     assert d["reflux"] < d["no_reflux"] / 1e6
     assert d["free_stream"] < 1e-12, d       # a uniform field stays uniform (correctness)
+
+
+def test_amr_port_scaffold_conserves_on_multifab():
+    """Port scaffold (M3): the field on an AMReX MultiFab, halo-exchanged by AMReX,
+    stepped by our flux-form physics, conserves mass to machine precision.  Skipped
+    where pyAMReX is unavailable (it lives in the WSL amr312 env only)."""
+    from storm_dynamics import amr_port
+    if not amr_port.have_amrex():
+        pytest.skip("pyAMReX not installed (build via scripts/build_pyamrex_wsl.sh)")
+    d = amr_port.demo(n=24, nsteps=30)
+    assert d["mass_rel_drift"] < 1e-12, d
 
 
 def test_amr_conservative_prolong_is_inverse_of_restrict():

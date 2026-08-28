@@ -179,6 +179,19 @@ Built and imported (pyAMReX `26.08`, CPU, 3D) and probed on WSL:
   physics port — the data model and hierarchy are ready; the solver/reflux
   bindings are the gap.
 
+### Port scaffold — validated ✅
+
+`storm_dynamics.amr_port.AmrexAdvect3D` is the first step of the physics port: the
+tracer lives in an **AMReX `MultiFab`**, AMReX does the ghost exchange
+(`fill_boundary` with periodicity), and **our** flux-form NumPy stencil (accessing
+the MultiFab via `to_numpy()`, layout `(nx+2g, ny+2g, nz+2g, ncomp)`) computes the
+update. Verified on WSL (`python -m storm_dynamics.amr_port`): a 32³ periodic
+advection over 50 steps has **total-mass drift `0.0`** — the "AMReX infrastructure
++ our RHS" binding the full port rests on. The two-level, refluxed version reuses
+the verified `storm_dynamics.amr` operators once the `FluxRegister`/`MLMG` bindings
+are enabled. (Note: access the MultiFab via `mf.to_numpy()`; the per-`MFIter`
+`array(mfi).to_numpy()` path segfaulted in this build — use the whole-box view.)
+
 ## 8. Verification plan
 
 - **Conservative restriction**: overlap integral preserved (done, error `0`).

@@ -59,6 +59,12 @@ moved byte-identically; SHA-256 checksums preserved).
 - `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
+- `storm_dynamics/amr_port.py` — **AMR port scaffold**: the field on an AMReX
+  `MultiFab` (framework data model + ghost exchange via `fill_boundary`) stepped by
+  our flux-form NumPy physics. Verified on WSL/pyAMReX: a 32³ periodic advection has
+  total-mass drift `0.0` — the "AMReX infrastructure + our RHS" binding the full
+  port rests on. Import-safe without pyAMReX (test skips); runs in the WSL amr312
+  env.
 - `scripts/build_pyamrex_wsl.sh` — turnkey, reproducible pyAMReX build for
   WSL2/Ubuntu (the M3 "full AMR" framework path). Validated on WSL: pyAMReX `26.08`
   builds and imports (Miniforge **Python 3.12**; `JOBS=2` to avoid the pybind OOM
