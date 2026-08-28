@@ -138,14 +138,18 @@ multigrid with exactly this coarse–fine handling).
    interface) and a **single-valued (conservative)** interface flux. Verified
    2nd-order on a manufactured solution (error falls ~4x per 2x refinement across
    the interface, `test_composite_poisson_1d_second_order_across_interface`).
-   **2-D done too** (`solve_2d`): a rectangular fine patch in a periodic coarse grid,
-   with a tangential linear coarse interpolation for the ghost and the interface
-   flux oriented `d(phi)/d(+axis)` and single-valued — verified 2nd-order *including
-   the four corners* (`test_composite_poisson_2d_second_order_with_corners`, ratios
-   ~4.0). (The bug that made a first attempt blow up was a flux-orientation sign on
-   the L/B edges, found by localising the truncation residual to the edge cells.)
-   The remaining step is the **3-D** analogue and wiring it into the anelastic
-   projection RHS/correction.
+   **2-D and 3-D done too** (`solve_2d`, `solve_3d`): a rectangular fine patch / fine
+   box in a periodic coarse grid, with a tangential coarse interpolation for the ghost
+   (linear in 2-D, **bilinear** in 3-D) and the interface flux oriented
+   `d(phi)/d(+axis)` and single-valued — verified 2nd-order *including the patch
+   corners (2-D) and box edges/corners (3-D)* (`test_composite_poisson_2d_*`,
+   `test_composite_poisson_3d_*`, ratios ~4.0). (The bug that made a first 2-D attempt
+   blow up was a flux-orientation sign on the L/B (−axis) edges, found by localising
+   the truncation residual to the edge cells; the 3-D generalisation then worked first
+   try.) The remaining step is wiring this composite operator into the anelastic
+   projection RHS/correction (a two-level MAC projection: `div(u*)` on the composite
+   grid → `solve_3d` → correct `u = u* − grad(p)` with the same single-valued face
+   flux, so `div(u)=0` holds across the interface by construction).
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

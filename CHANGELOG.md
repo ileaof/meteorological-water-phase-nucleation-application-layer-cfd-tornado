@@ -60,14 +60,16 @@ moved byte-identically; SHA-256 checksums preserved).
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
 - `storm_dynamics/composite_poisson.py` — **composite two-level Poisson interface
-  stencil** (the AMR-projection crux), now **1-D and 2-D**: a fine patch in a periodic
-  coarse grid, coupled with a 2nd-order ghost (quadratic normal + linear tangential,
-  at the geometrically correct point) and a single-valued (conservative) interface
-  flux, assembled sparsely. Verified 2nd-order on a manufactured solution in 1-D and
-  in 2-D **including the four corners** (error ∝ h²; ratios ~4.0). A first naive
-  attempt blew up (1st-order/non-conservative); the fix was a flux-orientation sign
-  on the L/B edges, found by localising the truncation residual. The 3-D analogue +
-  projection wiring is the remaining step.
+  stencil** (the AMR-projection crux), in **1-D, 2-D and 3-D**: a fine patch/box in a
+  periodic coarse grid, coupled with a 2nd-order ghost (quadratic normal + tangential
+  coarse interpolation — linear in 2-D, **bilinear** in 3-D) and a single-valued
+  (conservative) interface flux oriented `d(phi)/d(+axis)`, assembled sparsely and
+  solved directly. Verified 2nd-order on a manufactured solution in every dimension,
+  **including the patch corners (2-D) and box edges/corners (3-D)** (error ∝ h²;
+  ratios ~4.0). A first 2-D attempt blew up (1st-order/non-conservative); the fix was
+  a flux-orientation sign on the L/B (−axis) edges, found by localising the truncation
+  residual to the edge cells — the 3-D generalisation then worked first try. Wiring
+  this composite operator into the anelastic projection is the remaining step.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

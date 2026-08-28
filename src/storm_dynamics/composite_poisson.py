@@ -17,9 +17,10 @@ solved directly (a reference solve; the multigrid V-cycle in
 Verified (``test_composite_poisson_1d_second_order``): on a manufactured solution
 ``phi = sin(2 pi x)`` the error falls by ~4x per 2x refinement (error ∝ h²).
 
-This 1-D kernel nails the normal-direction interface stencil; the 2-D/3-D extension
-applies the same normal stencil with a tangential coarse interpolation for the
-ghost -- the remaining step before wiring it into the anelastic projection.
+The 1-D kernel nails the normal-direction interface stencil; :func:`solve_2d` and
+:func:`solve_3d` add the tangential coarse interpolation (linear in 2-D, bilinear
+in 3-D) and are verified 2nd-order including the patch edges/corners.  Wiring this
+composite operator into the anelastic projection is the remaining step.
 """
 from __future__ import annotations
 
@@ -246,12 +247,153 @@ def manufactured_error_2d(nc, r=2):
     return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
 
 
-__all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d"]
+def solve_3d(f_coarse, f_fine, nc, r, lo, hi, anchor_value=0.0):
+    """Composite 3-D Poisson: periodic coarse grid (nc^3) with a fine box patch
+    (refinement ``r``) over coarse cells ``[lo:hi)`` (``lo=(ci0,cj0,ck0)``,
+    ``hi=(ci1,cj1,ck1)``).
+
+    Same construction as :func:`solve_2d` in each of the six faces: a 2nd-order
+    quadratic ghost in the normal direction, a **bilinear** coarse interpolation in
+    the two tangential directions, and a single-valued interface flux oriented
+    ``d(phi)/d(+axis)`` (conservative).  Assembled sparsely, solved directly.
+    Returns ``(phi_coarse, phi_fine)`` (covered coarse cells are NaN).
+    """
+    (ci0, cj0, ck0), (ci1, cj1, ck1) = lo, hi
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy, nfz = r * (ci1 - ci0), r * (cj1 - cj0), r * (ck1 - ck0)
+    cov = lambda I, J, K: ci0 <= I < ci1 and cj0 <= J < cj1 and ck0 <= K < ck1
+    cids, g = {}, 0
+    for I in range(nc):
+        for J in range(nc):
+            for K in range(nc):
+                if not cov(I, J, K):
+                    cids[(I, J, K)] = g; g += 1
+    fb = g
+    fid = lambda a, b, c: fb + (a * nfy + b) * nfz + c
+    N = fb + nfx * nfy * nfz
+    a0, a1, a2 = _ghost_weights(r)
+    gcol = lambda k: (fid(k[1], k[2], k[3]) if k[0] == "f" else cids[(k[1], k[2], k[3])])
+
+    def tangw(t):                          # 1-D linear coarse weights around cell t//r
+        Jc = t // r; s = ((t % r) + 0.5) / r - 0.5
+        Jn = Jc + (1 if s > 0 else -1)
+        return [(Jc, 1 - abs(s)), (Jn, abs(s))]
+
+    def coarse_at(axis, fixedI, u, v, b0, b1):   # bilinear over the 2 tangential axes
+        out = {}
+        for (Ju, wU) in [(b0 + jj, w) for jj, w in tangw(u)]:
+            for (Jv, wV) in [(b1 + kk, w) for kk, w in tangw(v)]:
+                key = ((fixedI, Ju % nc, Jv % nc) if axis == 0 else
+                       (Ju % nc, fixedI, Jv % nc) if axis == 1 else
+                       (Ju % nc, Jv % nc, fixedI))
+                out[key] = out.get(key, 0.0) + wU * wV
+        return out
+
+    def ghost(face, u, v):
+        if face == "Xp":
+            d = {("f", nfx - 2, u, v): a0, ("f", nfx - 1, u, v): a1}; cc = coarse_at(0, ci1, u, v, cj0, ck0)
+        elif face == "Xm":
+            d = {("f", 1, u, v): a0, ("f", 0, u, v): a1}; cc = coarse_at(0, ci0 - 1, u, v, cj0, ck0)
+        elif face == "Yp":
+            d = {("f", u, nfy - 2, v): a0, ("f", u, nfy - 1, v): a1}; cc = coarse_at(1, cj1, u, v, ci0, ck0)
+        elif face == "Ym":
+            d = {("f", u, 1, v): a0, ("f", u, 0, v): a1}; cc = coarse_at(1, cj0 - 1, u, v, ci0, ck0)
+        elif face == "Zp":
+            d = {("f", u, v, nfz - 2): a0, ("f", u, v, nfz - 1): a1}; cc = coarse_at(2, ck1, u, v, ci0, cj0)
+        else:
+            d = {("f", u, v, 1): a0, ("f", u, v, 0): a1}; cc = coarse_at(2, ck0 - 1, u, v, ci0, cj0)
+        for key, w in cc.items():
+            d[("c",) + key] = d.get(("c",) + key, 0.0) + a2 * w
+        return d
+
+    def flux(face, u, v):                  # d(phi)/d(+axis), single-valued
+        bc = {"Xp": (nfx - 1, u, v), "Xm": (0, u, v), "Yp": (u, nfy - 1, v),
+              "Ym": (u, 0, v), "Zp": (u, v, nfz - 1), "Zm": (u, v, 0)}[face]
+        key = ("f",) + bc
+        if face in ("Xp", "Yp", "Zp"):
+            d = {k: w / hf for k, w in ghost(face, u, v).items()}; d[key] = d.get(key, 0.0) - 1.0 / hf
+        else:
+            d = {k: -w / hf for k, w in ghost(face, u, v).items()}; d[key] = d.get(key, 0.0) + 1.0 / hf
+        return d
+
+    rows, cols, data, rhs = [], [], [], np.zeros(N)
+    add = lambda rr, cc, vv: (rows.append(rr), cols.append(cc), data.append(vv))
+
+    for a in range(nfx):                   # fine cells (6-point + interface fluxes)
+        for b in range(nfy):
+            for c in range(nfz):
+                row = fid(a, b, c)
+                for (idx, n, fp, fm, uu, vv) in (
+                        (a, nfx, "Xp", "Xm", b, c), (b, nfy, "Yp", "Ym", a, c),
+                        (c, nfz, "Zp", "Zm", a, b)):
+                    if idx == n - 1:
+                        for k, w in flux(fp, uu, vv).items():
+                            add(row, gcol(k), w / hf)
+                    else:
+                        nb = fid(a + (fp == "Xp"), b + (fp == "Yp"), c + (fp == "Zp"))
+                        add(row, nb, 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                    if idx == 0:
+                        for k, w in flux(fm, uu, vv).items():
+                            add(row, gcol(k), -w / hf)
+                    else:
+                        nb = fid(a - (fm == "Xm"), b - (fm == "Ym"), c - (fm == "Zm"))
+                        add(row, nb, 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                rhs[row] = f_fine[a, b, c]
+
+    dirs = [(1, 0, 0, "Xm", 1, 2, cj0, ck0), (-1, 0, 0, "Xp", 1, 2, cj0, ck0),
+            (0, 1, 0, "Ym", 0, 2, ci0, ck0), (0, -1, 0, "Yp", 0, 2, ci0, ck0),
+            (0, 0, 1, "Zm", 0, 1, ci0, cj0), (0, 0, -1, "Zp", 0, 1, ci0, cj0)]
+    for (I, J, K), row in cids.items():    # coarse cells (interface faces refluxed)
+        rhs[row] = f_coarse[I, J, K]
+        pos = (I, J, K)
+        for (dI, dJ, dK, face, ta, tb, b0, b1) in dirs:
+            nb = ((I + dI) % nc, (J + dJ) % nc, (K + dK) % nc)
+            if cov(*nb):
+                s2 = -(1.0 if face in ("Xp", "Yp", "Zp") else -1.0)
+                ua, ub = (pos[ta] - b0) * r, (pos[tb] - b1) * r
+                for uu in range(ua, ua + r):
+                    for vv in range(ub, ub + r):
+                        for k, w in flux(face, uu, vv).items():
+                            add(row, gcol(k), s2 * (w / r ** 2) / hc)
+            else:
+                add(row, cids[nb], 1 / hc ** 2); add(row, row, -1 / hc ** 2)
+
+    A = sp.csr_matrix((data, (rows, cols)), shape=(N, N)).tolil()
+    anc = cids[(0, 0, 0)]
+    A[anc, :] = 0; A[anc, anc] = 1.0; rhs[anc] = anchor_value
+    sol = spla.spsolve(A.tocsr(), rhs)
+    phi_c = np.full((nc, nc, nc), np.nan)
+    for k in cids:
+        phi_c[k] = sol[cids[k]]
+    phi_f = sol[fb:].reshape(nfx, nfy, nfz)
+    return phi_c, phi_f
+
+
+def manufactured_error_3d(nc, r=2):
+    """max error of the 3-D composite solve vs phi=prod sin(2pi x_i); (err, hc)."""
+    hc = 1.0 / nc
+    lo = (nc // 3, nc // 3, nc // 3); hi = (2 * nc // 3, 2 * nc // 3, 2 * nc // 3)
+    (ci0, cj0, ck0), (ci1, cj1, ck1) = lo, hi
+    s = lambda x: np.sin(2 * np.pi * x)
+    xc = (np.arange(nc) + 0.5) * hc
+    ex_c = s(xc)[:, None, None] * s(xc)[None, :, None] * s(xc)[None, None, :]
+    fx = ci0 * hc + (np.arange(r * (ci1 - ci0)) + 0.5) * (hc / r)
+    fy = cj0 * hc + (np.arange(r * (cj1 - cj0)) + 0.5) * (hc / r)
+    fz = ck0 * hc + (np.arange(r * (ck1 - ck0)) + 0.5) * (hc / r)
+    ex_f = s(fx)[:, None, None] * s(fy)[None, :, None] * s(fz)[None, None, :]
+    pc, pf = solve_3d(-12 * np.pi ** 2 * ex_c, -12 * np.pi ** 2 * ex_f,
+                      nc, r, lo, hi, anchor_value=ex_c[0, 0, 0])
+    return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
+
+
+__all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
+           "solve_3d", "manufactured_error_3d"]
 
 
 if __name__ == "__main__":
     for dim, fn, grids in (("1-D", manufactured_error, (48, 96, 192, 384)),
-                           ("2-D", manufactured_error_2d, (24, 48, 96))):
+                           ("2-D", manufactured_error_2d, (24, 48, 96)),
+                           ("3-D", manufactured_error_3d, (10, 20))):
         print("composite 2-level %s Poisson (2nd-order interface stencil):" % dim)
         prev = None
         for nc in grids:
