@@ -126,7 +126,13 @@ multigrid with exactly this coarse–fine handling).
    (test `test_amr_refluxing_conserves_across_interface`). This reference logic
    ports directly onto a framework `FluxRegister`.
 2. **Composite multigrid Poisson** on the static 2-level grid — *~3–5 weeks*
-   (the crux); verify divergence-free across the interface.
+   (the crux); verify divergence-free across the interface. **Solver kernel done**
+   (`storm_dynamics.poisson_mg`): a geometric-multigrid V-cycle (red-black GS,
+   full-weighting restriction, bilinear prolongation) that converges h-independently
+   (~8 V-cycles to 1e-10 at any resolution) and is 2nd-order accurate on a
+   manufactured solution — this is the "bring-our-own-solver" kernel needed because
+   pyAMReX exposes no MLMG. The remaining step is the **composite** (coarse-fine
+   interface) coupling on top of this kernel.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

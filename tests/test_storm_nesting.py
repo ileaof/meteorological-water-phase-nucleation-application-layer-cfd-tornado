@@ -201,6 +201,26 @@ def test_amr_port_scaffold_conserves_on_multifab():
     assert d["mass_rel_drift"] < 1e-12, d
 
 
+def test_poisson_multigrid_converges_and_is_second_order():
+    """Our geometric-multigrid Poisson (the AMR projection kernel pyAMReX doesn't
+    provide) converges h-independently and is 2nd-order accurate on a manufactured
+    solution phi = sin(2pi x) sin(2pi y)."""
+    from storm_dynamics import poisson_mg as mg
+    errs, ncyc, last = {}, {}, None
+    for n in (64, 128):
+        h = 1.0 / n
+        xs = (np.arange(n) + 0.5) * h
+        X, Y = np.meshgrid(xs, xs, indexing="ij")
+        exact = np.sin(2 * np.pi * X) * np.sin(2 * np.pi * Y)
+        phi, hist = mg.solve(-8 * np.pi ** 2 * exact, h)
+        errs[n] = float(np.abs((phi - phi.mean()) - (exact - exact.mean())).max())
+        ncyc[n] = len(hist); last = hist[-1]
+    assert last < 1e-8                              # converged
+    assert ncyc[64] <= 15 and ncyc[128] <= 15       # h-independent V-cycle count
+    ratio = errs[64] / errs[128]
+    assert 3.5 < ratio < 4.5, ratio                 # error ∝ h^2 (2nd order)
+
+
 def test_amr_conservative_prolong_is_inverse_of_restrict():
     """The regridding operator (coarse->fine) is conservative and inverts
     average-down on a constant block: restrict(prolong(x)) == x."""

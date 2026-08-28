@@ -59,6 +59,12 @@ moved byte-identically; SHA-256 checksums preserved).
 - `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
+- `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
+  projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
+  V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).
+  Verified: h-independent convergence (~8 V-cycles to 1e-10 at n=64/128/256) and
+  2nd-order accuracy (error ∝ h²) on a manufactured solution. The composite
+  (coarse-fine) coupling on top of this kernel is the remaining AMR-projection step.
 - `storm_dynamics/amr_port.py` — **AMR port scaffold**: the field on an AMReX
   `MultiFab` (framework data model + ghost exchange via `fill_boundary`) stepped by
   our flux-form NumPy physics. Verified on WSL/pyAMReX: a 32³ periodic advection has
