@@ -171,13 +171,26 @@ Built and imported (pyAMReX `26.08`, CPU, 3D) and probed on WSL:
 - ✅ **AMR hierarchy**: `AmrCore`, `AmrMesh`, `AmrInfo`, `AmrParGDB` are present —
   the regridding / level-hierarchy backbone the port builds on. A `Poisson` class
   is also exposed.
-- ❌ **Missing in the default build**: `MLMG` / `MLABecLaplacian` (the composite
-  multigrid solve), `FluxRegister` / `YAFluxRegister` (refluxing), and the
-  interp/coarsen operators are **not** bound. The port therefore needs pyAMReX
-  rebuilt with the **LinearSolvers + AmrCore Python bindings enabled** (or those
-  pieces driven from C++). This is the concrete next environment step before the
-  physics port — the data model and hierarchy are ready; the solver/reflux
-  bindings are the gap.
+- ❌ **Not exposed by pyAMReX at all** (confirmed by inspecting the pyAMReX
+  sources — there is **no `LinearSolvers` binding directory** and **no `MLMG` /
+  `MLLinOp` / `FluxRegister` binding** anywhere under `src/`): the composite
+  multigrid solve and the flux register. AMReX's C++ library *has* them
+  (`AMReX_LINEAR_SOLVERS=ON`), but pyAMReX does **not** wrap them for Python. **A
+  rebuild does not help** — there is nothing to enable. To use MLMG/FluxRegister
+  from the framework you must either (a) write that part in **C++/AMReX** (the
+  Python bindings are a deliberate subset), or (b) add the pybind bindings to
+  pyAMReX upstream.
+
+**Revised path (important).** The Python (pyAMReX) route gives us the **data model
++ AMR hierarchy (`AmrCore`) + our physics** — proven by the scaffold — but **not**
+the framework's Poisson solver or refluxing. So the pragmatic port is: keep
+pyAMReX for the hierarchy/data and **bring our own** solver and reflux — we already
+have flux-conservative refluxing, conservative restriction and prolongation in
+`storm_dynamics.amr` (verified), and a composite **multigrid Poisson we write
+ourselves** (design-doc Milestone 2) closes the last gap **without needing
+pyAMReX's MLMG**. The alternative, for a production code, is to write the AMR app
+in C++/AMReX. Either way, the earlier "just rebuild pyAMReX with the solver
+bindings" step is a dead end.
 
 ### Port scaffold — validated ✅
 
