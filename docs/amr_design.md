@@ -131,8 +131,15 @@ multigrid with exactly this coarse–fine handling).
    full-weighting restriction, bilinear prolongation) that converges h-independently
    (~8 V-cycles to 1e-10 at any resolution) and is 2nd-order accurate on a
    manufactured solution — this is the "bring-our-own-solver" kernel needed because
-   pyAMReX exposes no MLMG. The remaining step is the **composite** (coarse-fine
-   interface) coupling on top of this kernel.
+   pyAMReX exposes no MLMG. **Composite coarse-fine interface stencil done in 1-D**
+   (`storm_dynamics.composite_poisson`): a fine patch replacing part of a periodic
+   coarse grid, coupled with a **2nd-order ghost** (quadratic through two fine + one
+   coarse cell, at the ghost point symmetric to the fine boundary about the
+   interface) and a **single-valued (conservative)** interface flux. Verified
+   2nd-order on a manufactured solution (error falls ~4x per 2x refinement across
+   the interface, `test_composite_poisson_1d_second_order_across_interface`). The
+   remaining step is the **2-D/3-D** extension (same normal stencil + a tangential
+   coarse interpolation for the ghost) and wiring it into the anelastic projection.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

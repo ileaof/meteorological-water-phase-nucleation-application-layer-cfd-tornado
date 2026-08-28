@@ -221,6 +221,17 @@ def test_poisson_multigrid_converges_and_is_second_order():
     assert 3.5 < ratio < 4.5, ratio                 # error ∝ h^2 (2nd order)
 
 
+def test_composite_poisson_1d_second_order_across_interface():
+    """The composite 2-level Poisson (coarse periodic grid + fine patch) with the
+    2nd-order coarse-fine interface stencil is 2nd-order accurate -- the AMR-
+    projection crux, verified in 1-D on a manufactured solution."""
+    from storm_dynamics import composite_poisson as cp
+    e1, _ = cp.manufactured_error(96)
+    e2, _ = cp.manufactured_error(192)
+    assert 3.5 < e1 / e2 < 4.5, (e1, e2)            # error ∝ h^2 through the interface
+    assert e2 < 2e-4, e2                            # accurate
+
+
 def test_amr_conservative_prolong_is_inverse_of_restrict():
     """The regridding operator (coarse->fine) is conservative and inverts
     average-down on a constant block: restrict(prolong(x)) == x."""

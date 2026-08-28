@@ -59,6 +59,13 @@ moved byte-identically; SHA-256 checksums preserved).
 - `docs/amr_design.md` — the rigorous engineering plan for full two-way adaptive
   AMR (refluxing, multilevel Poisson, Berger–Oliger regridding, required refactors,
   milestones/effort, framework recommendation, verification plan).
+- `storm_dynamics/composite_poisson.py` — **composite two-level Poisson interface
+  stencil** (1-D; the AMR-projection crux): a fine patch replacing part of a periodic
+  coarse grid, coupled with a 2nd-order ghost (quadratic, at the geometrically
+  correct point) and a single-valued (conservative) interface flux, assembled
+  sparsely. Verified 2nd-order on a manufactured solution (error ∝ h² across the
+  interface; earlier naive Schwarz attempt was only 1st-order and non-conservative).
+  The 2-D/3-D extension + projection wiring is the remaining step.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).
