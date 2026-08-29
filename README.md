@@ -151,6 +151,25 @@ Injection feedback (not rigorous refluxing); stable, water ≈ −0.1%.*
 > anisotropic/non-aligned nests and **adaptive/dynamic regridding** are the remaining
 > generalisations. The rigorous plan is in [`docs/amr_design.md`](docs/amr_design.md).
 
+#### Composite projection across the interface — runnable demo
+
+`examples/composite_projection_demo.py` matures a small square parent, builds a
+**cell-aligned** nest over the updraft, kicks both levels with a strongly divergent
+perturbation, and runs the one composite solve
+(`storm_dynamics.nesting.composite_project_two_level`). The anelastic mass-flux
+divergence collapses to machine precision **everywhere, including the coarse-fine
+interface** — the consistency the two independent per-level projections cannot give:
+
+```bash
+python examples/composite_projection_demo.py
+# nest interior BEFORE projection : 1.049e-01   (strongly divergent)
+# nest interior AFTER  projection : 2.828e-16
+# composite check (independent recompute from the written-back arrays):
+#   coarse         : 2.095e-16
+#   fine           : 2.828e-16
+#   fine-INTERFACE : 2.828e-16   <-- single-valued across the coarse-fine interface
+```
+
 Reproduce with:
 
 ```bash

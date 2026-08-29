@@ -126,6 +126,11 @@ moved byte-identically; SHA-256 checksums preserved).
   the default in `run_concurrent_nest` (it replaces the nest-boundary relaxation with the
   interface coupling) is opt-in; anisotropic/non-aligned nests are the only further
   generalisations. See `docs/amr_design.md`.
+- `examples/composite_projection_demo.py` — runnable end-to-end demo of the call site:
+  matures a small square parent, builds a cell-aligned nest, kicks both levels with a
+  divergent perturbation, runs `composite_project_two_level`, and shows the anelastic
+  divergence collapse from ~1e-1 to ~1e-16 everywhere including the interface. Documented
+  in the README M3 section.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).
