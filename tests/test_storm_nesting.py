@@ -297,6 +297,19 @@ def test_composite_massflux_bridge_storm_arrays_divergence_free():
             assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (periodic, nc, dc, df, di)
 
 
+def test_composite_stretched_vertical_metric_second_order():
+    """Step-2 item (c): the stretched vertical metric (variable-dz finite volume, walls)
+    composes with the horizontal composite interface. Uniform z is clean 2nd order;
+    moderate stretching is supraconvergent (~1.8-2), the standard non-uniform-FV order."""
+    from storm_dynamics import composite_poisson as cp
+    e1 = cp.manufactured_error_metric_z(24, 24, s=1.0)      # uniform z -> clean 2nd order
+    e2 = cp.manufactured_error_metric_z(48, 48, s=1.0)
+    assert 3.6 < e1 / e2 < 4.4, (e1, e2)
+    s1 = cp.manufactured_error_metric_z(24, 24, s=1.05)     # stretched -> supraconvergent
+    s2 = cp.manufactured_error_metric_z(48, 48, s=1.05)
+    assert 3.0 < s1 / s2 < 4.4 and s2 < 1e-2, (s1, s2)
+
+
 def test_composite_projection_3d_divergence_free_across_interface():
     """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
     velocity discretely divergence-free including at the coarse-fine interface."""

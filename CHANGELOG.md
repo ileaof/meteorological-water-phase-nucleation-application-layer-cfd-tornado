@@ -96,6 +96,15 @@ moved byte-identically; SHA-256 checksums preserved).
   `div(m)` recomputed independently from the written-back arrays is ~1e-13 across the
   interface (wall + periodic); `test_composite_massflux_bridge_storm_arrays_divergence_free`.
   In mass-flux variables `m=ρ0 u` this is exactly the anelastic constraint.
+  **Plumbing item (c) done:** `manufactured_error_metric_z` — the stretched vertical
+  metric (variable-dz finite volume, walls) composed with the horizontal composite
+  interface (the storm nest refines horizontally only and shares the parent's stretched
+  z). On `cos(2 pi x) cos(pi z/Lz)`: uniform z is clean 2nd order (ratio 4.01), moderate
+  stretching is supraconvergent (~1.8-2, the standard non-uniform-FV order);
+  `test_composite_stretched_vertical_metric_second_order`. **All three step-2 plumbing
+  pieces (a) wall BC, (b) face bridge, (c) stretched metric are verified** — the only
+  remaining work is assembling the full 3-D composite operator and calling it from
+  `NestedStormSimulation` (wiring, not new algorithm; `docs/amr_design.md`).
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

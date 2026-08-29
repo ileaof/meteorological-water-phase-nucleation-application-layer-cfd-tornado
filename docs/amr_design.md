@@ -204,10 +204,24 @@ multigrid with exactly this coarse–fine handling).
    — `test_composite_massflux_bridge_storm_arrays_divergence_free`. It works in mass-flux
    variables `m = ρ0 u`, so it is exactly the anelastic constraint; the caller forms
    `ρ0 u*` (as `PressureSolver.project_anelastic` already does) and recovers `u = m/ρ0`.
-   Remaining: item (c) the stretched physical z-grid metric (per-level `hf`,`hc`), and
-   calling this bridge from `NestedStormSimulation._step` in place of the two independent
-   `project_anelastic` calls (the 3-D analogue extends `composite_project_massflux_2d` the
-   same way `solve_2d`→`solve_3d` did).
+
+   **Item (c) done** (`manufactured_error_metric_z`): the **stretched vertical metric**
+   composed with the horizontal composite interface. The storm nest refines *horizontally*
+   only (`NestSpec.refine`) and shares the parent's stretched, matched z-levels, so the
+   vertical is a variable-dz finite-volume operator (walls top/bottom), NOT refined — no
+   z-interface. Verified on an (x-z) composite (`phi = cos(2 pi x) cos(pi z/Lz)`): uniform
+   z is clean 2nd order (ratio 4.01), moderate stretching (`s=1.05`) is supraconvergent
+   (~1.8-2, the standard cell-centred non-uniform-FV order — the storm's own solver has it
+   too). The vertical metric is orthogonal to the interface stencil
+   (`test_composite_stretched_vertical_metric_second_order`).
+
+   **All three plumbing pieces are now verified.** The only remaining step is the
+   assembly: build the full 3-D composite operator (horizontal composite interface at each
+   z-level + the variable-dz vertical coupling per column, `m = ρ0 u` mass fluxes, wall
+   BCs) and call it from `NestedStormSimulation._step` in place of the two independent
+   `project_anelastic` calls, gathering the two levels' faces via
+   `composite_project_massflux_2d`'s mapping extended to 3-D. Each ingredient is proven;
+   this is wiring, not new algorithm.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

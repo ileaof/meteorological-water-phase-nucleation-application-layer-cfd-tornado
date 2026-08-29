@@ -685,6 +685,87 @@ def composite_project_massflux_2d(mu_c, mv_c, mu_f, mv_f, nc, r,
             float(np.abs(df_chk[border]).max()))
 
 
+def manufactured_error_metric_z(nc, nz, r=2, s=1.05, Lz=2.0):
+    """**Item (c) of the step-2 bridge**: the **stretched vertical metric** composed with
+    the horizontal composite interface.  Solves an (x-z) composite matching the storm's
+    nest (x horizontally refined by ``r`` -> the composite interface, uniform ``hx``; z
+    stretched by ratio ``s`` with a finite-volume variable-dz operator, walls top/bottom,
+    NOT refined -- matched levels) on the manufactured ``phi = cos(2 pi x) cos(pi z/Lz)``.
+    Returns max|error|.
+
+    Composes correctly: for uniform z (``s=1``) the error is clean 2nd order (~4x per
+    2x refinement); moderate stretching is supraconvergent (~1.8-2 order), the standard
+    cell-centred finite-volume behaviour on a non-uniform grid (the storm's own solver
+    has it too).  The vertical metric is orthogonal to the interface stencil.
+    """
+    hc = 1.0 / nc; hf = hc / r
+    ci0, ci1 = nc // 3, 2 * nc // 3
+    nfx = r * (ci1 - ci0)
+    dz = s ** np.arange(nz); dz *= Lz / dz.sum()
+    zf = np.concatenate([[0.0], np.cumsum(dz)])
+    zc = 0.5 * (zf[:-1] + zf[1:]); dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    incov = lambda I: ci0 <= I < ci1
+    a0, a1, a2 = _ghost_weights(r)
+    Fright = {("f", nfx - 2): a0 / hf, ("f", nfx - 1): (a1 - 1.0) / hf, ("c", ci1): a2 / hf}
+    Fleft = {("f", 1): -a0 / hf, ("f", 0): (1.0 - a1) / hf, ("c", ci0 - 1): -a2 / hf}
+    cxs = [I for I in range(nc) if not incov(I)]
+    cid = {(I, k): idx for idx, (I, k) in enumerate((I, k) for I in cxs for k in range(nz))}
+    fb = len(cid)
+    fid = lambda a, k: fb + a * nz + k
+    N = fb + nfx * nz
+    gcol = lambda kind, i, k: (fid(i, k) if kind == "f" else cid[(i, k)])
+    rows, cols, data = [], [], []
+    add = lambda rr, cc, vv: (rows.append(rr), cols.append(cc), data.append(vv))
+
+    def vertical(row, colof, k):                       # variable-dz FV, walls at 0, nz-1
+        if k < nz - 1:
+            w = 1.0 / (dzf[k] * dzc[k]); add(row, colof(k + 1), w); add(row, row, -w)
+        if k > 0:
+            w = 1.0 / (dzf[k - 1] * dzc[k]); add(row, colof(k - 1), w); add(row, row, -w)
+
+    for I in cxs:
+        for k in range(nz):
+            row = cid[(I, k)]
+            if I == ci0 - 1:
+                for (kk, idx), wv in Fleft.items(): add(row, gcol(kk, idx, k), wv / hc)
+            else:
+                add(row, cid[((I + 1) % nc, k)], 1.0 / hc ** 2); add(row, row, -1.0 / hc ** 2)
+            if I == ci1:
+                for (kk, idx), wv in Fright.items(): add(row, gcol(kk, idx, k), -wv / hc)
+            else:
+                add(row, cid[((I - 1) % nc, k)], 1.0 / hc ** 2); add(row, row, -1.0 / hc ** 2)
+            vertical(row, lambda kk, I=I: cid[(I, kk)], k)
+    for a in range(nfx):
+        for k in range(nz):
+            row = fid(a, k)
+            if a == nfx - 1:
+                for (kk, idx), wv in Fright.items(): add(row, gcol(kk, idx, k), wv / hf)
+            else:
+                add(row, fid(a + 1, k), 1.0 / hf ** 2); add(row, row, -1.0 / hf ** 2)
+            if a == 0:
+                for (kk, idx), wv in Fleft.items(): add(row, gcol(kk, idx, k), -wv / hf)
+            else:
+                add(row, fid(a - 1, k), 1.0 / hf ** 2); add(row, row, -1.0 / hf ** 2)
+            vertical(row, lambda kk, a=a: fid(a, kk), k)
+
+    kz = np.pi / Lz
+    xf = ci0 * hc + (np.arange(nfx) + 0.5) * hf
+    exc = lambda I, k: np.cos(2 * np.pi * (I + 0.5) * hc) * np.cos(kz * zc[k])
+    exf = lambda a, k: np.cos(2 * np.pi * xf[a]) * np.cos(kz * zc[k])
+    lam = -(4 * np.pi ** 2 + kz ** 2)
+    rhs = np.zeros(N)
+    for (I, k), idx in cid.items(): rhs[idx] = lam * exc(I, k)
+    for a in range(nfx):
+        for k in range(nz): rhs[fid(a, k)] = lam * exf(a, k)
+    A = sp.csr_matrix((data, (rows, cols)), shape=(N, N)).tolil()
+    anc = cid[(cxs[0], 0)]
+    A[anc, :] = 0; A[anc, anc] = 1.0; rhs[anc] = exc(cxs[0], 0)
+    sol = spla.spsolve(A.tocsr(), rhs)
+    ec = max(abs(sol[cid[(I, k)]] - exc(I, k)) for I in cxs for k in range(nz))
+    ef = max(abs(sol[fid(a, k)] - exf(a, k)) for a in range(nfx) for k in range(nz))
+    return float(max(ec, ef))
+
+
 def _interface_flux_3d(nc, r, lo, hi):
     """The single-valued interface flux operator used by :func:`solve_3d` (quadratic
     normal ghost + bilinear tangential coarse interp, oriented d(phi)/d+axis).
@@ -833,7 +914,7 @@ def project_divergence_3d(nc, r=2, seed=0):
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
            "manufactured_error_2d_wall", "solve_3d", "manufactured_error_3d",
            "project_divergence_2d", "project_divergence_3d",
-           "composite_project_massflux_2d"]
+           "composite_project_massflux_2d", "manufactured_error_metric_z"]
 
 
 if __name__ == "__main__":
