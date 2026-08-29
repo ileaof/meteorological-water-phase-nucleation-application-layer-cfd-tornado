@@ -59,3 +59,5 @@ src/met_water_nucleation/_engine/unified_h2o_nucleation_climate/unified_nucleati
 # scratch/test outputs (_io_test_*.nc, _test_*, _storm_*, _cfd_demo, ...)
 /outputs/_*
 *.log
+# AMReX crash backtrace dumps
+Backtrace.*
