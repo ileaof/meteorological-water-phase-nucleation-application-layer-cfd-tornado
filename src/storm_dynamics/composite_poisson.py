@@ -512,8 +512,154 @@ def project_divergence_2d(nc, r=2, seed=0):
     return (float(np.abs(dc2).max()), float(np.abs(df2).max()), float(np.abs(df2[border]).max()))
 
 
+def _interface_flux_3d(nc, r, lo, hi):
+    """The single-valued interface flux operator used by :func:`solve_3d` (quadratic
+    normal ghost + bilinear tangential coarse interp, oriented d(phi)/d+axis).
+    Returns ``flux(face, u, v) -> {key: weight}`` (face in Xp/Xm/Yp/Ym/Zp/Zm)."""
+    (ci0, cj0, ck0), (ci1, cj1, ck1) = lo, hi
+    hf = (1.0 / nc) / r
+    nfx, nfy, nfz = r * (ci1 - ci0), r * (cj1 - cj0), r * (ck1 - ck0)
+    a0, a1, a2 = _ghost_weights(r)
+
+    def tangw(t):
+        Jc = t // r; s = ((t % r) + 0.5) / r - 0.5
+        Jn = Jc + (1 if s > 0 else -1)
+        return [(Jc, 1 - abs(s)), (Jn, abs(s))]
+
+    def coarse_at(axis, fixedI, u, v, b0, b1):
+        out = {}
+        for (Ju, wU) in [(b0 + jj, w) for jj, w in tangw(u)]:
+            for (Jv, wV) in [(b1 + kk, w) for kk, w in tangw(v)]:
+                key = ((fixedI, Ju % nc, Jv % nc) if axis == 0 else
+                       (Ju % nc, fixedI, Jv % nc) if axis == 1 else
+                       (Ju % nc, Jv % nc, fixedI))
+                out[key] = out.get(key, 0.0) + wU * wV
+        return out
+
+    def ghost(face, u, v):
+        if face == "Xp": d = {("f", nfx-2, u, v): a0, ("f", nfx-1, u, v): a1}; cc = coarse_at(0, ci1, u, v, cj0, ck0)
+        elif face == "Xm": d = {("f", 1, u, v): a0, ("f", 0, u, v): a1}; cc = coarse_at(0, ci0-1, u, v, cj0, ck0)
+        elif face == "Yp": d = {("f", u, nfy-2, v): a0, ("f", u, nfy-1, v): a1}; cc = coarse_at(1, cj1, u, v, ci0, ck0)
+        elif face == "Ym": d = {("f", u, 1, v): a0, ("f", u, 0, v): a1}; cc = coarse_at(1, cj0-1, u, v, ci0, ck0)
+        elif face == "Zp": d = {("f", u, v, nfz-2): a0, ("f", u, v, nfz-1): a1}; cc = coarse_at(2, ck1, u, v, ci0, cj0)
+        else: d = {("f", u, v, 1): a0, ("f", u, v, 0): a1}; cc = coarse_at(2, ck0-1, u, v, ci0, cj0)
+        for key, w in cc.items(): d[("c",) + key] = d.get(("c",) + key, 0.0) + a2 * w
+        return d
+
+    def flux(face, u, v):
+        bc = {"Xp": (nfx-1, u, v), "Xm": (0, u, v), "Yp": (u, nfy-1, v),
+              "Ym": (u, 0, v), "Zp": (u, v, nfz-1), "Zm": (u, v, 0)}[face]
+        key = ("f",) + bc
+        if face in ("Xp", "Yp", "Zp"):
+            d = {k: w/hf for k, w in ghost(face, u, v).items()}; d[key] = d.get(key, 0.0) - 1.0/hf
+        else:
+            d = {k: -w/hf for k, w in ghost(face, u, v).items()}; d[key] = d.get(key, 0.0) + 1.0/hf
+        return d
+
+    return flux
+
+
+def project_divergence_3d(nc, r=2, seed=0):
+    """Two-level composite MAC projection in **3-D** (the mechanical analogue of
+    :func:`project_divergence_2d`, built on :func:`solve_3d`).  A random face-flux
+    velocity is made discretely divergence-free by ``div(u*)`` → ``solve_3d`` →
+    ``u = u* - grad(p)``; ``div(u)`` vanishes to the solve tolerance *including at the
+    coarse-fine interface*.  Returns ``(max|div u| coarse, fine, fine-interface)``."""
+    lo = (nc // 3, nc // 3, nc // 3); hi = (2 * nc // 3, 2 * nc // 3, 2 * nc // 3)
+    (ci0, cj0, ck0), (ci1, cj1, ck1) = lo, hi
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy, nfz = r * (ci1 - ci0), r * (cj1 - cj0), r * (ck1 - ck0)
+    cov = lambda I, J, K: ci0 <= I < ci1 and cj0 <= J < cj1 and ck0 <= K < ck1
+    flux = _interface_flux_3d(nc, r, lo, hi)
+
+    def evalflux(face, u, v, pc, pf):
+        return sum(w * (pf[k[1], k[2], k[3]] if k[0] == "f" else pc[k[1], k[2], k[3]])
+                   for k, w in flux(face, u, v).items())
+
+    rng = np.random.default_rng(seed)
+    ufx = rng.standard_normal((nfx - 1, nfy, nfz))
+    ufy = rng.standard_normal((nfx, nfy - 1, nfz))
+    ufz = rng.standard_normal((nfx, nfy, nfz - 1))
+    ui = {"Xp": rng.standard_normal((nfy, nfz)), "Xm": rng.standard_normal((nfy, nfz)),
+          "Yp": rng.standard_normal((nfx, nfz)), "Ym": rng.standard_normal((nfx, nfz)),
+          "Zp": rng.standard_normal((nfx, nfy)), "Zm": rng.standard_normal((nfx, nfy))}
+    cfx = rng.standard_normal((nc, nc, nc)); cfy = rng.standard_normal((nc, nc, nc))
+    cfz = rng.standard_normal((nc, nc, nc))
+
+    def mean_iface(ui, side, p0, p1):  # mean of the r*r fine interface faces at a coarse face
+        b0, b1 = p0 * r, p1 * r
+        return ui[side][b0:b0 + r, b1:b1 + r].mean()
+
+    def cface_x(ui, cfx, I, J, K):
+        if cov((I + 1) % nc, J, K): return mean_iface(ui, "Xm", J - cj0, K - ck0)
+        if cov(I, J, K): return mean_iface(ui, "Xp", J - cj0, K - ck0)
+        return cfx[I, J, K]
+
+    def cface_y(ui, cfy, I, J, K):
+        if cov(I, (J + 1) % nc, K): return mean_iface(ui, "Ym", I - ci0, K - ck0)
+        if cov(I, J, K): return mean_iface(ui, "Yp", I - ci0, K - ck0)
+        return cfy[I, J, K]
+
+    def cface_z(ui, cfz, I, J, K):
+        if cov(I, J, (K + 1) % nc): return mean_iface(ui, "Zm", I - ci0, J - cj0)
+        if cov(I, J, K): return mean_iface(ui, "Zp", I - ci0, J - cj0)
+        return cfz[I, J, K]
+
+    def divergence(ufx, ufy, ufz, ui, cfx, cfy, cfz):
+        dc = np.zeros((nc, nc, nc)); df = np.zeros((nfx, nfy, nfz))
+        for a in range(nfx):
+            for b in range(nfy):
+                for c in range(nfz):
+                    xR = ui["Xp"][b, c] if a == nfx-1 else ufx[a, b, c]
+                    xL = ui["Xm"][b, c] if a == 0 else ufx[a-1, b, c]
+                    yT = ui["Yp"][a, c] if b == nfy-1 else ufy[a, b, c]
+                    yB = ui["Ym"][a, c] if b == 0 else ufy[a, b-1, c]
+                    zF = ui["Zp"][a, b] if c == nfz-1 else ufz[a, b, c]
+                    zN = ui["Zm"][a, b] if c == 0 else ufz[a, b, c-1]
+                    df[a, b, c] = ((xR-xL) + (yT-yB) + (zF-zN)) / hf
+        for I in range(nc):
+            for J in range(nc):
+                for K in range(nc):
+                    if cov(I, J, K): continue
+                    dc[I, J, K] = ((cface_x(ui, cfx, I, J, K) - cface_x(ui, cfx, (I-1) % nc, J, K))
+                                   + (cface_y(ui, cfy, I, J, K) - cface_y(ui, cfy, I, (J-1) % nc, K))
+                                   + (cface_z(ui, cfz, I, J, K) - cface_z(ui, cfz, I, J, (K-1) % nc))) / hc
+        return dc, df
+
+    fc, ff = divergence(ufx, ufy, ufz, ui, cfx, cfy, cfz)
+    pc, pf = solve_3d(fc, ff, nc, r, lo, hi, anchor_value=0.0)
+    pc = np.nan_to_num(pc)
+
+    gfx = (pf[1:, :, :] - pf[:-1, :, :]) / hf
+    gfy = (pf[:, 1:, :] - pf[:, :-1, :]) / hf
+    gfz = (pf[:, :, 1:] - pf[:, :, :-1]) / hf
+    gi = {}
+    for side, (n0, n1) in (("Xp", (nfy, nfz)), ("Xm", (nfy, nfz)), ("Yp", (nfx, nfz)),
+                           ("Ym", (nfx, nfz)), ("Zp", (nfx, nfy)), ("Zm", (nfx, nfy))):
+        gi[side] = np.array([[evalflux(side, u, v, pc, pf) for v in range(n1)]
+                             for u in range(n0)])
+    gcfx = np.zeros((nc, nc, nc)); gcfy = np.zeros((nc, nc, nc)); gcfz = np.zeros((nc, nc, nc))
+    for I in range(nc):
+        for J in range(nc):
+            for K in range(nc):
+                if not (cov(I, J, K) or cov((I+1) % nc, J, K)): gcfx[I, J, K] = (pc[(I+1) % nc, J, K]-pc[I, J, K])/hc
+                if not (cov(I, J, K) or cov(I, (J+1) % nc, K)): gcfy[I, J, K] = (pc[I, (J+1) % nc, K]-pc[I, J, K])/hc
+                if not (cov(I, J, K) or cov(I, J, (K+1) % nc)): gcfz[I, J, K] = (pc[I, J, (K+1) % nc]-pc[I, J, K])/hc
+
+    u2 = (ufx - gfx, ufy - gfy, ufz - gfz)
+    ui2 = {e: ui[e] - gi[e] for e in ui}
+    dc2, df2 = divergence(*u2, ui2, cfx - gcfx, cfy - gcfy, cfz - gcfz)
+    dc2[0, 0, 0] = 0.0                               # exclude the anchor cell
+    border = np.zeros((nfx, nfy, nfz), bool)
+    border[0, :, :] = border[-1, :, :] = True
+    border[:, 0, :] = border[:, -1, :] = True
+    border[:, :, 0] = border[:, :, -1] = True
+    return (float(np.abs(dc2).max()), float(np.abs(df2).max()), float(np.abs(df2[border]).max()))
+
+
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
-           "solve_3d", "manufactured_error_3d", "project_divergence_2d"]
+           "solve_3d", "manufactured_error_3d", "project_divergence_2d",
+           "project_divergence_3d"]
 
 
 if __name__ == "__main__":
@@ -528,8 +674,10 @@ if __name__ == "__main__":
             print("  nc=%3d  hc=%.4f  max|err|=%.3e%s" % (nc, hc, err, ratio))
             prev = err
 
-    print("two-level composite MAC projection (div u -> 0 across the interface):")
-    for nc in (12, 24):
-        dc, df, di = project_divergence_2d(nc, 2)
-        print("  nc=%3d  max|div u|: coarse=%.2e  fine=%.2e  fine-interface=%.2e"
-              % (nc, dc, df, di))
+    for dim, fn, grids in (("2-D", project_divergence_2d, (12, 24)),
+                           ("3-D", project_divergence_3d, (8, 12))):
+        print("two-level composite %s MAC projection (div u -> 0 across the interface):" % dim)
+        for nc in grids:
+            dc, df, di = fn(nc, 2)
+            print("  nc=%3d  max|div u|: coarse=%.2e  fine=%.2e  fine-interface=%.2e"
+                  % (nc, dc, df, di))

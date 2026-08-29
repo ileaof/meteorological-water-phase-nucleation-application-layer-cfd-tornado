@@ -265,6 +265,15 @@ def test_composite_projection_2d_divergence_free_across_interface():
         assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
 
 
+def test_composite_projection_3d_divergence_free_across_interface():
+    """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
+    velocity discretely divergence-free including at the coarse-fine interface."""
+    from storm_dynamics import composite_poisson as cp
+    for nc in (8, 12):
+        dc, df, di = cp.project_divergence_3d(nc, 2, seed=1)
+        assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
+
+
 def test_amr_conservative_prolong_is_inverse_of_restrict():
     """The regridding operator (coarse->fine) is conservative and inverts
     average-down on a constant block: restrict(prolong(x)) == x."""
