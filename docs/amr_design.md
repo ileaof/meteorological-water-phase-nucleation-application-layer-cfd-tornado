@@ -146,10 +146,18 @@ multigrid with exactly this coarse–fine handling).
    `test_composite_poisson_3d_*`, ratios ~4.0). (The bug that made a first 2-D attempt
    blow up was a flux-orientation sign on the L/B (−axis) edges, found by localising
    the truncation residual to the edge cells; the 3-D generalisation then worked first
-   try.) The remaining step is wiring this composite operator into the anelastic
-   projection RHS/correction (a two-level MAC projection: `div(u*)` on the composite
-   grid → `solve_3d` → correct `u = u* − grad(p)` with the same single-valued face
-   flux, so `div(u)=0` holds across the interface by construction).
+   try.) This composite operator is now **wired into a two-level MAC projection**
+   (`project_divergence_2d`, `test_composite_projection_2d_divergence_free_across_interface`):
+   a face-flux velocity `u*` on the composite grid → `f = div(u*)` → `solve_2d` gives
+   `p` → `u = u* − grad(p)`. Because the divergence, gradient and the composite
+   Laplacian all use the **same** single-valued interface flux (`L = div·grad`),
+   `div(u) = f − L p` vanishes to the solve tolerance (~1e-13) **including at the
+   coarse-fine interface** — verified on a random `u*` with a divergence/gradient
+   built independently of the solver (self-validating). This is the anelastic
+   projection across a refinement interface, in 2-D; the 3-D wiring is the mechanical
+   analogue of `solve_2d`→`solve_3d`, and integrating it into the storm time step
+   (replacing the single-grid projection with the composite one over the nest) is the
+   remaining engineering.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

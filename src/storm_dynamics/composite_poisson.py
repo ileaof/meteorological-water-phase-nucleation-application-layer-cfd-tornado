@@ -19,8 +19,12 @@ Verified (``test_composite_poisson_1d_second_order``): on a manufactured solutio
 
 The 1-D kernel nails the normal-direction interface stencil; :func:`solve_2d` and
 :func:`solve_3d` add the tangential coarse interpolation (linear in 2-D, bilinear
-in 3-D) and are verified 2nd-order including the patch edges/corners.  Wiring this
-composite operator into the anelastic projection is the remaining step.
+in 3-D) and are verified 2nd-order including the patch edges/corners.
+:func:`project_divergence_2d` then wires it into a **two-level MAC projection**: a
+face-flux velocity is made discretely divergence-free to machine precision
+*including at the coarse-fine interface* (the composite Poisson in its anelastic
+role), because the divergence, gradient and Laplacian share the single-valued
+interface flux (``L = div . grad``).
 """
 from __future__ import annotations
 
@@ -386,8 +390,130 @@ def manufactured_error_3d(nc, r=2):
     return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
 
 
+def _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1):
+    """The single-valued coarse-fine interface flux operator used by :func:`solve_2d`
+    (quadratic normal ghost + linear tangential coarse interp, oriented d(phi)/d+axis).
+    Returns ``flux(edge, b) -> {key: weight}`` with ``key`` an ``("f",a,b)`` fine or
+    ``("c",I,J)`` coarse cell -- the exact operator the composite Laplacian is built
+    from, so a divergence/gradient built on it satisfies ``L = div . grad``."""
+    hf = (1.0 / nc) / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    a0, a1, a2 = _ghost_weights(r)
+
+    def tang(colfix_is_x, fixed, b):
+        base = cj0 if colfix_is_x else ci0
+        Jc = base + b // r; t = ((b % r) + 0.5) / r - 0.5
+        Jn = Jc + (1 if t > 0 else -1); w0, w1 = 1 - abs(t), abs(t)
+        return ({(fixed, Jc): w0, (fixed, Jn % nc): w1} if colfix_is_x
+                else {(Jc, fixed): w0, (Jn % nc, fixed): w1})
+
+    def ghost(edge, b):
+        if edge == "R": d = {("f", nfx-2, b): a0, ("f", nfx-1, b): a1}; cc = tang(True, ci1, b)
+        elif edge == "L": d = {("f", 1, b): a0, ("f", 0, b): a1}; cc = tang(True, ci0-1, b)
+        elif edge == "T": d = {("f", b, nfy-2): a0, ("f", b, nfy-1): a1}; cc = tang(False, cj1, b)
+        else: d = {("f", b, 1): a0, ("f", b, 0): a1}; cc = tang(False, cj0-1, b)
+        for (I, J), w in cc.items(): d[("c", I, J)] = d.get(("c", I, J), 0.0) + a2 * w
+        return d
+
+    def flux(edge, b):
+        fb = {"R": (nfx-1, b), "L": (0, b), "T": (b, nfy-1), "B": (b, 0)}[edge]
+        key = ("f", fb[0], fb[1])
+        if edge in ("R", "T"):
+            d = {k: v/hf for k, v in ghost(edge, b).items()}; d[key] = d.get(key, 0.0) - 1.0/hf
+        else:
+            d = {k: -v/hf for k, v in ghost(edge, b).items()}; d[key] = d.get(key, 0.0) + 1.0/hf
+        return d
+
+    return flux
+
+
+def project_divergence_2d(nc, r=2, seed=0):
+    """Two-level composite MAC **projection** demonstrator (the composite Poisson in
+    its anelastic role).  A random face-flux velocity ``u*`` (fine interior faces,
+    single-valued interface faces, coarse faces) is made discretely divergence-free:
+
+        ``f = div(u*)`` -> ``solve_2d`` gives ``p`` (L p = f) -> ``u = u* - grad(p)``
+
+    Because the divergence, the gradient and the composite Laplacian ``L`` all use the
+    **same** single-valued interface flux, ``L = div . grad`` and ``div(u) = f - L p``
+    vanishes to the solve tolerance -- *including at the coarse-fine interface*.  The
+    divergence/gradient here are built independently of :func:`solve_2d`, so a nonzero
+    result would expose any inconsistency (self-validating).
+
+    Returns ``(max|div u| coarse, max|div u| fine, max|div u| on fine interface cells)``.
+    """
+    ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+
+    def evalflux(edge, b, pc, pf):
+        return sum(w * (pf[k[1], k[2]] if k[0] == "f" else pc[k[1], k[2]])
+                   for k, w in flux(edge, b).items())
+
+    rng = np.random.default_rng(seed)
+    ufx = rng.standard_normal((nfx - 1, nfy))        # fine interior x-faces
+    ufy = rng.standard_normal((nfx, nfy - 1))        # fine interior y-faces
+    ui = {e: rng.standard_normal(nfx) for e in ("R", "L", "T", "B")}   # interface faces
+    cfx = rng.standard_normal((nc, nc)); cfy = rng.standard_normal((nc, nc))  # coarse faces
+
+    def cface_x(ui, cfx, I, J):                      # +x coarse face; interface -> mean fine
+        if cov((I+1) % nc, J):
+            base = (J-cj0)*r; return np.mean([ui["L"][b] for b in range(base, base+r)])
+        if cov(I, J):
+            base = (J-cj0)*r; return np.mean([ui["R"][b] for b in range(base, base+r)])
+        return cfx[I, J]
+
+    def cface_y(ui, cfy, I, J):
+        if cov(I, (J+1) % nc):
+            base = (I-ci0)*r; return np.mean([ui["B"][a] for a in range(base, base+r)])
+        if cov(I, J):
+            base = (I-ci0)*r; return np.mean([ui["T"][a] for a in range(base, base+r)])
+        return cfy[I, J]
+
+    def divergence(ufx, ufy, ui, cfx, cfy):
+        dc = np.zeros((nc, nc)); df = np.zeros((nfx, nfy))
+        for a in range(nfx):
+            for b in range(nfy):
+                xR = ui["R"][b] if a == nfx-1 else ufx[a, b]
+                xL = ui["L"][b] if a == 0 else ufx[a-1, b]
+                yT = ui["T"][a] if b == nfy-1 else ufy[a, b]
+                yB = ui["B"][a] if b == 0 else ufy[a, b-1]
+                df[a, b] = (xR - xL)/hf + (yT - yB)/hf
+        for I in range(nc):
+            for J in range(nc):
+                if cov(I, J): continue
+                dc[I, J] = ((cface_x(ui, cfx, I, J) - cface_x(ui, cfx, (I-1) % nc, J))/hc
+                            + (cface_y(ui, cfy, I, J) - cface_y(ui, cfy, I, (J-1) % nc))/hc)
+        return dc, df
+
+    fc, ff = divergence(ufx, ufy, ui, cfx, cfy)
+    pc, pf = solve_2d(fc, ff, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0)
+    pc = np.nan_to_num(pc)
+
+    gfx = np.zeros_like(ufx); gfy = np.zeros_like(ufy)
+    gfx[:] = (pf[1:, :] - pf[:-1, :]) / hf
+    gfy[:] = (pf[:, 1:] - pf[:, :-1]) / hf
+    gi = {e: np.array([evalflux(e, b, pc, pf) for b in range(nfx)]) for e in ("R", "L", "T", "B")}
+    gcfx = np.zeros((nc, nc)); gcfy = np.zeros((nc, nc))
+    for I in range(nc):
+        for J in range(nc):
+            if not (cov(I, J) or cov((I+1) % nc, J)): gcfx[I, J] = (pc[(I+1) % nc, J]-pc[I, J])/hc
+            if not (cov(I, J) or cov(I, (J+1) % nc)): gcfy[I, J] = (pc[I, (J+1) % nc]-pc[I, J])/hc
+
+    ufx2, ufy2 = ufx - gfx, ufy - gfy
+    ui2 = {e: ui[e] - gi[e] for e in ui}
+    cfx2, cfy2 = cfx - gcfx, cfy - gcfy
+    dc2, df2 = divergence(ufx2, ufy2, ui2, cfx2, cfy2)
+    dc2[0, 0] = 0.0                                  # exclude the anchor cell
+    border = np.zeros((nfx, nfy), bool)
+    border[0, :] = border[-1, :] = border[:, 0] = border[:, -1] = True
+    return (float(np.abs(dc2).max()), float(np.abs(df2).max()), float(np.abs(df2[border]).max()))
+
+
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
-           "solve_3d", "manufactured_error_3d"]
+           "solve_3d", "manufactured_error_3d", "project_divergence_2d"]
 
 
 if __name__ == "__main__":
@@ -401,3 +527,9 @@ if __name__ == "__main__":
             ratio = "" if prev is None else "  ratio=%.2f" % (prev / err)
             print("  nc=%3d  hc=%.4f  max|err|=%.3e%s" % (nc, hc, err, ratio))
             prev = err
+
+    print("two-level composite MAC projection (div u -> 0 across the interface):")
+    for nc in (12, 24):
+        dc, df, di = project_divergence_2d(nc, 2)
+        print("  nc=%3d  max|div u|: coarse=%.2e  fine=%.2e  fine-interface=%.2e"
+              % (nc, dc, df, di))

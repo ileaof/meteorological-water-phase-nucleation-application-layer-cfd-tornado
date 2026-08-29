@@ -254,6 +254,17 @@ def test_composite_poisson_3d_second_order_with_edges_and_corners():
     assert e2 < 1.5e-2, e2
 
 
+def test_composite_projection_2d_divergence_free_across_interface():
+    """The two-level MAC projection built on the composite Poisson makes a random
+    face-flux velocity discretely divergence-free to the solve tolerance, INCLUDING
+    at the coarse-fine interface (divergence, gradient and the Laplacian share the
+    single-valued interface flux, so div(grad p) = L p exactly)."""
+    from storm_dynamics import composite_poisson as cp
+    for nc in (12, 24):
+        dc, df, di = cp.project_divergence_2d(nc, 2, seed=1)
+        assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
+
+
 def test_amr_conservative_prolong_is_inverse_of_restrict():
     """The regridding operator (coarse->fine) is conservative and inverts
     average-down on a constant block: restrict(prolong(x)) == x."""
