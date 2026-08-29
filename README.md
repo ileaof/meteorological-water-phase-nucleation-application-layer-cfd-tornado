@@ -123,10 +123,21 @@ Injection feedback (not rigorous refluxing); stable, water ≈ −0.1%.*
 > (concurrent/time-evolving boundary), 2b (storm-following), and **3a (approximate
 > two-way** — the nest's finer solution blended back onto the parent, improving it).
 > All in `storm_dynamics.nesting` / `examples/tornado_nest.py`
-> (`--concurrent`, `--follow`, `--two-way`). What remains for *full* AMR is a
-> separate project: **rigorous coarse–fine flux conservation** (Berger–Colella
-> refluxing) with a **multilevel Poisson** solve, **adaptive/dynamic** refinement,
-> and reaching O(10–100 m) (`--refine 5–6` / finer parent, far costlier).
+> (`--concurrent`, `--follow`, `--two-way`).
+>
+> **The AMR algorithms are now all built and verified** (`storm_dynamics.amr`,
+> `poisson_mg`, `composite_poisson`, `amr_port`): Berger–Colella **refluxing** (mass
+> drift `2e-16` vs `1.1e-4` without), conservative restriction/prolongation and
+> free-stream preservation (exact), a **geometric-multigrid Poisson** (h-independent,
+> 2nd order), the **composite coarse–fine interface stencil in 1-D/2-D/3-D** (2nd
+> order including the patch corners, conservative), and the **two-level MAC
+> projection** in 2-D/3-D — a face velocity made discretely divergence-free to
+> `~1e-13` *across the refinement interface*. That projection **is** the anelastic
+> projection in mass-flux variables (`m = ρ₀u`), so no new algorithm remains. What is
+> left is **integration plumbing** (wiring the composite projection into
+> `NestedStormSimulation` in place of the two independent per-level solves — wall BCs,
+> face extraction, the stretched grid) and **adaptive/dynamic regridding**. The full
+> rigorous plan and the exact call sites are in [`docs/amr_design.md`](docs/amr_design.md).
 
 Reproduce with:
 

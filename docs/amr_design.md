@@ -153,11 +153,38 @@ multigrid with exactly this coarse–fine handling).
    Laplacian all use the **same** single-valued interface flux (`L = div·grad`),
    `div(u) = f − L p` vanishes to the solve tolerance (~1e-13) **including at the
    coarse-fine interface** — verified on a random `u*` with a divergence/gradient
-   built independently of the solver (self-validating). This is the anelastic
-   projection across a refinement interface, in 2-D; the 3-D wiring is the mechanical
-   analogue of `solve_2d`→`solve_3d`, and integrating it into the storm time step
-   (replacing the single-grid projection with the composite one over the nest) is the
-   remaining engineering.
+   built independently of the solver (self-validating). **3-D projection done too**
+   (`project_divergence_3d`, `test_composite_projection_3d_*`): `max|div u|` ~1e-13 at
+   the interface (a subtle bug — a `mean_iface` closure over the *uncorrected* face
+   field left the coarse interface-adjacent cells divergent while fine cells were
+   already clean — was localised by splitting interior-coarse vs interface-adjacent
+   and fixed by threading the field through).
+
+   **This is the anelastic projection — no new algorithm remains.** The storm's
+   projection is `u = u* − grad(p)/ρ0` with `div(ρ0 u)=0`; in mass-flux variables
+   `m = ρ0 u` that is exactly `m = m* − grad(p)`, `div(m)=0` — the projection above
+   with the face field read as the anelastic mass flux `ρ0 u`. The density weight
+   cancels in the divergence constraint and only re-enters when recovering `u = m/ρ0`.
+
+   **Remaining step 2 — integration into `NestedStormSimulation` (plumbing, not math).**
+   Today the parent (`StormSimulation._step`, `core.py:213`) and the nest
+   (`NestedStormSimulation._step`, `nesting.py:341`) each call
+   `pressure.project_anelastic(...)` *independently* on their own grid. The composite
+   projection replaces those two calls with **one** solve over both levels' mass
+   fluxes:
+   1. after the momentum predictor, gather the two levels' staggered face mass fluxes
+      `ρ0 u*` (parent coarse cells outside the nest footprint + nest fine cells) into
+      the composite layout (`ci0..cj1` = the nest's placement in the parent);
+   2. `f = div(ρ0 u*)` (composite divergence) → `solve_2d/solve_3d` → `p`;
+   3. correct `u = u* − grad(p)/ρ0` on both levels with the shared single-valued
+      interface flux, write back into each `FlowState`.
+   The three genuine engineering items are (a) the **solid-wall vertical BC** (and the
+   nest's lateral wall/relaxation BC) in place of the periodic wrap the reference
+   solver assumes — a Neumann row on the outer boundary, the interface stencil
+   unchanged; (b) extracting/reinserting the staggered `u,v,w` faces from the two
+   `FlowState`s; (c) the **stretched physical z-grid** (`hf`, `hc` become per-level
+   metric factors). None of these change the verified interface stencil; they are the
+   production wiring that makes the two-level solve act on the real storm.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

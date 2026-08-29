@@ -5,8 +5,20 @@ phase 1 (static/frozen) intensifies near-surface ζ ~2.4× over a short window;
 phase 2 (concurrent/time-evolving boundary) sustains the nest; phase 2b
 (storm-following) intensifies the updraft ~7→23 m/s over 400–500 s; **phase 3a
 (approximate two-way feedback) improves the parent updraft (~6→9 m/s vs a no-
-feedback control), stable, water ≈ −0.1%.** Remaining: rigorous refluxing +
-multilevel-Poisson conservation, adaptive (dynamic) refinement, higher refinement.
+feedback control), stable, water ≈ −0.1%.**
+
+**AMR building blocks — all the hard algorithms now implemented & verified**
+(`amr.py`, `poisson_mg.py`, `composite_poisson.py`, `amr_port.py`): Berger–Colella
+**refluxing** (mass drift 2e-16 vs 1.1e-4 without), conservative restriction/
+prolongation (exact), free-stream preservation (0.0), **geometric-multigrid Poisson**
+(h-independent, 2nd order), the **composite coarse-fine interface stencil in 1-D/2-D/
+3-D** (2nd order incl. corners, conservative), the **two-level MAC projection** in
+2-D/3-D (`div(u)`→1e-13 *across the interface*), and the AMReX↔our-physics binding
+(drift 0.0 on WSL/pyAMReX). The composite projection **is** the anelastic projection
+in mass-flux variables `m=ρ0 u` — so no new algorithm remains. Remaining is
+**integration plumbing** (wire the composite projection into `NestedStormSimulation`,
+replacing the two independent `project_anelastic` calls) + adaptive/dynamic
+regridding — see `docs/amr_design.md`.
 
 ## Objective
 
@@ -153,11 +165,16 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
   no-feedback control; water ≈ −0.1%). Injection feedback, NOT refluxing.
   **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
   first rigorous conservation piece — average-down of a cell-aligned, matched-z nest
-  preserves the overlap scalar integral EXACTLY (machine precision, tested). **Full
-  AMR is a separate multi-month project — NOT implemented; the plan is in
-  `docs/amr_design.md`:** flux-conservative refluxing (Berger–Colella flux
-  registers), a multilevel-Poisson composite solve (a new solver, the crux), and
-  adaptive/dynamic regridding (Berger–Oliger), normally built on a framework
+  preserves the overlap scalar integral EXACTLY (machine precision, tested). **AMR
+  algorithms now all built & verified** (see the Status block + `docs/amr_design.md`):
+  refluxing, restriction/prolongation, free-stream, the geometric-multigrid Poisson,
+  the composite coarse-fine interface stencil (1-D/2-D/3-D, `composite_poisson.py`),
+  and the two-level MAC projection (`project_divergence_2d/3d`) — which IS the
+  anelastic projection in mass-flux variables, so no new algorithm remains. What is
+  left is **integration plumbing** (composite projection into `NestedStormSimulation`:
+  gather both levels' staggered mass fluxes → one composite solve → correct + write
+  back, with wall BCs, face extraction, the stretched grid) and **adaptive/dynamic
+  regridding** (Berger–Oliger); a production build normally uses a framework
   (AMReX/Chombo/p4est). Gotchas: nest deep-copies
   `parent.dyn`; follow uses a *constant* C (real motion varies → ζ max can sit near
   the edge, read `interior_near_surface_zeta`); periodic-parent sampling clamps

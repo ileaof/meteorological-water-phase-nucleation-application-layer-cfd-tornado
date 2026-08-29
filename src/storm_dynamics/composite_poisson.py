@@ -20,11 +20,22 @@ Verified (``test_composite_poisson_1d_second_order``): on a manufactured solutio
 The 1-D kernel nails the normal-direction interface stencil; :func:`solve_2d` and
 :func:`solve_3d` add the tangential coarse interpolation (linear in 2-D, bilinear
 in 3-D) and are verified 2nd-order including the patch edges/corners.
-:func:`project_divergence_2d` then wires it into a **two-level MAC projection**: a
-face-flux velocity is made discretely divergence-free to machine precision
-*including at the coarse-fine interface* (the composite Poisson in its anelastic
-role), because the divergence, gradient and Laplacian share the single-valued
-interface flux (``L = div . grad``).
+:func:`project_divergence_2d` / :func:`project_divergence_3d` then wire it into a
+**two-level MAC projection**: a face-flux velocity is made discretely
+divergence-free to machine precision *including at the coarse-fine interface*,
+because the divergence, gradient and Laplacian share the single-valued interface
+flux (``L = div . grad``).
+
+**Anelastic interpretation.** The storm's projection is ``u = u* - grad(p)/rho0``
+with ``div(rho0 u) = 0``.  In mass-flux variables ``m = rho0 u`` this is exactly
+``m = m* - grad(p)``, ``div(m) = 0`` -- i.e. the projection here, with the face
+field read as the anelastic mass flux ``rho0 u`` (the density weight cancels in the
+divergence constraint and only re-enters when recovering ``u = m/rho0``).  So these
+functions *are* the anelastic two-level projection across a refinement interface;
+no new algorithm is needed to make the storm anelastic.  Wiring them into
+``NestedStormSimulation`` is plumbing (extract the two levels' staggered mass fluxes,
+apply the solid-wall vertical BC in place of the periodic one, map the stretched
+physical grid) -- see ``docs/amr_design.md``.
 """
 from __future__ import annotations
 

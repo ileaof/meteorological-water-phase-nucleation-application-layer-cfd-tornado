@@ -69,14 +69,21 @@ moved byte-identically; SHA-256 checksums preserved).
   ratios ~4.0). A first 2-D attempt blew up (1st-order/non-conservative); the fix was
   a flux-orientation sign on the L/B (−axis) edges, found by localising the truncation
   residual to the edge cells — the 3-D generalisation then worked first try.
-  **Wired into a two-level MAC projection** (`project_divergence_2d`): a random
-  face-flux velocity is made discretely divergence-free by `div(u*)` → `solve_2d` →
-  `u = u* − grad(p)`; because the divergence, gradient and Laplacian share the same
-  single-valued interface flux (`L = div·grad`), `max|div u|` falls to the solve
-  tolerance (~1e-13) **including at the coarse-fine interface cells** — the composite
-  Poisson doing its anelastic job. The divergence/gradient are built independently of
-  the solver, so the test is self-validating
-  (`test_composite_projection_2d_divergence_free_across_interface`).
+  **Wired into a two-level MAC projection** in 2-D and 3-D (`project_divergence_2d`,
+  `project_divergence_3d`): a random face-flux velocity is made discretely
+  divergence-free by `div(u*)` → `solve_2d/3d` → `u = u* − grad(p)`; because the
+  divergence, gradient and Laplacian share the same single-valued interface flux
+  (`L = div·grad`), `max|div u|` falls to the solve tolerance (~1e-13) **including at
+  the coarse-fine interface cells**. The divergence/gradient are built independently
+  of the solver, so the tests are self-validating
+  (`test_composite_projection_{2d,3d}_divergence_free_across_interface`).
+  **This is the anelastic projection across a refinement interface** — in mass-flux
+  variables `m = ρ0 u`, `u = u* − grad(p)/ρ0` with `div(ρ0 u)=0` is exactly
+  `m = m* − grad(p)`, `div(m)=0` (the density weight cancels in the constraint), so no
+  new algorithm is needed to make the storm anelastic. Integrating it into
+  `NestedStormSimulation` (replacing the two independent `project_anelastic` calls with
+  one composite solve over both levels' mass fluxes) is plumbing — wall BCs, face
+  extraction, the stretched grid — documented in `docs/amr_design.md`.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).
