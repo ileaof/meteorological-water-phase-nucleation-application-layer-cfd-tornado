@@ -136,15 +136,20 @@ def manufactured_error(nc, r=2):
     return float(max(ec, ef)), hc
 
 
-def solve_2d(f_coarse, f_fine, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0):
-    """Composite 2-D Poisson: periodic coarse grid (nc x nc) with a fine patch
-    (refinement ``r``) over coarse cells ``[ci0,ci1) x [cj0,cj1)``.
+def solve_2d(f_coarse, f_fine, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0, periodic=True):
+    """Composite 2-D Poisson: coarse grid (nc x nc) with a fine patch (refinement
+    ``r``) over coarse cells ``[ci0,ci1) x [cj0,cj1)``.
 
     Normal direction: the same 2nd-order ghost as :func:`solve_1d`. Tangential:
     linear interpolation of the coarse solution to the fine cell position. The
     interface flux is oriented ``d(phi)/d(+axis)`` and is **single-valued**
     (conservative). Assembled sparsely, solved directly.  Returns
     ``(phi_coarse, phi_fine)`` (covered coarse cells are NaN).
+
+    ``periodic`` (default True) wraps the outer coarse boundary; ``False`` applies a
+    **solid-wall Neumann** BC there (``dphi/dn = 0`` -- the storm's wall condition),
+    i.e. a boundary coarse cell simply drops its outward face.  The patch is interior
+    so the interface stencil is unchanged either way.
     """
     hc = 1.0 / nc; hf = hc / r
     nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
@@ -225,7 +230,10 @@ def solve_2d(f_coarse, f_fine, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0):
         rhs[row] = f_coarse[I, J]
         for (dI, dJ, edge, along) in ((1, 0, "L", J), (-1, 0, "R", J),
                                       (0, 1, "B", I), (0, -1, "T", I)):
-            In, Jn = (I + dI) % nc, (J + dJ) % nc
+            ni, nj = I + dI, J + dJ
+            if not periodic and (ni < 0 or ni >= nc or nj < 0 or nj >= nc):
+                continue                        # solid-wall Neumann: drop the face
+            In, Jn = ni % nc, nj % nc
             if covered(In, Jn):
                 base = (along - (cj0 if edge in ("L", "R") else ci0)) * r
                 s2 = -(1.0 if edge in ("R", "T") else -1.0)
@@ -259,6 +267,24 @@ def manufactured_error_2d(nc, r=2):
     ex_f = np.sin(2 * np.pi * Xf) * np.sin(2 * np.pi * Yf)
     pc, pf = solve_2d(-8 * np.pi ** 2 * ex_c, -8 * np.pi ** 2 * ex_f,
                       nc, r, ci0, ci1, cj0, cj1, anchor_value=ex_c[0, 0])
+    return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
+
+
+def manufactured_error_2d_wall(nc, r=2):
+    """max error of the **solid-wall** (Neumann) composite solve vs
+    phi=cos(pi x)cos(pi y) (which has dphi/dn=0 on the domain walls); (err, hc)."""
+    hc = 1.0 / nc
+    ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    xc = (np.arange(nc) + 0.5) * hc
+    Xc, Yc = np.meshgrid(xc, xc, indexing="ij")
+    ex_c = np.cos(np.pi * Xc) * np.cos(np.pi * Yc)
+    xf = ci0 * hc + (np.arange(nfx) + 0.5) * (hc / r)
+    yf = cj0 * hc + (np.arange(nfy) + 0.5) * (hc / r)
+    Xf, Yf = np.meshgrid(xf, yf, indexing="ij")
+    ex_f = np.cos(np.pi * Xf) * np.cos(np.pi * Yf)
+    pc, pf = solve_2d(-2 * np.pi ** 2 * ex_c, -2 * np.pi ** 2 * ex_f,
+                      nc, r, ci0, ci1, cj0, cj1, anchor_value=ex_c[0, 0], periodic=False)
     return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
 
 
@@ -438,7 +464,7 @@ def _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1):
     return flux
 
 
-def project_divergence_2d(nc, r=2, seed=0):
+def project_divergence_2d(nc, r=2, seed=0, periodic=True):
     """Two-level composite MAC **projection** demonstrator (the composite Poisson in
     its anelastic role).  A random face-flux velocity ``u*`` (fine interior faces,
     single-valued interface faces, coarse faces) is made discretely divergence-free:
@@ -451,6 +477,10 @@ def project_divergence_2d(nc, r=2, seed=0):
     divergence/gradient here are built independently of :func:`solve_2d`, so a nonzero
     result would expose any inconsistency (self-validating).
 
+    ``periodic`` (default True) wraps the outer boundary; ``False`` applies the
+    **solid-wall** BC there (zero normal velocity: the outward boundary face carries no
+    flux and gets no pressure correction -- the storm/nest wall condition).
+
     Returns ``(max|div u| coarse, max|div u| fine, max|div u| on fine interface cells)``.
     """
     ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
@@ -458,6 +488,10 @@ def project_divergence_2d(nc, r=2, seed=0):
     nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
     cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
     flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    wxp = lambda I: (not periodic) and I == nc - 1     # +x face of cell I is a wall
+    wxm = lambda I: (not periodic) and I == 0
+    wyp = lambda J: (not periodic) and J == nc - 1
+    wym = lambda J: (not periodic) and J == 0
 
     def evalflux(edge, b, pc, pf):
         return sum(w * (pf[k[1], k[2]] if k[0] == "f" else pc[k[1], k[2]])
@@ -495,12 +529,15 @@ def project_divergence_2d(nc, r=2, seed=0):
         for I in range(nc):
             for J in range(nc):
                 if cov(I, J): continue
-                dc[I, J] = ((cface_x(ui, cfx, I, J) - cface_x(ui, cfx, (I-1) % nc, J))/hc
-                            + (cface_y(ui, cfy, I, J) - cface_y(ui, cfy, I, (J-1) % nc))/hc)
+                fxp = 0.0 if wxp(I) else cface_x(ui, cfx, I, J)
+                fxm = 0.0 if wxm(I) else cface_x(ui, cfx, (I-1) % nc, J)
+                fyp = 0.0 if wyp(J) else cface_y(ui, cfy, I, J)
+                fym = 0.0 if wym(J) else cface_y(ui, cfy, I, (J-1) % nc)
+                dc[I, J] = ((fxp - fxm) + (fyp - fym)) / hc
         return dc, df
 
     fc, ff = divergence(ufx, ufy, ui, cfx, cfy)
-    pc, pf = solve_2d(fc, ff, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0)
+    pc, pf = solve_2d(fc, ff, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0, periodic=periodic)
     pc = np.nan_to_num(pc)
 
     gfx = np.zeros_like(ufx); gfy = np.zeros_like(ufy)
@@ -510,8 +547,8 @@ def project_divergence_2d(nc, r=2, seed=0):
     gcfx = np.zeros((nc, nc)); gcfy = np.zeros((nc, nc))
     for I in range(nc):
         for J in range(nc):
-            if not (cov(I, J) or cov((I+1) % nc, J)): gcfx[I, J] = (pc[(I+1) % nc, J]-pc[I, J])/hc
-            if not (cov(I, J) or cov(I, (J+1) % nc)): gcfy[I, J] = (pc[I, (J+1) % nc]-pc[I, J])/hc
+            if not (cov(I, J) or cov((I+1) % nc, J)) and not wxp(I): gcfx[I, J] = (pc[(I+1) % nc, J]-pc[I, J])/hc
+            if not (cov(I, J) or cov(I, (J+1) % nc)) and not wyp(J): gcfy[I, J] = (pc[I, (J+1) % nc]-pc[I, J])/hc
 
     ufx2, ufy2 = ufx - gfx, ufy - gfy
     ui2 = {e: ui[e] - gi[e] for e in ui}
@@ -669,8 +706,8 @@ def project_divergence_3d(nc, r=2, seed=0):
 
 
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
-           "solve_3d", "manufactured_error_3d", "project_divergence_2d",
-           "project_divergence_3d"]
+           "manufactured_error_2d_wall", "solve_3d", "manufactured_error_3d",
+           "project_divergence_2d", "project_divergence_3d"]
 
 
 if __name__ == "__main__":

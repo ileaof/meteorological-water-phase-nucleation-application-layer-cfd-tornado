@@ -84,6 +84,11 @@ moved byte-identically; SHA-256 checksums preserved).
   `NestedStormSimulation` (replacing the two independent `project_anelastic` calls with
   one composite solve over both levels' mass fluxes) is plumbing — wall BCs, face
   extraction, the stretched grid — documented in `docs/amr_design.md`.
+  **Plumbing item (a) done:** `solve_2d`/`project_divergence_2d` take `periodic=False`
+  for the **solid-wall (Neumann) BC** the storm/nest use — a boundary coarse cell drops
+  its outward face, the interior interface stencil unchanged. Verified 2nd-order on
+  `cos(pi x)cos(pi y)` (ratio 4.00) and the wall projection is divergence-free across
+  the interface (~1e-13); `test_composite_solid_wall_bc_second_order_and_projection`.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

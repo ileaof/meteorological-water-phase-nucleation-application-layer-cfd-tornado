@@ -265,6 +265,19 @@ def test_composite_projection_2d_divergence_free_across_interface():
         assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
 
 
+def test_composite_solid_wall_bc_second_order_and_projection():
+    """The solid-wall (Neumann) composite solve is 2nd-order, and the two-level
+    projection is divergence-free across the interface with walls too -- the storm's
+    boundary condition (plumbing step-2 item a)."""
+    from storm_dynamics import composite_poisson as cp
+    e1, _ = cp.manufactured_error_2d_wall(48)
+    e2, _ = cp.manufactured_error_2d_wall(96)
+    assert 3.5 < e1 / e2 < 4.5, (e1, e2)            # 2nd order with walls
+    for nc in (12, 24):
+        dc, df, di = cp.project_divergence_2d(nc, 2, seed=2, periodic=False)
+        assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
+
+
 def test_composite_projection_3d_divergence_free_across_interface():
     """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
     velocity discretely divergence-free including at the coarse-fine interface."""

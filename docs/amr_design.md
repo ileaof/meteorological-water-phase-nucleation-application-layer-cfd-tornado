@@ -185,6 +185,15 @@ multigrid with exactly this coarse–fine handling).
    `FlowState`s; (c) the **stretched physical z-grid** (`hf`, `hc` become per-level
    metric factors). None of these change the verified interface stencil; they are the
    production wiring that makes the two-level solve act on the real storm.
+
+   **Item (a) done** (`solve_2d(..., periodic=False)`, `project_divergence_2d(...,
+   periodic=False)`): the solid-wall Neumann BC — a boundary coarse cell drops its
+   outward face (`dphi/dn=0`), the outer boundary velocity carries no flux and gets no
+   pressure correction, and the interior interface stencil is untouched. Verified
+   2nd-order on `phi=cos(pi x)cos(pi y)` (which satisfies `dphi/dn=0` on the walls;
+   ratio 4.00) and the wall projection is divergence-free across the interface to
+   ~1e-13 (`test_composite_solid_wall_bc_second_order_and_projection`). Items (b) and
+   (c) are the remaining `FlowState`/grid wiring.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if
