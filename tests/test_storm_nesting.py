@@ -370,6 +370,34 @@ def test_composite_projection_hz_full_storm_divergence_free():
         assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (periodic_h, dc, df, di)
 
 
+def test_composite_hz_anisotropic_second_order_and_projection():
+    """Anisotropic (dx != dy, ncx != ncy): the unified operator is still 2nd-order and the
+    full 3-D mass-flux projection is divergence-free across the interface -- rectangular /
+    non-square parents (removes the square-grid restriction)."""
+    import numpy as np
+    from storm_dynamics import composite_poisson as cp
+    e1 = cp.manufactured_error_hz(12, 12, ncy=18)          # hx=1/12 != hy=1/18
+    e2 = cp.manufactured_error_hz(24, 24, ncy=36)
+    assert 3.5 < e1 / e2 < 4.5 and e2 < 5e-2, (e1, e2)     # 2nd order, anisotropic
+    ncx, ncy, nz, r = 16, 10, 8, 2
+    ci0, ci1, cj0, cj1 = 5, 11, 3, 7
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    dz = 1.05 ** np.arange(nz); dz *= 12000.0 / dz.sum()
+    zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    rng = np.random.default_rng(5)
+    mu_c = rng.standard_normal((ncx + 1, ncy, nz)); mv_c = rng.standard_normal((ncx, ncy + 1, nz))
+    mw_c = rng.standard_normal((ncx, ncy, nz + 1))
+    mu_f = rng.standard_normal((nfx + 1, nfy, nz)); mv_f = rng.standard_normal((nfx, nfy + 1, nz))
+    mw_f = rng.standard_normal((nfx, nfy, nz + 1))
+    for periodic_h in (False, True):
+        dc, df, di = cp.composite_project_massflux_hz(
+            mu_c.copy(), mv_c.copy(), mw_c.copy(), mu_f.copy(), mv_f.copy(), mw_f.copy(),
+            ncx, nz, r, ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=periodic_h,
+            hx=400.0, hy=700.0, ncy=ncy)
+        assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (periodic_h, dc, df, di)
+
+
 def test_composite_projection_3d_divergence_free_across_interface():
     """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
     velocity discretely divergence-free including at the coarse-fine interface."""

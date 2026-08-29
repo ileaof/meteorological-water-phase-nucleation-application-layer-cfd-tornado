@@ -540,10 +540,10 @@ def composite_project_two_level(parent, nest, spec: NestSpec, periodic_h=None) -
 
     Operates **in place** on ``parent.state`` and ``nest.state`` (call it after both
     levels' momentum predictors, in place of the separate projections).  Requires a
-    **cell-aligned, matched-z** nest (:meth:`NestSpec.aligned`) inside a **square** parent
-    (``nx==ny``, ``dx==dy``).  ``periodic_h`` overrides the horizontal BC (default: the
-    parent grid's).  Returns ``max|div(rho0 u)|`` over the coarse, fine, and fine-interface
-    cells (recomputed independently -- should be ~machine precision).
+    **cell-aligned, matched-z** nest (:meth:`NestSpec.aligned`); the parent may be
+    **rectangular / anisotropic** (``nx != ny``, ``dx != dy``).  ``periodic_h`` overrides
+    the horizontal BC (default: the parent grid's).  Returns ``max|div(rho0 u)|`` over the
+    coarse, fine, and fine-interface cells (recomputed independently -- ~machine precision).
 
     In mass-flux variables ``m = rho0 u`` the anelastic correction ``u = u* - grad(p)/rho0``
     is exactly ``m = m* - grad(p)``, ``div(m)=0``; the density weight cancels in the
@@ -552,11 +552,9 @@ def composite_project_two_level(parent, nest, spec: NestSpec, periodic_h=None) -
     """
     from .composite_poisson import composite_project_massflux_hz
     pg = parent.grid; xp = pg.xp; to = pg.backend.to_cpu
-    nc, nz, r = pg.nx, pg.nz, spec.refine
+    ncx, ncy, nz, r = pg.nx, pg.ny, pg.nz, spec.refine
     ci0 = int(round(spec.x0 / pg.dx)); ci1 = int(round((spec.x0 + spec.Lx) / pg.dx))
     cj0 = int(round(spec.y0 / pg.dy)); cj1 = int(round((spec.y0 + spec.Ly) / pg.dy))
-    if pg.nx != pg.ny or abs(pg.dx - pg.dy) > 1e-6 * pg.dx:
-        raise ValueError("composite_project_two_level needs a square parent (nx==ny, dx==dy)")
     if nest.grid.nz != nz or nest.grid.nx != r * (ci1 - ci0) or nest.grid.ny != r * (cj1 - cj0):
         raise ValueError("needs a cell-aligned, matched-z nest (build the spec with "
                          "NestSpec.aligned)")
@@ -575,8 +573,9 @@ def composite_project_two_level(parent, nest, spec: NestSpec, periodic_h=None) -
     mw_f = np.asarray(to(nest.state.w)) * rw3
     per = bool(getattr(pg, "periodic", False)) if periodic_h is None else periodic_h
 
-    res = composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
-                                        ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=per, hx=pg.dx)
+    res = composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, ncx, nz, r,
+                                        ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=per,
+                                        hx=pg.dx, hy=pg.dy, ncy=ncy)
 
     # recover u = m / rho0 and write back into each FlowState
     parent.state.u = xp.asarray(mu_c / rc3); parent.state.v = xp.asarray(mv_c / rc3)

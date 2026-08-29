@@ -131,6 +131,14 @@ moved byte-identically; SHA-256 checksums preserved).
   divergent perturbation, runs `composite_project_two_level`, and shows the anelastic
   divergence collapse from ~1e-1 to ~1e-16 everywhere including the interface. Documented
   in the README M3 section.
+- **Anisotropic composite operator** (`dx≠dy`, rectangular `nx≠ny`): `solve_composite_hz`,
+  `composite_project_massflux_hz` and `_interface_flux_2d` take independent `hx,hy` (and
+  `ncy`) — x-normal faces divide by `hx/r`, y-normal by `hy/r`, tangential wrap uses the
+  tangential-axis count. Verified 2nd-order on a rectangular manufactured solution
+  (`hx=1/12` vs `hy=1/18`, ratio ~3.9) and divergence-free across the interface for
+  `ncx≠ncy, hx≠hy` (~1e-17); `test_composite_hz_anisotropic_second_order_and_projection`.
+  `composite_project_two_level` passes `parent.dx, parent.dy, parent.ny` through, removing
+  the square-parent restriction (defaults stay isotropic, so prior calls are unchanged).
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

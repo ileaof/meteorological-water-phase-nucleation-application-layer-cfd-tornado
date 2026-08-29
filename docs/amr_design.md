@@ -245,8 +245,19 @@ multigrid with exactly this coarse–fine handling).
    opt-in and left as a configuration choice: it changes the working M3 phases 2/2b/3a
    behaviour (it removes the nest-boundary relaxation in favour of the interface
    coupling), so it is provided as a verified building block rather than silently
-   swapped into the loop.  Anisotropic (`dx≠dy`) or non-cell-aligned nests are the only
-   further generalisations; the algorithm and the call site are complete.
+   swapped into the loop.
+
+   **Anisotropic (`dx≠dy`, rectangular `nx≠ny`) done.** `solve_composite_hz`,
+   `composite_project_massflux_hz` and `_interface_flux_2d` take independent `hx,hy` (and
+   `ncy`): the x-normal faces divide by `hx/r`, the y-normal by `hy/r`, and the tangential
+   wrap uses the tangential-axis count. Verified 2nd-order on a rectangular manufactured
+   solution (`hx=1/12` vs `hy=1/18`, ratio ~3.9) and the projection is divergence-free
+   across the interface for `ncx≠ncy, hx≠hy` (~1e-17)
+   (`test_composite_hz_anisotropic_second_order_and_projection`).
+   `composite_project_two_level` now passes `parent.dx, parent.dy, parent.ny` through, so
+   the square-parent restriction is gone.  The only further generalisations are
+   **non-cell-aligned** nests (the interface not landing on integer coarse faces) and
+   **adaptive/dynamic regridding**.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if
