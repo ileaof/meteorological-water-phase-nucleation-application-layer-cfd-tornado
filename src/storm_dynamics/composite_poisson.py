@@ -560,6 +560,131 @@ def project_divergence_2d(nc, r=2, seed=0, periodic=True):
     return (float(np.abs(dc2).max()), float(np.abs(df2).max()), float(np.abs(df2[border]).max()))
 
 
+def composite_project_massflux_2d(mu_c, mv_c, mu_f, mv_f, nc, r,
+                                   ci0, ci1, cj0, cj1, periodic=False):
+    """**Item (b) of the step-2 integration bridge**: project the storm's staggered
+    C-grid **mass fluxes** ``m = rho0 u`` on a two-level (coarse parent + fine nest)
+    grid so that ``div(m) = 0`` across the coarse-fine interface, operating directly
+    on the storm's face-array convention.
+
+    Arrays (modified in place):
+      ``mu_c`` (nc+1, nc), ``mv_c`` (nc, nc+1)   -- coarse parent x-/y-face mass fluxes;
+      ``mu_f`` (nfx+1, nfy), ``mv_f`` (nfx, nfy+1) -- fine nest face mass fluxes,
+      with ``nfx=r*(ci1-ci0)``, ``nfy=r*(cj1-cj0)`` over coarse cells ``[ci0,ci1)x[cj0,cj1)``.
+
+    The bridge maps these to the composite decomposition, runs the composite projection
+    (``div`` -> :func:`solve_2d` -> correct with the single-valued interface flux),
+    writes the corrected fluxes back, and **refluxes** the parent's interface faces to
+    the single-valued fine-face mean.  In mass-flux variables this *is* the anelastic
+    projection (the caller recovers ``u = m/rho0``); the density weight is the caller's.
+
+    ``periodic`` wraps the outer boundary; ``False`` (default, the storm/nest case)
+    applies the solid-wall BC.  Returns ``(max|div m| coarse, fine, fine-interface)``
+    recomputed straight from the written-back arrays (self-validating).
+    """
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    wxp = lambda I: (not periodic) and I == nc - 1
+    wxm = lambda I: (not periodic) and I == 0
+    wyp = lambda J: (not periodic) and J == nc - 1
+    wym = lambda J: (not periodic) and J == 0
+    if not periodic:
+        mu_c[0, :] = mu_c[nc, :] = 0.0; mv_c[:, 0] = mv_c[:, nc] = 0.0
+
+    ufx = mu_f[1:nfx, :].copy(); ufy = mv_f[:, 1:nfy].copy()
+    ui = {"L": mu_f[0, :].copy(), "R": mu_f[nfx, :].copy(),
+          "B": mv_f[:, 0].copy(), "T": mv_f[:, nfy].copy()}
+    cfx = np.array([[mu_c[I + 1, J] for J in range(nc)] for I in range(nc)])
+    cfy = np.array([[mv_c[I, J + 1] for J in range(nc)] for I in range(nc)])
+
+    def evalflux(edge, b, pc, pf):
+        return sum(w * (pf[k[1], k[2]] if k[0] == "f" else pc[k[1], k[2]])
+                   for k, w in flux(edge, b).items())
+
+    def cface_x(ui, cfx, I, J):
+        if cov((I + 1) % nc, J): base = (J - cj0) * r; return np.mean(ui["L"][base:base + r])
+        if cov(I, J): base = (J - cj0) * r; return np.mean(ui["R"][base:base + r])
+        return cfx[I, J]
+
+    def cface_y(ui, cfy, I, J):
+        if cov(I, (J + 1) % nc): base = (I - ci0) * r; return np.mean(ui["B"][base:base + r])
+        if cov(I, J): base = (I - ci0) * r; return np.mean(ui["T"][base:base + r])
+        return cfy[I, J]
+
+    def divergence(ufx, ufy, ui, cfx, cfy):
+        dc = np.full((nc, nc), np.nan); df = np.zeros((nfx, nfy))
+        for a in range(nfx):
+            for b in range(nfy):
+                xR = ui["R"][b] if a == nfx - 1 else ufx[a, b]
+                xL = ui["L"][b] if a == 0 else ufx[a - 1, b]
+                yT = ui["T"][a] if b == nfy - 1 else ufy[a, b]
+                yB = ui["B"][a] if b == 0 else ufy[a, b - 1]
+                df[a, b] = (xR - xL) / hf + (yT - yB) / hf
+        for I in range(nc):
+            for J in range(nc):
+                if cov(I, J): continue
+                fxp = 0.0 if wxp(I) else cface_x(ui, cfx, I, J)
+                fxm = 0.0 if wxm(I) else cface_x(ui, cfx, (I - 1) % nc, J)
+                fyp = 0.0 if wyp(J) else cface_y(ui, cfy, I, J)
+                fym = 0.0 if wym(J) else cface_y(ui, cfy, I, (J - 1) % nc)
+                dc[I, J] = ((fxp - fxm) + (fyp - fym)) / hc
+        return dc, df
+
+    fc, ff = divergence(ufx, ufy, ui, cfx, cfy)
+    fc = np.nan_to_num(fc)
+    pc, pf = solve_2d(fc, ff, nc, r, ci0, ci1, cj0, cj1, anchor_value=0.0, periodic=periodic)
+    pc = np.nan_to_num(pc)
+
+    gfx = (pf[1:, :] - pf[:-1, :]) / hf
+    gfy = (pf[:, 1:] - pf[:, :-1]) / hf
+    gi = {e: np.array([evalflux(e, b, pc, pf) for b in range(nfx)]) for e in ("R", "L", "T", "B")}
+    ufx -= gfx; ufy -= gfy
+    for e in ui: ui[e] -= gi[e]
+    for I in range(nc):
+        for J in range(nc):
+            if not (cov(I, J) or cov((I + 1) % nc, J)) and not wxp(I):
+                cfx[I, J] -= (pc[(I + 1) % nc, J] - pc[I, J]) / hc
+            if not (cov(I, J) or cov(I, (J + 1) % nc)) and not wyp(J):
+                cfy[I, J] -= (pc[I, (J + 1) % nc] - pc[I, J]) / hc
+
+    # write back into the storm arrays
+    mu_f[1:nfx, :] = ufx; mv_f[:, 1:nfy] = ufy
+    mu_f[0, :] = ui["L"]; mu_f[nfx, :] = ui["R"]; mv_f[:, 0] = ui["B"]; mv_f[:, nfy] = ui["T"]
+    for I in range(nc):
+        for J in range(nc):
+            if not cov(I, J) and not cov((I + 1) % nc, J): mu_c[I + 1, J] = cfx[I, J]
+            if not cov(I, J) and not cov(I, (J + 1) % nc): mv_c[I, J + 1] = cfy[I, J]
+    for J in range(cj0, cj1):                     # reflux: parent interface faces = fine mean
+        base = (J - cj0) * r
+        mu_c[ci0, J] = np.mean(ui["L"][base:base + r])
+        mu_c[ci1, J] = np.mean(ui["R"][base:base + r])
+    for I in range(ci0, ci1):
+        base = (I - ci0) * r
+        mv_c[I, cj0] = np.mean(ui["B"][base:base + r])
+        mv_c[I, cj1] = np.mean(ui["T"][base:base + r])
+    if periodic:
+        mu_c[0, :] = mu_c[nc, :]; mv_c[:, 0] = mv_c[:, nc]
+
+    # self-validating: div(m) recomputed straight from the written-back arrays
+    df_chk = (mu_f[1:, :] - mu_f[:-1, :]) / hf + (mv_f[:, 1:] - mv_f[:, :-1]) / hf
+    dc_chk = np.full((nc, nc), np.nan)
+    for I in range(nc):
+        for J in range(nc):
+            if cov(I, J): continue
+            fxp = 0.0 if wxp(I) else mu_c[I + 1, J]
+            fxm = 0.0 if wxm(I) else mu_c[I, J]
+            fyp = 0.0 if wyp(J) else mv_c[I, J + 1]
+            fym = 0.0 if wym(J) else mv_c[I, J]
+            dc_chk[I, J] = ((fxp - fxm) + (fyp - fym)) / hc
+    dc_chk[0, 0] = 0.0
+    border = np.zeros((nfx, nfy), bool)
+    border[0, :] = border[-1, :] = border[:, 0] = border[:, -1] = True
+    return (float(np.nanmax(np.abs(dc_chk))), float(np.abs(df_chk).max()),
+            float(np.abs(df_chk[border]).max()))
+
+
 def _interface_flux_3d(nc, r, lo, hi):
     """The single-valued interface flux operator used by :func:`solve_3d` (quadratic
     normal ghost + bilinear tangential coarse interp, oriented d(phi)/d+axis).
@@ -707,7 +832,8 @@ def project_divergence_3d(nc, r=2, seed=0):
 
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
            "manufactured_error_2d_wall", "solve_3d", "manufactured_error_3d",
-           "project_divergence_2d", "project_divergence_3d"]
+           "project_divergence_2d", "project_divergence_3d",
+           "composite_project_massflux_2d"]
 
 
 if __name__ == "__main__":

@@ -89,6 +89,13 @@ moved byte-identically; SHA-256 checksums preserved).
   its outward face, the interior interface stencil unchanged. Verified 2nd-order on
   `cos(pi x)cos(pi y)` (ratio 4.00) and the wall projection is divergence-free across
   the interface (~1e-13); `test_composite_solid_wall_bc_second_order_and_projection`.
+  **Plumbing item (b) done:** `composite_project_massflux_2d` — the face-array bridge
+  that reads the storm's staggered C-grid mass fluxes in their native convention
+  (`u:(nc+1,nc)`, `v:(nc,nc+1)` parent; `(nfx+1,nfy)`/`(nfx,nfy+1)` nest), projects,
+  writes back, and refluxes the parent's interface faces to the single-valued fine mean.
+  `div(m)` recomputed independently from the written-back arrays is ~1e-13 across the
+  interface (wall + periodic); `test_composite_massflux_bridge_storm_arrays_divergence_free`.
+  In mass-flux variables `m=ρ0 u` this is exactly the anelastic constraint.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

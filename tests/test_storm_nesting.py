@@ -278,6 +278,25 @@ def test_composite_solid_wall_bc_second_order_and_projection():
         assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (nc, dc, df, di)
 
 
+def test_composite_massflux_bridge_storm_arrays_divergence_free():
+    """Step-2 item (b): the face-array bridge reads the storm's staggered C-grid
+    mass-flux arrays (u:(n+1,n), v:(n,n+1)) for coarse parent + fine nest, projects,
+    and writes back so that div(m) recomputed straight from the written-back arrays is
+    ~0 across the interface -- with the solid-wall BC the storm uses (and periodic)."""
+    import numpy as np
+    from storm_dynamics import composite_poisson as cp
+    for periodic in (True, False):
+        for nc in (12, 24):
+            r = 2; ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+            nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+            rng = np.random.default_rng(3)
+            mu_c = rng.standard_normal((nc + 1, nc)); mv_c = rng.standard_normal((nc, nc + 1))
+            mu_f = rng.standard_normal((nfx + 1, nfy)); mv_f = rng.standard_normal((nfx, nfy + 1))
+            dc, df, di = cp.composite_project_massflux_2d(
+                mu_c, mv_c, mu_f, mv_f, nc, r, ci0, ci1, cj0, cj1, periodic=periodic)
+            assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (periodic, nc, dc, df, di)
+
+
 def test_composite_projection_3d_divergence_free_across_interface():
     """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
     velocity discretely divergence-free including at the coarse-fine interface."""

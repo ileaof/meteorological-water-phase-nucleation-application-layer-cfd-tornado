@@ -192,8 +192,22 @@ multigrid with exactly this coarse–fine handling).
    pressure correction, and the interior interface stencil is untouched. Verified
    2nd-order on `phi=cos(pi x)cos(pi y)` (which satisfies `dphi/dn=0` on the walls;
    ratio 4.00) and the wall projection is divergence-free across the interface to
-   ~1e-13 (`test_composite_solid_wall_bc_second_order_and_projection`). Items (b) and
-   (c) are the remaining `FlowState`/grid wiring.
+   ~1e-13 (`test_composite_solid_wall_bc_second_order_and_projection`).
+
+   **Item (b) done** (`composite_project_massflux_2d`): the face-array bridge that reads
+   the storm's staggered C-grid **mass fluxes** in their native convention (`u:(nc+1,nc)`,
+   `v:(nc,nc+1)` on the parent; `(nfx+1,nfy)`/`(nfx,nfy+1)` on the nest), maps them to the
+   composite decomposition, projects (`div` → `solve_2d` → correct), writes the corrected
+   fluxes back, and **refluxes** the parent's interface faces to the single-valued fine
+   mean. Verified by an *independent* recomputation of `div(m)` straight from the
+   written-back arrays: ~1e-13 across the interface, with the solid-wall BC (and periodic)
+   — `test_composite_massflux_bridge_storm_arrays_divergence_free`. It works in mass-flux
+   variables `m = ρ0 u`, so it is exactly the anelastic constraint; the caller forms
+   `ρ0 u*` (as `PressureSolver.project_anelastic` already does) and recovers `u = m/ρ0`.
+   Remaining: item (c) the stretched physical z-grid metric (per-level `hf`,`hc`), and
+   calling this bridge from `NestedStormSimulation._step` in place of the two independent
+   `project_anelastic` calls (the 3-D analogue extends `composite_project_massflux_2d` the
+   same way `solve_2d`→`solve_3d` did).
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if
