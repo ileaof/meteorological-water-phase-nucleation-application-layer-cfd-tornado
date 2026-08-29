@@ -531,6 +531,61 @@ def conservative_restrict(nest, parent, spec: NestSpec) -> dict:
     return out
 
 
+def composite_project_two_level(parent, nest, spec: NestSpec, periodic_h=None) -> dict:
+    """**The composite two-level anelastic pressure projection** -- one solve over the
+    parent (coarse) + nest (fine) mass fluxes so that ``div(rho0 u) = 0`` holds
+    *consistently across the coarse-fine interface*, replacing the two independent
+    per-level :meth:`PressureSolver.project_anelastic` calls.  This is the AMR-projection
+    call site (:mod:`storm_dynamics.composite_poisson`, ``docs/amr_design.md`` Milestone 2).
+
+    Operates **in place** on ``parent.state`` and ``nest.state`` (call it after both
+    levels' momentum predictors, in place of the separate projections).  Requires a
+    **cell-aligned, matched-z** nest (:meth:`NestSpec.aligned`) inside a **square** parent
+    (``nx==ny``, ``dx==dy``).  ``periodic_h`` overrides the horizontal BC (default: the
+    parent grid's).  Returns ``max|div(rho0 u)|`` over the coarse, fine, and fine-interface
+    cells (recomputed independently -- should be ~machine precision).
+
+    In mass-flux variables ``m = rho0 u`` the anelastic correction ``u = u* - grad(p)/rho0``
+    is exactly ``m = m* - grad(p)``, ``div(m)=0``; the density weight cancels in the
+    constraint.  The nest's lateral wall/relaxation BC is *replaced* by the true interface
+    coupling here -- that is the point of the composite solve.
+    """
+    from .composite_poisson import composite_project_massflux_hz
+    pg = parent.grid; xp = pg.xp; to = pg.backend.to_cpu
+    nc, nz, r = pg.nx, pg.nz, spec.refine
+    ci0 = int(round(spec.x0 / pg.dx)); ci1 = int(round((spec.x0 + spec.Lx) / pg.dx))
+    cj0 = int(round(spec.y0 / pg.dy)); cj1 = int(round((spec.y0 + spec.Ly) / pg.dy))
+    if pg.nx != pg.ny or abs(pg.dx - pg.dy) > 1e-6 * pg.dx:
+        raise ValueError("composite_project_two_level needs a square parent (nx==ny, dx==dy)")
+    if nest.grid.nz != nz or nest.grid.nx != r * (ci1 - ci0) or nest.grid.ny != r * (cj1 - cj0):
+        raise ValueError("needs a cell-aligned, matched-z nest (build the spec with "
+                         "NestSpec.aligned)")
+    zc = np.asarray(to(pg.zc)); zf = np.asarray(to(pg.zf))
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    if parent.dynamics == "anelastic":
+        rc = np.asarray(to(parent.rho0_c)); rw = np.asarray(to(parent.rho0_wface))
+    else:                                              # Boussinesq: div(u)=0
+        rc = np.ones(nz); rw = np.ones(nz + 1)
+    rc3, rw3 = rc[None, None, :], rw[None, None, :]
+
+    # extract host face velocities -> anelastic mass fluxes m = rho0 u
+    mu_c = np.asarray(to(parent.state.u)) * rc3; mv_c = np.asarray(to(parent.state.v)) * rc3
+    mw_c = np.asarray(to(parent.state.w)) * rw3
+    mu_f = np.asarray(to(nest.state.u)) * rc3; mv_f = np.asarray(to(nest.state.v)) * rc3
+    mw_f = np.asarray(to(nest.state.w)) * rw3
+    per = bool(getattr(pg, "periodic", False)) if periodic_h is None else periodic_h
+
+    res = composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
+                                        ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=per, hx=pg.dx)
+
+    # recover u = m / rho0 and write back into each FlowState
+    parent.state.u = xp.asarray(mu_c / rc3); parent.state.v = xp.asarray(mv_c / rc3)
+    parent.state.w = xp.asarray(mw_c / rw3)
+    nest.state.u = xp.asarray(mu_f / rc3); nest.state.v = xp.asarray(mv_f / rc3)
+    nest.state.w = xp.asarray(mw_f / rw3)
+    return {"div_coarse": res[0], "div_fine": res[1], "div_interface": res[2]}
+
+
 def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
     """Galilean shift the nest into the storm-relative frame (subtract C).
 

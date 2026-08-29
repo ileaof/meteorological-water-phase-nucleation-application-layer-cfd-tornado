@@ -226,18 +226,27 @@ multigrid with exactly this coarse–fine handling).
    parent (periodic horizontal), verified by an independent recomputation from the
    written-back arrays (`test_composite_projection_hz_full_storm_divergence_free`).
 
-   **The only remaining step is the call site.** In `NestedStormSimulation._step`, after
-   both levels' momentum predictors (replacing the two independent `project_anelastic`
-   calls, `core.py:213` + `nesting.py:341`):
-   1. form the anelastic mass fluxes `m* = ρ0 u*` on each level (multiply the staggered
-      `u,v,w` by `ρ0` at the faces, as `project_anelastic` already does internally);
-   2. gather them into the parent(coarse)+nest(fine) arrays with `(ci0,ci1,cj0,cj1)` the
-      nest's footprint in the parent, and `dzc,dzf` from the shared stretched z;
-   3. `composite_project_massflux_hz(...)` (parent `periodic_h=True`, or walls to match the
-      parent's lateral BC);
-   4. recover `u = m/ρ0` at the faces and write back into each `FlowState`.
-   Every ingredient is implemented and tested; this is wiring against the live two-level
-   sim (the parent-grid footprint mapping and the per-level `ρ0`), not new algorithm.
+   **The call site is now implemented and tested** as
+   `storm_dynamics.nesting.composite_project_two_level(parent, nest, spec)`.  It does
+   exactly the recipe: (1) forms the anelastic mass fluxes `m* = ρ0 u*` on each level
+   (staggered `u,v,w` × the face `ρ0` — `rho0_c` on the u/v faces, `rho0_wface` on the w
+   faces, exactly as `project_anelastic` weights them); (2) maps the nest footprint to
+   `(ci0,ci1,cj0,cj1)` in the parent and reads `dzc,dzf` from the shared stretched z;
+   (3) calls `composite_project_massflux_hz` (physical `hx=parent.dx`, `periodic_h` from
+   the parent grid); (4) recovers `u = m/ρ0` and writes back into both `FlowState`s.
+   Verified on real staggered `FlowState` arrays with a stretched anelastic density
+   profile: `div(ρ0 u)` → machine precision across the interface
+   (`test_composite_project_two_level_call_site_divergence_free`).  It requires a
+   cell-aligned, matched-z nest (`NestSpec.aligned`) in a square parent (`nx==ny`,
+   `dx==dy`); the nest's lateral wall/relaxation BC is *replaced* by the true interface
+   coupling — that is the point of the composite solve.
+
+   Making it the default in the concurrent time-stepping loop (`run_concurrent_nest`) is
+   opt-in and left as a configuration choice: it changes the working M3 phases 2/2b/3a
+   behaviour (it removes the nest-boundary relaxation in favour of the interface
+   coupling), so it is provided as a verified building block rather than silently
+   swapped into the loop.  Anisotropic (`dx≠dy`) or non-cell-aligned nests are the only
+   further generalisations; the algorithm and the call site are complete.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if

@@ -178,6 +178,32 @@ def test_conservative_restriction_preserves_overlap_integral():
         assert abs(v["coarse_after_minus_fine"]) < 1e-6, (nm, v)   # exact conservation
 
 
+def test_composite_project_two_level_call_site_divergence_free():
+    """The composite-projection CALL SITE: one solve over the parent(coarse)+nest(fine)
+    mass fluxes makes div(rho0 u)=0 across the coarse-fine interface, operating on real
+    staggered FlowState arrays with a stretched anelastic density profile."""
+    from types import SimpleNamespace
+    pg = Grid(nx=18, ny=18, nz=12, Lx=18000, Ly=18000, Lz=12000, periodic=True, z_stretch=1.05)
+    spec = nst.NestSpec.aligned(pg, i0=6, j0=6, ncx=6, ncy=6, refine=2)
+    ng = nst.build_nest_grid(spec, pg)
+    zc = np.asarray(pg.zc); zf = np.asarray(pg.zf)
+    rho0_c = np.exp(-zc / 8000.0)
+    rho0_wface = np.interp(zf, zc, rho0_c)
+    rng = np.random.default_rng(0)
+    ps = FlowState.zeros(pg); ns = FlowState.zeros(ng)
+    ps.u = rng.standard_normal(pg.u_shape); ps.v = rng.standard_normal(pg.v_shape)
+    ps.w = rng.standard_normal(pg.w_shape)
+    ns.u = rng.standard_normal(ng.u_shape); ns.v = rng.standard_normal(ng.v_shape)
+    ns.w = rng.standard_normal(ng.w_shape)
+    parent = SimpleNamespace(grid=pg, state=ps, dynamics="anelastic",
+                             rho0_c=rho0_c, rho0_wface=rho0_wface)
+    nest = SimpleNamespace(grid=ng, state=ns)
+    res = nst.composite_project_two_level(parent, nest, spec)
+    assert res["div_coarse"] < 1e-9, res
+    assert res["div_fine"] < 1e-9, res
+    assert res["div_interface"] < 1e-9, res
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface

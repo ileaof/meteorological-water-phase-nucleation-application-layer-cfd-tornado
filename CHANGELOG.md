@@ -113,10 +113,19 @@ moved byte-identically; SHA-256 checksums preserved).
   to ~1e-13 for the nest (walls) and the parent (periodic horizontal), verified by an
   independent recomputation from the written-back arrays
   (`test_composite_hz_unified_operator_second_order`,
-  `test_composite_projection_hz_full_storm_divergence_free`). **Every AMR-projection
-  ingredient is now implemented and tested; the only remaining step is the call site**
-  (form `ρ0 u*`, call the projection, recover `u = m/ρ0`, write back into the two
-  `FlowState`s) — the precise recipe is in `docs/amr_design.md`.
+  `test_composite_projection_hz_full_storm_divergence_free`).
+- **Call site** (`storm_dynamics.nesting.composite_project_two_level`): the composite
+  two-level anelastic pressure projection wired to real parent+nest `FlowState`s — forms
+  `m* = ρ0 u*` on each level, maps the nest footprint, calls `composite_project_massflux_hz`
+  (physical `hx`, parent `periodic_h`), recovers `u = m/ρ0`, writes back. Verified on real
+  staggered arrays with a stretched anelastic density profile: `div(ρ0 u)` → machine
+  precision across the interface (`test_composite_project_two_level_call_site_divergence_free`).
+  Requires a cell-aligned, matched-z nest (`NestSpec.aligned`) in a square parent. **The
+  AMR pressure projection across a refinement interface is now complete end-to-end**
+  (algorithm → operator → storm-array projection → call site), all verified. Enabling it as
+  the default in `run_concurrent_nest` (it replaces the nest-boundary relaxation with the
+  interface coupling) is opt-in; anisotropic/non-aligned nests are the only further
+  generalisations. See `docs/amr_design.md`.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

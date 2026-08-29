@@ -434,13 +434,14 @@ def manufactured_error_3d(nc, r=2):
     return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max())), hc
 
 
-def _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1):
+def _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1, hx=None):
     """The single-valued coarse-fine interface flux operator used by :func:`solve_2d`
     (quadratic normal ghost + linear tangential coarse interp, oriented d(phi)/d+axis).
     Returns ``flux(edge, b) -> {key: weight}`` with ``key`` an ``("f",a,b)`` fine or
     ``("c",I,J)`` coarse cell -- the exact operator the composite Laplacian is built
-    from, so a divergence/gradient built on it satisfies ``L = div . grad``."""
-    hf = (1.0 / nc) / r
+    from, so a divergence/gradient built on it satisfies ``L = div . grad``.
+    ``hx`` is the physical coarse horizontal spacing (default the unit-domain ``1/nc``)."""
+    hf = (hx if hx is not None else 1.0 / nc) / r
     nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
     a0, a1, a2 = _ghost_weights(r)
 
@@ -774,7 +775,7 @@ def manufactured_error_metric_z(nc, nz, r=2, s=1.05, Lz=2.0):
 
 
 def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
-                       anchor_value=0.0, periodic_h=True):
+                       anchor_value=0.0, periodic_h=True, hx=None):
     """**Final-assembly unified operator** for the storm's nest geometry: the horizontal
     composite interface (x,y refined by ``r`` at each z-level, uniform ``hx=1/nc``) plus a
     variable-dz **finite-volume vertical** coupling (walls top/bottom, NOT refined --
@@ -784,12 +785,13 @@ def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
     ``nfy=r*(cj1-cj0)``).  ``dzc`` (nz,) cell heights, ``dzf`` (nz-1,) centre spacings.
     ``periodic_h`` wraps the horizontal boundary (the parent); ``False`` gives solid walls
     there.  Returns ``(p_c, p_f)`` with covered coarse cells NaN.  Assembled sparsely,
-    solved directly.
+    solved directly.  ``hx`` is the physical coarse horizontal spacing (default ``1/nc``).
     """
-    hc = 1.0 / nc; hf = hc / r
+    hc = hx if hx is not None else 1.0 / nc
+    hf = hc / r
     nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
     cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
-    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1, hx=hc)
     cxy = [(I, J) for I in range(nc) for J in range(nc) if not cov(I, J)]
     cid = {}
     ix = 0
@@ -885,7 +887,7 @@ def manufactured_error_hz(nc, nz, r=2, s=1.05, Lz=2.0, periodic_h=True):
 
 
 def composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
-                                  ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=False):
+                                  ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=False, hx=None):
     """**Final-assembly projection**: project the storm's full 3-D staggered mass fluxes
     ``m = rho0 u`` (coarse parent + fine nest, horizontal composite interface + variable-dz
     vertical, walls top/bottom) so that ``div(m) = 0`` across the coarse-fine interface,
@@ -902,10 +904,11 @@ def composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
     from the written-back arrays (self-validating).  In mass-flux variables this is exactly
     the anelastic constraint ``div(rho0 u)=0``; the caller recovers ``u = m/rho0``.
     """
-    hc = 1.0 / nc; hf = hc / r
+    hc = hx if hx is not None else 1.0 / nc
+    hf = hc / r
     nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
     cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
-    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1, hx=hc)
     wxp = lambda I: (not periodic_h) and I == nc - 1
     wxm = lambda I: (not periodic_h) and I == 0
     wyp = lambda J: (not periodic_h) and J == nc - 1
@@ -953,7 +956,7 @@ def composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
     ui = {"L": mu_f[0].copy(), "R": mu_f[nfx].copy(), "B": mv_f[:, 0].copy(), "T": mv_f[:, nfy].copy()}
     fc, ff = divergence(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, ui)
     pc, pf = solve_composite_hz(np.nan_to_num(fc), ff, nc, nz, r, ci0, ci1, cj0, cj1,
-                                dzc, dzf, anchor_value=0.0, periodic_h=periodic_h)
+                                dzc, dzf, anchor_value=0.0, periodic_h=periodic_h, hx=hc)
     pc = np.nan_to_num(pc)
 
     mu_f[1:nfx] -= (pf[1:] - pf[:-1]) / hf

@@ -22,11 +22,16 @@ and the **final assembly** is built: `solve_composite_hz` (unified operator: hor
 interface at every z-level + variable-dz vertical, verified 2nd order) and
 `composite_project_massflux_hz` (full 3-D projection on the storm's staggered mass
 fluxes, `div(m)→0` across the interface ~1e-13 for nest walls + parent periodic).
-**Every AMR-projection ingredient is now implemented and tested; the only remaining
-step is the call site** — form `ρ0 u*` on both levels, call
-`composite_project_massflux_hz`, recover `u = m/ρ0`, write back into the two FlowStates
-(replacing the two independent `project_anelastic` calls) — precise recipe in
-`docs/amr_design.md`. Plus adaptive/dynamic regridding.
+**The AMR pressure projection is now complete end-to-end and verified** — the **call
+site** `nesting.composite_project_two_level(parent, nest, spec)` forms `ρ0 u*` on both
+levels, calls `composite_project_massflux_hz`, recovers `u = m/ρ0`, and writes back into
+the two FlowStates; verified on real staggered `FlowState` arrays with a stretched
+anelastic density profile (`div(ρ0 u)`→machine precision across the interface,
+`test_composite_project_two_level_call_site_divergence_free`). Requires a cell-aligned
+matched-z nest (`NestSpec.aligned`) in a square parent. Enabling it as the default in
+`run_concurrent_nest` (it replaces the nest-boundary relaxation with the interface
+coupling) is opt-in. Remaining: anisotropic/non-aligned nests (generalisation) and
+adaptive/dynamic regridding — see `docs/amr_design.md`.
 
 ## Objective
 

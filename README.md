@@ -141,11 +141,15 @@ Injection feedback (not rigorous refluxing); stable, water ≈ −0.1%.*
 > `solve_composite_hz` (the unified operator, horizontal composite interface at every
 > z-level + variable-dz vertical, verified 2nd order) and `composite_project_massflux_hz`
 > (the full 3-D projection on the storm's staggered C-grid mass fluxes, `div(m)→0` across
-> the interface to `~1e-13` for the nest walls and the parent). **Every AMR-projection
-> ingredient is now implemented and tested; the only remaining step is the call site**
-> (form `ρ₀u*`, project, recover `u = m/ρ₀`, write back into the two `FlowState`s) plus
-> **adaptive/dynamic regridding**. The rigorous plan and the exact call-site recipe are
-> in [`docs/amr_design.md`](docs/amr_design.md).
+> the interface to `~1e-13` for the nest walls and the parent). The **call site**
+> `storm_dynamics.nesting.composite_project_two_level(parent, nest, spec)` wires it to real
+> parent+nest `FlowState`s (form `ρ₀u*`, project, recover `u = m/ρ₀`, write back), verified
+> on real staggered arrays with a stretched anelastic density profile — `div(ρ₀u)`→machine
+> precision across the interface. **The AMR pressure projection across a refinement
+> interface is now complete end-to-end and verified** (algorithm → operator → storm-array
+> projection → call site). Enabling it as the default in `run_concurrent_nest` is opt-in;
+> anisotropic/non-aligned nests and **adaptive/dynamic regridding** are the remaining
+> generalisations. The rigorous plan is in [`docs/amr_design.md`](docs/amr_design.md).
 
 Reproduce with:
 
