@@ -133,11 +133,19 @@ Injection feedback (not rigorous refluxing); stable, water ≈ −0.1%.*
 > order including the patch corners, conservative), and the **two-level MAC
 > projection** in 2-D/3-D — a face velocity made discretely divergence-free to
 > `~1e-13` *across the refinement interface*. That projection **is** the anelastic
-> projection in mass-flux variables (`m = ρ₀u`), so no new algorithm remains. What is
-> left is **integration plumbing** (wiring the composite projection into
-> `NestedStormSimulation` in place of the two independent per-level solves — wall BCs,
-> face extraction, the stretched grid) and **adaptive/dynamic regridding**. The full
-> rigorous plan and the exact call sites are in [`docs/amr_design.md`](docs/amr_design.md).
+> projection in mass-flux variables (`m = ρ₀u`), so no new algorithm remains.
+>
+> The three integration pieces are done and verified — the **solid-wall BC**, the
+> **staggered mass-flux face bridge** (`composite_project_massflux_2d`), and the
+> **stretched-z vertical metric** — and the **final assembly** is built:
+> `solve_composite_hz` (the unified operator, horizontal composite interface at every
+> z-level + variable-dz vertical, verified 2nd order) and `composite_project_massflux_hz`
+> (the full 3-D projection on the storm's staggered C-grid mass fluxes, `div(m)→0` across
+> the interface to `~1e-13` for the nest walls and the parent). **Every AMR-projection
+> ingredient is now implemented and tested; the only remaining step is the call site**
+> (form `ρ₀u*`, project, recover `u = m/ρ₀`, write back into the two `FlowState`s) plus
+> **adaptive/dynamic regridding**. The rigorous plan and the exact call-site recipe are
+> in [`docs/amr_design.md`](docs/amr_design.md).
 
 Reproduce with:
 

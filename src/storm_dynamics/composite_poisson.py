@@ -32,10 +32,17 @@ with ``div(rho0 u) = 0``.  In mass-flux variables ``m = rho0 u`` this is exactly
 field read as the anelastic mass flux ``rho0 u`` (the density weight cancels in the
 divergence constraint and only re-enters when recovering ``u = m/rho0``).  So these
 functions *are* the anelastic two-level projection across a refinement interface;
-no new algorithm is needed to make the storm anelastic.  Wiring them into
-``NestedStormSimulation`` is plumbing (extract the two levels' staggered mass fluxes,
-apply the solid-wall vertical BC in place of the periodic one, map the stretched
-physical grid) -- see ``docs/amr_design.md``.
+no new algorithm is needed to make the storm anelastic.
+
+**Final assembly (the storm's real operator).** :func:`solve_composite_hz` assembles the
+unified operator for the storm's nest geometry -- the horizontal composite interface at
+every z-level (x,y refined by ``r``) plus a variable-dz finite-volume vertical coupling
+(walls top/bottom, matched z, not refined) -- verified 2nd-order.
+:func:`composite_project_massflux_hz` is the full 3-D projection on the storm's staggered
+C-grid mass fluxes (parent + nest, ``u:(nc+1,nc,nz)`` etc.): it makes ``div(m)=0`` across
+the interface to ~1e-13, combining all three plumbing pieces (wall BC, the face bridge,
+the stretched-z metric).  The remaining work is only the call site: form ``rho0 u*`` on
+both levels, call this, and recover ``u = m/rho0`` -- see ``docs/amr_design.md``.
 """
 from __future__ import annotations
 
@@ -766,6 +773,232 @@ def manufactured_error_metric_z(nc, nz, r=2, s=1.05, Lz=2.0):
     return float(max(ec, ef))
 
 
+def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
+                       anchor_value=0.0, periodic_h=True):
+    """**Final-assembly unified operator** for the storm's nest geometry: the horizontal
+    composite interface (x,y refined by ``r`` at each z-level, uniform ``hx=1/nc``) plus a
+    variable-dz **finite-volume vertical** coupling (walls top/bottom, NOT refined --
+    matched z-levels), on mass-flux/pressure variables.
+
+    ``f_c`` (nc,nc,nz), ``f_f`` (nfx,nfy,nz) are the RHS on each level (``nfx=r*(ci1-ci0)``,
+    ``nfy=r*(cj1-cj0)``).  ``dzc`` (nz,) cell heights, ``dzf`` (nz-1,) centre spacings.
+    ``periodic_h`` wraps the horizontal boundary (the parent); ``False`` gives solid walls
+    there.  Returns ``(p_c, p_f)`` with covered coarse cells NaN.  Assembled sparsely,
+    solved directly.
+    """
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    cxy = [(I, J) for I in range(nc) for J in range(nc) if not cov(I, J)]
+    cid = {}
+    ix = 0
+    for (I, J) in cxy:
+        for k in range(nz):
+            cid[(I, J, k)] = ix; ix += 1
+    fb = ix
+    fid = lambda a, b, k: fb + (a * nfy + b) * nz + k
+    N = fb + nfx * nfy * nz
+    gcol = lambda key, k: (fid(key[1], key[2], k) if key[0] == "f" else cid[(key[1], key[2], k)])
+    rows, cols, data, rhs = [], [], [], np.zeros(N)
+    add = lambda rr, cc, vv: (rows.append(rr), cols.append(cc), data.append(vv))
+
+    def vertical(row, colof, k):                       # variable-dz FV, walls at 0, nz-1
+        if k < nz - 1:
+            w = 1.0 / (dzf[k] * dzc[k]); add(row, colof(k + 1), w); add(row, row, -w)
+        if k > 0:
+            w = 1.0 / (dzf[k - 1] * dzc[k]); add(row, colof(k - 1), w); add(row, row, -w)
+
+    for a in range(nfx):                               # fine cells
+        for b in range(nfy):
+            for k in range(nz):
+                row = fid(a, b, k)
+                if a == nfx - 1:
+                    for key, w in flux("R", b).items(): add(row, gcol(key, k), w / hf)
+                else:
+                    add(row, fid(a + 1, b, k), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                if a == 0:
+                    for key, w in flux("L", b).items(): add(row, gcol(key, k), -w / hf)
+                else:
+                    add(row, fid(a - 1, b, k), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                if b == nfy - 1:
+                    for key, w in flux("T", a).items(): add(row, gcol(key, k), w / hf)
+                else:
+                    add(row, fid(a, b + 1, k), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                if b == 0:
+                    for key, w in flux("B", a).items(): add(row, gcol(key, k), -w / hf)
+                else:
+                    add(row, fid(a, b - 1, k), 1 / hf ** 2); add(row, row, -1 / hf ** 2)
+                vertical(row, lambda kk, a=a, b=b: fid(a, b, kk), k)
+                rhs[row] = f_f[a, b, k]
+
+    for (I, J) in cxy:                                 # coarse cells
+        for k in range(nz):
+            row = cid[(I, J, k)]
+            rhs[row] = f_c[I, J, k]
+            for (dI, dJ, edge, along) in ((1, 0, "L", J), (-1, 0, "R", J),
+                                          (0, 1, "B", I), (0, -1, "T", I)):
+                ni, nj = I + dI, J + dJ
+                if not periodic_h and (ni < 0 or ni >= nc or nj < 0 or nj >= nc):
+                    continue                           # solid-wall Neumann
+                In, Jn = ni % nc, nj % nc
+                if cov(In, Jn):
+                    base = (along - (cj0 if edge in ("L", "R") else ci0)) * r
+                    s2 = -(1.0 if edge in ("R", "T") else -1.0)
+                    for bb in range(base, base + r):
+                        for key, w in flux(edge, bb).items(): add(row, gcol(key, k), s2 * (w / r) / hc)
+                else:
+                    add(row, cid[(In, Jn, k)], 1 / hc ** 2); add(row, row, -1 / hc ** 2)
+            vertical(row, lambda kk, I=I, J=J: cid[(I, J, kk)], k)
+
+    A = sp.csr_matrix((data, (rows, cols)), shape=(N, N)).tolil()
+    anc = cid[(cxy[0][0], cxy[0][1], 0)]
+    A[anc, :] = 0; A[anc, anc] = 1.0; rhs[anc] = anchor_value
+    sol = spla.spsolve(A.tocsr(), rhs)
+    p_c = np.full((nc, nc, nz), np.nan)
+    for (I, J) in cxy:
+        for k in range(nz):
+            p_c[I, J, k] = sol[cid[(I, J, k)]]
+    p_f = sol[fb:].reshape(nfx, nfy, nz)
+    return p_c, p_f
+
+
+def manufactured_error_hz(nc, nz, r=2, s=1.05, Lz=2.0, periodic_h=True):
+    """max error of :func:`solve_composite_hz` vs phi=cos(2pi x)cos(2pi y)cos(pi z/Lz)
+    (periodic in x,y, dphi/dz=0 on the z-walls) -- the final unified operator."""
+    hc = 1.0 / nc; ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    dz = s ** np.arange(nz); dz *= Lz / dz.sum()
+    zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc); kz = np.pi / Lz; hf = hc / r
+    xc = (np.arange(nc) + 0.5) * hc
+    xf = ci0 * hc + (np.arange(nfx) + 0.5) * hf
+    yf = cj0 * hc + (np.arange(nfy) + 0.5) * hf
+    Cx = np.cos(2 * np.pi * xc); Zc = np.cos(kz * zc)
+    ex_c = Cx[:, None, None] * Cx[None, :, None] * Zc[None, None, :]
+    ex_f = (np.cos(2 * np.pi * xf)[:, None, None] * np.cos(2 * np.pi * yf)[None, :, None]
+            * Zc[None, None, :])
+    lam = -(8 * np.pi ** 2 + kz ** 2)
+    pc, pf = solve_composite_hz(lam * ex_c, lam * ex_f, nc, nz, r, ci0, ci1, cj0, cj1,
+                                dzc, dzf, anchor_value=ex_c[0, 0, 0], periodic_h=periodic_h)
+    return float(max(np.nanmax(np.abs(pc - ex_c)), np.abs(pf - ex_f).max()))
+
+
+def composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r,
+                                  ci0, ci1, cj0, cj1, dzc, dzf, periodic_h=False):
+    """**Final-assembly projection**: project the storm's full 3-D staggered mass fluxes
+    ``m = rho0 u`` (coarse parent + fine nest, horizontal composite interface + variable-dz
+    vertical, walls top/bottom) so that ``div(m) = 0`` across the coarse-fine interface,
+    combining all three plumbing pieces (wall BC, face bridge, stretched z metric) with the
+    unified operator :func:`solve_composite_hz`.
+
+    Arrays (modified in place), storm C-grid convention:
+      parent  ``mu_c`` (nc+1,nc,nz), ``mv_c`` (nc,nc+1,nz), ``mw_c`` (nc,nc,nz+1);
+      nest    ``mu_f`` (nfx+1,nfy,nz), ``mv_f`` (nfx,nfy+1,nz), ``mw_f`` (nfx,nfy,nz+1),
+      ``nfx=r*(ci1-ci0)``, ``nfy=r*(cj1-cj0)`` over coarse cells ``[ci0,ci1)x[cj0,cj1)``.
+    ``dzc`` (nz,), ``dzf`` (nz-1,) the vertical metric; ``periodic_h`` wraps the horizontal
+    boundary (parent) else solid walls (nest).  The vertical uses solid walls (w=0 at
+    ``k=0,nz``).  Returns ``(max|div m| coarse, fine, fine-interface)`` recomputed straight
+    from the written-back arrays (self-validating).  In mass-flux variables this is exactly
+    the anelastic constraint ``div(rho0 u)=0``; the caller recovers ``u = m/rho0``.
+    """
+    hc = 1.0 / nc; hf = hc / r
+    nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+    cov = lambda I, J: ci0 <= I < ci1 and cj0 <= J < cj1
+    flux = _interface_flux_2d(nc, r, ci0, ci1, cj0, cj1)
+    wxp = lambda I: (not periodic_h) and I == nc - 1
+    wxm = lambda I: (not periodic_h) and I == 0
+    wyp = lambda J: (not periodic_h) and J == nc - 1
+    wym = lambda J: (not periodic_h) and J == 0
+    anchor = next((I, J) for I in range(nc) for J in range(nc) if not cov(I, J))
+    if not periodic_h:
+        mu_c[0] = mu_c[nc] = 0.0; mv_c[:, 0] = mv_c[:, nc] = 0.0
+    mw_c[:, :, 0] = mw_c[:, :, nz] = 0.0; mw_f[:, :, 0] = mw_f[:, :, nz] = 0.0
+
+    def evalflux(edge, b, k, pc, pf):
+        return sum(w * (pf[key[1], key[2], k] if key[0] == "f" else pc[key[1], key[2], k])
+                   for key, w in flux(edge, b).items())
+
+    def cfx_at(mu_c, ui, I, J, k):
+        if cov((I + 1) % nc, J): base = (J - cj0) * r; return np.mean(ui["L"][base:base + r, k])
+        if cov(I, J): base = (J - cj0) * r; return np.mean(ui["R"][base:base + r, k])
+        return mu_c[I + 1, J, k]
+
+    def cfy_at(mv_c, ui, I, J, k):
+        if cov(I, (J + 1) % nc): base = (I - ci0) * r; return np.mean(ui["B"][base:base + r, k])
+        if cov(I, J): base = (I - ci0) * r; return np.mean(ui["T"][base:base + r, k])
+        return mv_c[I, J + 1, k]
+
+    def divergence(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, ui):
+        dc = np.full((nc, nc, nz), np.nan); df = np.zeros((nfx, nfy, nz))
+        for a in range(nfx):
+            for b in range(nfy):
+                for k in range(nz):
+                    xR = ui["R"][b, k] if a == nfx - 1 else mu_f[a + 1, b, k]
+                    xL = ui["L"][b, k] if a == 0 else mu_f[a, b, k]
+                    yT = ui["T"][a, k] if b == nfy - 1 else mv_f[a, b + 1, k]
+                    yB = ui["B"][a, k] if b == 0 else mv_f[a, b, k]
+                    df[a, b, k] = ((xR - xL) + (yT - yB)) / hf + (mw_f[a, b, k + 1] - mw_f[a, b, k]) / dzc[k]
+        for I in range(nc):
+            for J in range(nc):
+                if cov(I, J): continue
+                for k in range(nz):
+                    fxp = 0.0 if wxp(I) else cfx_at(mu_c, ui, I, J, k)
+                    fxm = 0.0 if wxm(I) else cfx_at(mu_c, ui, (I - 1) % nc, J, k)
+                    fyp = 0.0 if wyp(J) else cfy_at(mv_c, ui, I, J, k)
+                    fym = 0.0 if wym(J) else cfy_at(mv_c, ui, I, (J - 1) % nc, k)
+                    dc[I, J, k] = ((fxp - fxm) + (fyp - fym)) / hc + (mw_c[I, J, k + 1] - mw_c[I, J, k]) / dzc[k]
+        return dc, df
+
+    ui = {"L": mu_f[0].copy(), "R": mu_f[nfx].copy(), "B": mv_f[:, 0].copy(), "T": mv_f[:, nfy].copy()}
+    fc, ff = divergence(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, ui)
+    pc, pf = solve_composite_hz(np.nan_to_num(fc), ff, nc, nz, r, ci0, ci1, cj0, cj1,
+                                dzc, dzf, anchor_value=0.0, periodic_h=periodic_h)
+    pc = np.nan_to_num(pc)
+
+    mu_f[1:nfx] -= (pf[1:] - pf[:-1]) / hf
+    mv_f[:, 1:nfy] -= (pf[:, 1:] - pf[:, :-1]) / hf
+    mw_f[:, :, 1:nz] -= (pf[:, :, 1:] - pf[:, :, :-1]) / dzf[None, None, :]
+    for k in range(nz):
+        for b in range(nfy):
+            ui["L"][b, k] -= evalflux("L", b, k, pc, pf); ui["R"][b, k] -= evalflux("R", b, k, pc, pf)
+        for a in range(nfx):
+            ui["B"][a, k] -= evalflux("B", a, k, pc, pf); ui["T"][a, k] -= evalflux("T", a, k, pc, pf)
+    mu_f[0] = ui["L"]; mu_f[nfx] = ui["R"]; mv_f[:, 0] = ui["B"]; mv_f[:, nfy] = ui["T"]
+    mw_c[:, :, 1:nz] -= (pc[:, :, 1:] - pc[:, :, :-1]) / dzf[None, None, :]
+    for I in range(nc):
+        for J in range(nc):
+            for k in range(nz):
+                if not cov(I, J) and not cov((I + 1) % nc, J) and not wxp(I):
+                    mu_c[I + 1, J, k] -= (pc[(I + 1) % nc, J, k] - pc[I, J, k]) / hc
+                if not cov(I, J) and not cov(I, (J + 1) % nc) and not wyp(J):
+                    mv_c[I, J + 1, k] -= (pc[I, (J + 1) % nc, k] - pc[I, J, k]) / hc
+    for J in range(cj0, cj1):                          # reflux parent interface faces
+        base = (J - cj0) * r
+        mu_c[ci0, J] = ui["L"][base:base + r].mean(axis=0); mu_c[ci1, J] = ui["R"][base:base + r].mean(axis=0)
+    for I in range(ci0, ci1):
+        base = (I - ci0) * r
+        mv_c[I, cj0] = ui["B"][base:base + r].mean(axis=0); mv_c[I, cj1] = ui["T"][base:base + r].mean(axis=0)
+    if periodic_h:
+        mu_c[0] = mu_c[nc]; mv_c[:, 0] = mv_c[:, nc]
+
+    df_chk = ((mu_f[1:] - mu_f[:-1]) / hf + (mv_f[:, 1:] - mv_f[:, :-1]) / hf
+              + (mw_f[:, :, 1:] - mw_f[:, :, :-1]) / dzc[None, None, :])
+    dc_chk = np.full((nc, nc, nz), np.nan)
+    for I in range(nc):
+        for J in range(nc):
+            if cov(I, J): continue
+            for k in range(nz):
+                fxp = 0.0 if wxp(I) else mu_c[I + 1, J, k]; fxm = 0.0 if wxm(I) else mu_c[I, J, k]
+                fyp = 0.0 if wyp(J) else mv_c[I, J + 1, k]; fym = 0.0 if wym(J) else mv_c[I, J, k]
+                dc_chk[I, J, k] = ((fxp - fxm) + (fyp - fym)) / hc + (mw_c[I, J, k + 1] - mw_c[I, J, k]) / dzc[k]
+    dc_chk[anchor[0], anchor[1], 0] = 0.0
+    border = np.zeros((nfx, nfy, nz), bool)
+    border[0] = border[-1] = True; border[:, 0] = border[:, -1] = True
+    return (float(np.nanmax(np.abs(dc_chk))), float(np.abs(df_chk).max()),
+            float(np.abs(df_chk[border]).max()))
+
+
 def _interface_flux_3d(nc, r, lo, hi):
     """The single-valued interface flux operator used by :func:`solve_3d` (quadratic
     normal ghost + bilinear tangential coarse interp, oriented d(phi)/d+axis).
@@ -914,7 +1147,8 @@ def project_divergence_3d(nc, r=2, seed=0):
 __all__ = ["solve_1d", "manufactured_error", "solve_2d", "manufactured_error_2d",
            "manufactured_error_2d_wall", "solve_3d", "manufactured_error_3d",
            "project_divergence_2d", "project_divergence_3d",
-           "composite_project_massflux_2d", "manufactured_error_metric_z"]
+           "composite_project_massflux_2d", "manufactured_error_metric_z",
+           "solve_composite_hz", "manufactured_error_hz", "composite_project_massflux_hz"]
 
 
 if __name__ == "__main__":
@@ -936,3 +1170,29 @@ if __name__ == "__main__":
             dc, df, di = fn(nc, 2)
             print("  nc=%3d  max|div u|: coarse=%.2e  fine=%.2e  fine-interface=%.2e"
                   % (nc, dc, df, di))
+
+    print("FINAL ASSEMBLY -- unified operator (horizontal interface + stretched-z), manufactured:")
+    for s in (1.0, 1.05):
+        prev = None
+        for nc in (12, 24):
+            err = manufactured_error_hz(nc, nc, s=s)
+            ratio = "" if prev is None else "  ratio=%.2f" % (prev / err)
+            print("  s=%.2f nc=%3d nz=%3d  max|err|=%.3e%s" % (s, nc, nc, err, ratio)); prev = err
+    print("FINAL ASSEMBLY -- full 3-D storm mass-flux projection (div m -> 0 across interface):")
+    for periodic_h in (False, True):
+        nc, nz, rr = 12, 8, 2
+        ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+        nfx, nfy = rr * (ci1 - ci0), rr * (cj1 - cj0)
+        dz = 1.05 ** np.arange(nz); dz *= 2.0 / dz.sum()
+        zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+        dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+        rng = np.random.default_rng(0)
+        mu_c = rng.standard_normal((nc + 1, nc, nz)); mv_c = rng.standard_normal((nc, nc + 1, nz))
+        mw_c = rng.standard_normal((nc, nc, nz + 1))
+        mu_f = rng.standard_normal((nfx + 1, nfy, nz)); mv_f = rng.standard_normal((nfx, nfy + 1, nz))
+        mw_f = rng.standard_normal((nfx, nfy, nz + 1))
+        dc, df, di = composite_project_massflux_hz(mu_c, mv_c, mw_c, mu_f, mv_f, mw_f,
+                                                   nc, nz, rr, ci0, ci1, cj0, cj1, dzc, dzf,
+                                                   periodic_h=periodic_h)
+        print("  periodic_h=%-5s  max|div m|: coarse=%.2e  fine=%.2e  interface=%.2e"
+              % (periodic_h, dc, df, di))

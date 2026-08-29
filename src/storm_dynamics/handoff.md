@@ -15,10 +15,18 @@ prolongation (exact), free-stream preservation (0.0), **geometric-multigrid Pois
 3-D** (2nd order incl. corners, conservative), the **two-level MAC projection** in
 2-D/3-D (`div(u)`→1e-13 *across the interface*), and the AMReX↔our-physics binding
 (drift 0.0 on WSL/pyAMReX). The composite projection **is** the anelastic projection
-in mass-flux variables `m=ρ0 u` — so no new algorithm remains. Remaining is
-**integration plumbing** (wire the composite projection into `NestedStormSimulation`,
-replacing the two independent `project_anelastic` calls) + adaptive/dynamic
-regridding — see `docs/amr_design.md`.
+in mass-flux variables `m=ρ0 u` — so no new algorithm remains. The three plumbing
+pieces are done and verified — (a) solid-wall Neumann BC, (b) the staggered mass-flux
+face bridge (`composite_project_massflux_2d`), (c) the stretched-z vertical metric —
+and the **final assembly** is built: `solve_composite_hz` (unified operator: horizontal
+interface at every z-level + variable-dz vertical, verified 2nd order) and
+`composite_project_massflux_hz` (full 3-D projection on the storm's staggered mass
+fluxes, `div(m)→0` across the interface ~1e-13 for nest walls + parent periodic).
+**Every AMR-projection ingredient is now implemented and tested; the only remaining
+step is the call site** — form `ρ0 u*` on both levels, call
+`composite_project_massflux_hz`, recover `u = m/ρ0`, write back into the two FlowStates
+(replacing the two independent `project_anelastic` calls) — precise recipe in
+`docs/amr_design.md`. Plus adaptive/dynamic regridding.
 
 ## Objective
 

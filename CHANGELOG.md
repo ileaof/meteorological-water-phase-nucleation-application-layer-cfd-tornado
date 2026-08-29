@@ -102,9 +102,21 @@ moved byte-identically; SHA-256 checksums preserved).
   z). On `cos(2 pi x) cos(pi z/Lz)`: uniform z is clean 2nd order (ratio 4.01), moderate
   stretching is supraconvergent (~1.8-2, the standard non-uniform-FV order);
   `test_composite_stretched_vertical_metric_second_order`. **All three step-2 plumbing
-  pieces (a) wall BC, (b) face bridge, (c) stretched metric are verified** — the only
-  remaining work is assembling the full 3-D composite operator and calling it from
-  `NestedStormSimulation` (wiring, not new algorithm; `docs/amr_design.md`).
+  pieces (a) wall BC, (b) face bridge, (c) stretched metric are verified**.
+- **Final assembly** (`solve_composite_hz`, `composite_project_massflux_hz`): the full
+  unified operator for the storm's nest geometry — the horizontal composite interface at
+  every z-level + a variable-dz finite-volume vertical coupling per column (matched
+  stretched z, wall BCs, `m = ρ0 u`). `solve_composite_hz` is verified 2nd-order
+  (`manufactured_error_hz`; s=1.0 ratio 4.10, s=1.05 4.03). `composite_project_massflux_hz`
+  projects the storm's full 3-D staggered C-grid mass fluxes (parent + nest,
+  `u:(nc+1,nc,nz)`, `v:(nc,nc+1,nz)`, `w:(nc,nc,nz+1)`) so `div(m)=0` across the interface
+  to ~1e-13 for the nest (walls) and the parent (periodic horizontal), verified by an
+  independent recomputation from the written-back arrays
+  (`test_composite_hz_unified_operator_second_order`,
+  `test_composite_projection_hz_full_storm_divergence_free`). **Every AMR-projection
+  ingredient is now implemented and tested; the only remaining step is the call site**
+  (form `ρ0 u*`, call the projection, recover `u = m/ρ0`, write back into the two
+  `FlowState`s) — the precise recipe is in `docs/amr_design.md`.
 - `storm_dynamics/poisson_mg.py` — **geometric-multigrid Poisson** (the AMR
   projection kernel, since pyAMReX exposes no `MLMG`): 2-D cell-centred periodic
   V-cycle (red-black GS, full-weighting restriction, bilinear prolongation).

@@ -310,6 +310,40 @@ def test_composite_stretched_vertical_metric_second_order():
     assert 3.0 < s1 / s2 < 4.4 and s2 < 1e-2, (s1, s2)
 
 
+def test_composite_hz_unified_operator_second_order():
+    """FINAL ASSEMBLY: the unified 3-D operator (horizontal composite interface at each
+    z-level + variable-dz vertical, walls) is 2nd-order on a manufactured solution."""
+    from storm_dynamics import composite_poisson as cp
+    e1 = cp.manufactured_error_hz(12, 12, s=1.0)
+    e2 = cp.manufactured_error_hz(24, 24, s=1.0)
+    assert 3.6 < e1 / e2 < 4.4 and e2 < 5e-2, (e1, e2)
+
+
+def test_composite_projection_hz_full_storm_divergence_free():
+    """FINAL ASSEMBLY: the full 3-D storm mass-flux projection (horizontal composite
+    interface + variable-dz vertical + walls) makes div(m)=0 across the coarse-fine
+    interface, recomputed independently from the written-back staggered arrays, for both
+    the nest (walls) and the parent (periodic horizontal)."""
+    import numpy as np
+    from storm_dynamics import composite_poisson as cp
+    for periodic_h in (False, True):
+        nc, nz, r = 12, 8, 2
+        ci0, ci1, cj0, cj1 = nc // 3, 2 * nc // 3, nc // 3, 2 * nc // 3
+        nfx, nfy = r * (ci1 - ci0), r * (cj1 - cj0)
+        dz = 1.05 ** np.arange(nz); dz *= 2.0 / dz.sum()
+        zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+        dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+        rng = np.random.default_rng(4)
+        mu_c = rng.standard_normal((nc + 1, nc, nz)); mv_c = rng.standard_normal((nc, nc + 1, nz))
+        mw_c = rng.standard_normal((nc, nc, nz + 1))
+        mu_f = rng.standard_normal((nfx + 1, nfy, nz)); mv_f = rng.standard_normal((nfx, nfy + 1, nz))
+        mw_f = rng.standard_normal((nfx, nfy, nz + 1))
+        dc, df, di = cp.composite_project_massflux_hz(
+            mu_c, mv_c, mw_c, mu_f, mv_f, mw_f, nc, nz, r, ci0, ci1, cj0, cj1,
+            dzc, dzf, periodic_h=periodic_h)
+        assert dc < 1e-9 and df < 1e-9 and di < 1e-9, (periodic_h, dc, df, di)
+
+
 def test_composite_projection_3d_divergence_free_across_interface():
     """The 3-D two-level MAC projection (built on solve_3d) makes a random face-flux
     velocity discretely divergence-free including at the coarse-fine interface."""

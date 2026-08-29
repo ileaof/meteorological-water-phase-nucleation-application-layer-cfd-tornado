@@ -215,13 +215,29 @@ multigrid with exactly this coarse–fine handling).
    too). The vertical metric is orthogonal to the interface stencil
    (`test_composite_stretched_vertical_metric_second_order`).
 
-   **All three plumbing pieces are now verified.** The only remaining step is the
-   assembly: build the full 3-D composite operator (horizontal composite interface at each
-   z-level + the variable-dz vertical coupling per column, `m = ρ0 u` mass fluxes, wall
-   BCs) and call it from `NestedStormSimulation._step` in place of the two independent
-   `project_anelastic` calls, gathering the two levels' faces via
-   `composite_project_massflux_2d`'s mapping extended to 3-D. Each ingredient is proven;
-   this is wiring, not new algorithm.
+   **Final assembly done.** `solve_composite_hz` assembles the full unified operator —
+   the horizontal composite interface at every z-level + the variable-dz vertical coupling
+   per column (`m = ρ0 u`, wall BCs, matched stretched z) — verified 2nd order
+   (`manufactured_error_hz`; s=1.0 ratio 4.10, s=1.05 4.03;
+   `test_composite_hz_unified_operator_second_order`).
+   `composite_project_massflux_hz` is the full 3-D projection on the storm's staggered
+   C-grid mass fluxes (parent + nest, `u:(nc+1,nc,nz)`, `v:(nc,nc+1,nz)`, `w:(nc,nc,nz+1)`):
+   it makes `div(m)=0` across the interface to ~1e-13 for both the nest (walls) and the
+   parent (periodic horizontal), verified by an independent recomputation from the
+   written-back arrays (`test_composite_projection_hz_full_storm_divergence_free`).
+
+   **The only remaining step is the call site.** In `NestedStormSimulation._step`, after
+   both levels' momentum predictors (replacing the two independent `project_anelastic`
+   calls, `core.py:213` + `nesting.py:341`):
+   1. form the anelastic mass fluxes `m* = ρ0 u*` on each level (multiply the staggered
+      `u,v,w` by `ρ0` at the faces, as `project_anelastic` already does internally);
+   2. gather them into the parent(coarse)+nest(fine) arrays with `(ci0,ci1,cj0,cj1)` the
+      nest's footprint in the parent, and `dzc,dzf` from the shared stretched z;
+   3. `composite_project_massflux_hz(...)` (parent `periodic_h=True`, or walls to match the
+      parent's lateral BC);
+   4. recover `u = m/ρ0` at the faces and write back into each `FlowState`.
+   Every ingredient is implemented and tested; this is wiring against the live two-level
+   sim (the parent-grid footprint mapping and the per-level `ρ0`), not new algorithm.
 3. **Nested time-stepping + sync** wiring both together — *~2 weeks*.
 4. **Adaptive regridding** (tag/cluster/regrid, prolong/destroy) — *~2–3 weeks*.
 5. **Hardening**: multi-level (3+), moving/merging patches, load balancing if
