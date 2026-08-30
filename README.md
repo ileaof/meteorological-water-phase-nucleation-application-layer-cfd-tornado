@@ -111,6 +111,33 @@ python examples/tornado_nest.py --parent-nx 24 --parent-nz 40 --parent-duration 
 > ~320 s, so the `--window 300` above captures the peak (more `--les-boost` survives
 > longer but damps the updraft). Reproduce with the M3 command in *Reproduce with* below.
 
+#### See it in 3-D (`examples/render_tornado_3d.py`)
+
+The nest carries the full 3-D velocity/vorticity field, so it can be rendered directly.
+Two views of the same refined storm:
+
+| Vorticity column + updraft tower | Mesocyclone streamlines |
+|---|---|
+| ![3-D point cloud: a cyclonic vorticity column (warm) rising through the updraft (blue) from the near-surface to the anvil](docs/media/storm/nest_3d_column.png) | ![3-D storm-relative streamlines: a rotating ring (red rising / blue sinking) with updraft threads corkscrewing to the anvil](docs/media/storm/nest_3d_streamlines.png) |
+
+*Left:* the cyclonic-vorticity **column** (warm, thresholded per height) inside the
+**updraft tower** (blue). *Right:* storm-relative **streamlines** — the per-height mean
+wind subtracted to reveal the **mesocyclone circulation** (red = rising, blue = sinking),
+with a couple of threads corkscrewing up to ~14 km.
+
+```bash
+python examples/render_tornado_3d.py --device gpu --mode streamlines   # or --mode points
+python examples/render_tornado_3d.py --load outputs/tornado_3d/fields.npz --mode streamlines
+```
+
+> ⚠️ **What this is (and isn't).** These show the storm's **3-D rotational structure**, not
+> a resolved tornado. At Δx = 444 m the low-level vortex is **under-resolved** and does
+> *not* connect to the mid-level mesocyclone — there is an honest gap, no funnel-to-ground
+> (that needs O(10–100 m) / adaptive AMR). In the streamlines the **vertical pitch is
+> amplified** (a labelled `--w-gain`, viz only — the rotation is real, only the up/down is
+> exaggerated so it reads, because a mesocyclone is mostly a *horizontal* spin). The 3-D
+> fields are cached to `fields.npz` so the view re-renders instantly with `--load`.
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing

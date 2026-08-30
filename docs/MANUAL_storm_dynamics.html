@@ -454,6 +454,13 @@ python examples/supercell_tornadogenesis.py --scenario supercell \
 # M3 phase 1: static nested-grid refinement of the low-level vortex
 python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
 
+# M3 strongest reproducible case (storm-following nest, tunable shear/dissipation, GPU)
+python examples/tornado_nest.py --parent-duration 1200 --u-max 18 --refine 3 --follow \
+    --window 300 --les-boost 1.4 --cfl 0.20 --plots --animate --device gpu
+
+# 3-D view of the refined nest (vorticity column / mesocyclone streamlines)
+python examples/render_tornado_3d.py --device gpu --mode streamlines
+
 # tests
 PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
 <div class="note"><strong>CPU or GPU.</strong> The core is backend-agnostic (every hot-loop module uses
@@ -466,6 +473,16 @@ time-series PNGs; <code>--animate</code> (with <code>--fps</code>) writes an ani
 mid-level / near-surface vertical vorticity (Pillow &mdash; no ffmpeg); <code>--csv</code> writes the
 rotation / conservation time series to <code>history.csv</code>. All land in <code>--outdir</code> (default
 <code>outputs/storm_&lt;scenario&gt;</code>).</div>
+<div class="note"><strong>3-D visualisation.</strong> <code>examples/render_tornado_3d.py</code> renders the
+nest's full 3-D fields as a vorticity <em>column</em> + updraft tower (<code>--mode points</code>) or as
+storm-relative <em>streamlines</em> with arrowheads (<code>--mode streamlines</code>). The streamlines
+subtract the per-height mean wind to reveal the <strong>mesocyclone circulation</strong>, and
+<code>--w-gain</code> amplifies the vertical pitch (visualisation only &mdash; a mesocyclone is mostly a
+<em>horizontal</em> spin, so the rotation is real and only the up/down is exaggerated so it reads). The
+3-D fields are cached to <code>fields.npz</code> (<code>--load</code> re-renders instantly). <strong>It shows the
+3-D rotational structure, not a funnel-to-ground</strong>: at &Delta;x&nbsp;=&nbsp;444&nbsp;m the low-level
+vortex is under-resolved and does not connect to the mid-level meso &mdash; that needs O(10&ndash;100&nbsp;m)
+/ adaptive AMR.</div>
 <p>Declarative configs load via the Python API:</p>
 <pre><code>from storm_dynamics.config import storm_config_from_yaml
 from storm_dynamics.core import StormSimulation
@@ -609,7 +626,9 @@ tests/test_storm_dynamics.py     unit tests (momentum/Coriolis/LES/drag/SRH/kern
 tests/test_storm_milestones.py   M1 (splitting + mesocyclone) + M2 (low-level rotation)
 tests/test_storm_nesting.py      M3 phase 1 (interpolation exact; stable nested run)
 examples/supercell_tornadogenesis.py   M1/M2 demo (--plots/--animate/--csv/--device/--kernel-nucleation)
-examples/tornado_nest.py               M3 phase 1 demo (parent + finer nest)
+examples/tornado_nest.py               M3 nested-grid demo (--concurrent/--follow/--two-way, --u-max/--les-boost/--cfl)
+examples/render_tornado_3d.py          3-D render: vorticity column / mesocyclone streamlines (--mode, --w-gain, --load)
+examples/composite_projection_demo.py  AMR composite two-level projection (div(rho0 u)=0 across the interface)
 configs/storm_supercell.yaml · configs/storm_tornadogenesis.yaml
 docs/storm_dynamics_guide.md · docs/MANUAL_storm_dynamics.html (this file)</div>
 </section>

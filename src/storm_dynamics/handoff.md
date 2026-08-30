@@ -204,10 +204,28 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
 
 ## Done since the first handoff
 
+- **3-D visualisation** (`examples/render_tornado_3d.py`): renders the nest's full 3-D
+  fields two ways — `--mode points` (cyclonic vorticity **column**, thresholded *per
+  height* so the whole depth shows, + updraft tower) and `--mode streamlines` (RK4 on the
+  storm-relative direction field, seeded in a ring around the vortex axis, coloured by w,
+  with arrowheads). Two visualisation choices matter and are honest: (a) the streamlines
+  **subtract the per-height mean wind** to reveal the mesocyclone circulation rather than
+  the ambient flow; (b) `--w-gain` **amplifies the vertical pitch** (viz only — a
+  mesocyclone is mostly a *horizontal* spin, so w is small vs the swirl; the rotation stays
+  real, only the up/down is exaggerated so it reads). Fields are cached to `fields.npz`
+  (`--load` re-renders instantly, no re-sim). Only matplotlib + PIL (no skimage/ffmpeg).
+  **Honest limit:** at Δx=444 m the low-level vortex does NOT connect to the mid-level meso
+  (a real gap) — this is the 3-D rotational *structure*, not a funnel-to-ground (that needs
+  O(10–100 m) / the adaptive AMR whose pieces are built + verified but not yet in the loop).
 - **Rotation figures** (`plotting.py` + example `--plots`): mid-level / near-surface
   ζ slices (the split couplet), w, hodograph+SRH, rotation time series. Plus an
   **animated GIF** of the evolving vorticity (`--animate`, Pillow — no ffmpeg;
   frame capture via `run(capture_frames=True)`) and a **history CSV** (`--csv`).
+- **Nest stability/shear knobs**: `run_concurrent_nest(les_boost=, cfl=)` and example
+  flags `--u-max/--les-boost/--cfl` let a storm-following nest be pushed to a stronger
+  vortex while staying stable (defaults unchanged). Strongest reproducible case: w_max
+  7.1→13.6 m/s, near-surface ζ interior +3.95× (grid-scale instability at ~320 s ⇒ window
+  300 captures the peak). See the README M3 section.
 - **Kernel-nucleation coupling** (`build_storm_config(couple_nucleation=True)` /
   example `--kernel-nucleation`): the validated 2nd-order nucleation rate J is
   evaluated on the post-transport state each step and fed to the microphysics as

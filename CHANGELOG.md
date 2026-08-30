@@ -140,6 +140,15 @@ moved byte-identically; SHA-256 checksums preserved).
   divergent perturbation, runs `composite_project_two_level`, and shows the anelastic
   divergence collapse from ~1e-1 to ~1e-16 everywhere including the interface. Documented
   in the README M3 section.
+- `examples/render_tornado_3d.py` — **3-D visualisation** of the refined nest: the cyclonic
+  vorticity **column** + updraft tower (`--mode points`, thresholded per height so the whole
+  depth shows) or storm-relative **mesocyclone streamlines** with arrowheads (`--mode
+  streamlines`, RK4 on the direction field, per-height mean wind subtracted to reveal the
+  rotation, `--w-gain` amplifies the vertical pitch for legibility — viz only, the rotation
+  is physical). 3-D fields cached to `fields.npz` (`--load` re-renders instantly);
+  matplotlib + PIL only. Honest: at Δx=444 m the low-level vortex is under-resolved and does
+  not connect to the mid-level meso (a real gap) — rotational structure, NOT a
+  funnel-to-ground. Figures + caveats in the README M3 section (`docs/media/storm/nest_3d_*`).
 - **Anisotropic composite operator** (`dx≠dy`, rectangular `nx≠ny`): `solve_composite_hz`,
   `composite_project_massflux_hz` and `_interface_flux_2d` take independent `hx,hy` (and
   `ncy`) — x-normal faces divide by `hx/r`, y-normal by `hy/r`, tangential wrap uses the
