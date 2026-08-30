@@ -85,6 +85,24 @@ Mature the storm on the coarse **parent**, then integrate a finer **nest** over
 the updraft / low-level-rotation region, with the nest border relaxed toward the
 parent. The finer grid **sharpens** the near-surface vortex.
 
+**Strongest reproducible case (GPU, storm-following, Δx = 0.44 km).** A well-organised
+supercell: a deep, coherent updraft (**w_max 7.1 → 13.6 m/s**), a mid-level ζ couplet
+wrapped by the updraft, and a concentrated **near-surface vortex with converging low-level
+winds** — the tornadogenesis proxy. Interior near-surface ζ intensifies **3.95×**
+(4.3×10⁻⁴ → 1.7×10⁻³ s⁻¹) while conserving (water +2.7×10⁻³, mass |div| ≈ 7×10⁻⁵).
+
+![Rotation slices of the refined storm-following nest: mid-level ζ couplet with updraft contours, a 13.6 m/s updraft core, and a coherent near-surface vortex with converging winds](docs/media/storm/nest_peak_slices.png)
+
+![Animation of the refined nest: the low-level vortex organising and intensifying over 300 s](docs/media/storm/nest_peak_evolution.gif)
+
+> ⚠️ **Idealised, NOT a forecast — and under-resolved.** This is a numerics/physics
+> demonstration: no data assimilation, no real event, no observational verification. At
+> Δx = 444 m the vortex is **under-resolved**, so ζ and w are *indicative, not
+> quantitative* — real tornado-scale winds need O(10–100 m). The storm-following nest is
+> one-way at fixed refinement; the intensifying vortex hits a grid-scale instability at
+> ~320 s, so the `--window 300` above captures the peak (more `--les-boost` survives
+> longer but damps the updraft). Reproduce with the M3 command in *Reproduce with* below.
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing
