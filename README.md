@@ -207,6 +207,19 @@ python examples/supercell_tornadogenesis.py --scenario supercell \
 # finer nest over the vortex region (intensifies near-surface zeta over a window):
 python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
 
+# M3 strongest reproducible case (storm-following nest, GPU): a well-organised
+# supercell with a coherent low-level vortex. Tunable shear / SGS-dissipation / CFL
+# flags (--u-max, --les-boost, --cfl) let you push the vortex while staying stable:
+python examples/tornado_nest.py --parent-nx 24 --parent-nz 40 --parent-duration 1200 \
+    --u-max 18 --refine 3 --half 8000 --nest-nz 46 --follow --window 300 \
+    --les-boost 1.4 --cfl 0.20 --plots --animate --device gpu
+#   -> nest 36x36x46, dx=444 m (3x finer);  w_max 7.1 -> 13.6 m/s
+#      near-surface zeta (interior) 4.3e-4 -> 1.7e-3 s^-1  (3.95x intensification)
+#      conservation: water +2.7e-3, mass |div| 7e-5
+#   NB the intensifying vortex hits a grid-scale instability at ~320 s -- window 300
+#   captures the peak; more --les-boost survives longer but damps the updraft. This is
+#   an IDEALISED, under-resolved demo (dx=444 m): zeta/w are indicative, not a forecast.
+
 # quick smoke test (tiny grid, short duration) to sanity-check a change fast:
 python examples/supercell_tornadogenesis.py --scenario supercell \
     --nx 8 --ny 8 --nz 10 --duration 30 --device auto

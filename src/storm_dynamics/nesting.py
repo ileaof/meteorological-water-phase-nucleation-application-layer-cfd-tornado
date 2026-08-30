@@ -603,7 +603,8 @@ def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
 def run_concurrent_nest(parent, spec: NestSpec, window: float,
                         record_interval=None, capture_frames=False,
                         follow=False, storm_motion=None, two_way=False,
-                        two_way_rate=0.5, progress=None):
+                        two_way_rate=0.5, progress=None,
+                        les_boost=1.25, cfl=0.25):
     """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
 
     The parent keeps stepping alongside the nest; each parent step the parent
@@ -622,7 +623,7 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     """
     import dataclasses as _dc
     from .core import StormSimulation as SS
-    nest = NestedStormSimulation(parent, spec)
+    nest = NestedStormSimulation(parent, spec, les_boost=les_boost, cfl=cfl)
     nest._capture_frames = bool(capture_frames); nest.frames = []
     g = nest.grid
     cx = cy = 0.0

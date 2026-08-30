@@ -52,6 +52,11 @@ def main(argv=None) -> int:
                    help="M3 phase 3a: approximate two-way feedback -- blend the nest's "
                         "finer solution back onto the parent overlap (implies --concurrent)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
+    p.add_argument("--u-max", type=float, default=18.0,
+                   help="hodograph magnitude [m/s] (larger = stronger shear -> stronger storm)")
+    p.add_argument("--les-boost", type=float, default=1.25,
+                   help="nest SGS dissipation factor (raise for stability at high --refine)")
+    p.add_argument("--cfl", type=float, default=0.25, help="nest CFL cap (lower = more stable)")
     p.add_argument("--plots", action="store_true")
     p.add_argument("--animate", action="store_true")
     p.add_argument("--outdir", default="outputs/tornado_nest")
@@ -64,7 +69,7 @@ def main(argv=None) -> int:
         preset="storm", nx=args.parent_nx, ny=args.parent_nx, nz=args.parent_nz,
         Lx=args.parent_L, Ly=args.parent_L, Lz=15000.0,
         duration=args.parent_duration, dt_max=3.0, hodograph_kind="quarter_circle",
-        drag=True, z_stretch=1.05, U_max=18.0, z_turn=2000.0, C_s=0.22, device=args.device)
+        drag=True, z_stretch=1.05, U_max=args.u_max, z_turn=2000.0, C_s=0.22, device=args.device)
     parent = StormSimulation(scfg)
     print("maturing parent: %d x %d x %d (dx=%.0f m) for %.0f s ..."
           % (parent.grid.nx, parent.grid.ny, parent.grid.nz, parent.grid.dx,
@@ -99,6 +104,7 @@ def main(argv=None) -> int:
         nest, rep = nst.run_concurrent_nest(
             parent, spec, window=args.window, capture_frames=args.animate,
             follow=args.follow, two_way=args.two_way,
+            les_boost=args.les_boost, cfl=args.cfl,
             progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     else:
         nest = nst.NestedStormSimulation(parent, spec)

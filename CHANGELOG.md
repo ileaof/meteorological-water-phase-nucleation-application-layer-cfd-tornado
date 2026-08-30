@@ -48,6 +48,15 @@ moved byte-identically; SHA-256 checksums preserved).
     parent overlap (converted to the ground frame, tapered at the edge), so the parent
     is improved by the nest (parent updraft ~6→9 m/s vs a no-feedback control), the
     loop stays stable, water ≈ −0.1%. Injection feedback, **not** rigorous refluxing.
+  - **Tunable stability/shear knobs** for the nest: `run_concurrent_nest` now takes
+    `les_boost` and `cfl`, and `examples/tornado_nest.py` exposes `--u-max`,
+    `--les-boost`, `--cfl` (defaults preserve prior behaviour). This lets a
+    storm-following nest be pushed harder while staying stable — the strongest
+    reproducible case (`--refine 3 --follow --window 300 --les-boost 1.4`, GPU) reaches
+    a coherent low-level vortex: w_max 7.1→13.6 m/s, near-surface ζ (interior)
+    4.3e-4→1.7e-3 s⁻¹ (**3.95× intensification**), water +2.7e-3, mass |div| 7e-5. The
+    intensifying vortex hits a grid-scale instability at ~320 s (window 300 captures the
+    peak); idealised, under-resolved demo — indicative, not a forecast. README updated.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test
