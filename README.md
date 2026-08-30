@@ -91,6 +91,14 @@ wrapped by the updraft, and a concentrated **near-surface vortex with converging
 winds** — the tornadogenesis proxy. Interior near-surface ζ intensifies **3.95×**
 (4.3×10⁻⁴ → 1.7×10⁻³ s⁻¹) while conserving (water +2.7×10⁻³, mass |div| ≈ 7×10⁻⁵).
 
+Reproduce it exactly (GPU):
+
+```bash
+python examples/tornado_nest.py --parent-nx 24 --parent-nz 40 --parent-duration 1200 \
+    --u-max 18 --refine 3 --half 8000 --nest-nz 46 --follow --window 300 \
+    --les-boost 1.4 --cfl 0.20 --plots --animate --device gpu
+```
+
 ![Rotation slices of the refined storm-following nest: mid-level ζ couplet with updraft contours, a 13.6 m/s updraft core, and a coherent near-surface vortex with converging winds](docs/media/storm/nest_peak_slices.png)
 
 ![Animation of the refined nest: the low-level vortex organising and intensifying over 300 s](docs/media/storm/nest_peak_evolution.gif)
