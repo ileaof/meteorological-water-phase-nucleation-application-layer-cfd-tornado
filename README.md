@@ -118,7 +118,7 @@ Two views of the same refined storm:
 
 | Vorticity column + updraft tower | Mesocyclone streamlines |
 |---|---|
-| ![3-D point cloud: a cyclonic vorticity column (warm) rising through the updraft (blue) from the near-surface to the anvil](docs/media/storm/nest_3d_column.png) | ![3-D storm-relative streamlines: a rotating ring (red rising / blue sinking) with updraft threads corkscrewing to the anvil](docs/media/storm/nest_3d_streamlines.png) |
+| ![3-D point cloud: a cyclonic vorticity column (warm) rising through the updraft (blue) from the near-surface to the anvil](docs/media/storm/nest_3d_column.png) | ![3-D storm-relative streamlines rotating: a mesocyclone ring (red rising / blue sinking) with updraft threads corkscrewing to the anvil](docs/media/storm/nest_3d_streamlines.gif) |
 
 *Left:* the cyclonic-vorticity **column** (warm, thresholded per height) inside the
 **updraft tower** (blue). *Right:* storm-relative **streamlines** — the per-height mean
