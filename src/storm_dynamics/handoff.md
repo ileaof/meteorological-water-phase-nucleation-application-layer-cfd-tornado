@@ -27,11 +27,17 @@ site** `nesting.composite_project_two_level(parent, nest, spec)` forms `ρ0 u*` 
 levels, calls `composite_project_massflux_hz`, recovers `u = m/ρ0`, and writes back into
 the two FlowStates; verified on real staggered `FlowState` arrays with a stretched
 anelastic density profile (`div(ρ0 u)`→machine precision across the interface,
-`test_composite_project_two_level_call_site_divergence_free`). Requires a cell-aligned
-matched-z nest (`NestSpec.aligned`) in a square parent. Enabling it as the default in
-`run_concurrent_nest` (it replaces the nest-boundary relaxation with the interface
-coupling) is opt-in. Remaining: anisotropic/non-aligned nests (generalisation) and
-adaptive/dynamic regridding — see `docs/amr_design.md`.
+`test_composite_project_two_level_call_site_divergence_free`). **Now wired into the time
+loop (2026-08-31):** `run_concurrent_nest(composite_projection=True)` skips both
+per-level projections and runs the composite solve once per nest sub-step — the two
+`_step`s are split `_predictor → _project → _transport` so the projection is deferred;
+with `follow` the nest is reconciled to the ground frame for the joint solve and shifted
+back after; the nest velocity sponge is dropped; footprints are snapped cell-aligned/
+matched-z (`_snap_aligned_spec`). Verified in the loop
+(`test_composite_projection_in_time_loop`: interface `|div(ρ0 u)|` ~4e-18 every sub-step,
+stable, w_max ≥ the sponge path, mass residual ~1e-15; example flag `--composite`).
+Remaining: anisotropic/non-aligned nests (generalisation) and adaptive/dynamic
+regridding — see `docs/amr_design.md` / `docs/ROADMAP.md` §2.
 
 ## Objective
 
@@ -183,10 +189,15 @@ had been red purely from the EOL artifact above; now green). storm_dynamics adds
   refluxing, restriction/prolongation, free-stream, the geometric-multigrid Poisson,
   the composite coarse-fine interface stencil (1-D/2-D/3-D, `composite_poisson.py`),
   and the two-level MAC projection (`project_divergence_2d/3d`) — which IS the
-  anelastic projection in mass-flux variables, so no new algorithm remains. What is
-  left is **integration plumbing** (composite projection into `NestedStormSimulation`:
-  gather both levels' staggered mass fluxes → one composite solve → correct + write
-  back, with wall BCs, face extraction, the stretched grid) and **adaptive/dynamic
+  anelastic projection in mass-flux variables, so no new algorithm remains. The
+  **integration plumbing is DONE**: the call site
+  `nesting.composite_project_two_level(parent, nest, spec)` already gathers both
+  levels' staggered mass fluxes → one composite solve (`composite_project_massflux_hz`)
+  → writes `u = m/ρ0` back into the two `FlowState`s (wall BCs, face extraction and
+  the stretched grid are inside it), verified divergence-free at the interface on
+  real staggered states. What is left is (1) ~~**enabling it in the time loop**~~ DONE
+  (2026-08-31: `run_concurrent_nest(composite_projection=True)`, see the Status block) and
+  (2) **adaptive/dynamic
   regridding** (Berger–Oliger); a production build normally uses a framework
   (AMReX/Chombo/p4est). Gotchas: nest deep-copies
   `parent.dyn`; follow uses a *constant* C (real motion varies → ζ max can sit near

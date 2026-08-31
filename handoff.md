@@ -1,6 +1,7 @@
 # Handoff — precipitation microphysics extension
 
-**Date:** 2026-08-21 · **Branch:** `main` · **Status:** Increment 1 complete & tested.
+**Date:** 2026-08-21 · **updated 2026-08-31** · **Branch:** `main` · **Status:** Increment 1
+complete & tested; **Increment 2 (3-D coupling) also complete & tested — see below.**
 
 ## Objective
 
@@ -16,7 +17,7 @@ must be preserved.
 1. **Architecture:** new framework-agnostic package `src/precip_microphysics/`, outside
    the immutable `_engine/`; consumes the nucleation kernel read-only. `_engine/` untouched.
 2. **Scope:** Increment 1 = 0-D/1-D core + diagnostics + standalone driver + tests +
-   scenarios. Increment 2 = wire into the 3D `meteorological_flow` solver. **← remaining**
+   scenarios. Increment 2 = wire into the 3D `meteorological_flow` solver. **← DONE**
 3. **Fidelity:** single-moment bulk, all categories (`q_c,q_r,q_i,q_s,q_g,q_h`), diagnostic
    number concentrations via Marshall-Palmer closure.
 4. **API compat:** old `Favorability`/`PrecipitationDiagnosis`/49-field report kept intact;
@@ -88,13 +89,30 @@ Scenarios (kernel-free is fast; `--kernel` adds one kernel call each):
 1 nucleation-only → Level 1, no confirmation · 2 warm rain → Level 4 rain (~5 mm) ·
 3 mixed-phase → Level 4 snow · 4 deep hail → Level 4 hail (wet growth, ~35% melt, ~65% survival).
 
-## Remaining work (Increment 2)
+## Remaining work
 
-- Wire `BulkMicrophysics` into `meteorological_flow.simulation` at `stage="hydrometeor"`:
-  add `q_r,q_s,q_g,q_h` to `FlowState`, advect them, apply the scheme per cell, feed the
-  nucleation adapter's `I` into `nucleation_source`, apply latent-heat feedback to `theta`,
-  and column sedimentation. Config already reserves the stage names.
-- 3D natural hail (a parcel can't sustain supercooled LWC vs Bergeron; the 3D updraft can).
+**Increment 2 (3-D coupling) is DONE — this section previously listed it as remaining.**
+Where it actually lives (verified 2026-08-31):
+
+- `q_r,q_s,q_g,q_h` on `FlowState`: `meteorological_flow/state.py:32` (`qr/qs/qg/qh`,
+  plus `surface_precip`), advected with the other scalars in `simulation.py:395`.
+- Per-cell scheme + latent-heat feedback + sedimentation: `simulation.py:414` calls
+  `microphysics_coupling.MicrophysicsCoupler` (`apply` → `BulkMicrophysics.step`,
+  latent heat into `theta` with a `max_dT` clip; `sediment` → column fall →
+  `surface_precip`), inside `_step()` at stages `vapor_depletion | thermal_feedback |
+  hydrometeor` (`simulation.py:255`).
+- Kernel-J feed: `simulation.py:418` passes the adapter's `nf.I[0/1]` as
+  `J_liquid/J_ice` — **opt-in** (`cfg.nucleation.couple_kernel`, default `False`;
+  `--microphysics` sets stage `hydrometeor` + `couple_kernel=True`). Plain
+  `stage="hydrometeor"` runs use the scheme's own CCN/IN activation.
+- Tests: `tests/test_flow_microphysics_coupling.py` (12); acceptance run
+  `examples/storm_flow_coupled.py`; NetCDF export of the 4 species in
+  `meteorological_flow/io.py`.
+
+Still open:
+
+- 3D natural hail (a parcel can't sustain supercooled LWC vs Bergeron; the 3D updraft
+  can) — not yet demonstrated end-to-end.
 - Optional double-moment upgrade; observational validation vs WSM6/Thompson/Morrison.
 
 ## Key implementation notes / gotchas
