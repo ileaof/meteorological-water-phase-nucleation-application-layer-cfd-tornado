@@ -138,6 +138,111 @@ def _streamlines(F, args):
     return lines, (ax0, ay0), (fu, fv, fw)
 
 
+def _flow_animation(F, args, outdir):
+    """Animate the FLOW rotating (camera FIXED): particles advected by the
+    mesocyclone's storm-relative velocity field, trails coloured by vertical
+    velocity.  The field is a steady snapshot, so this shows the circulation
+    pattern of that snapshot (the true spiralling inflow + updraft), not the
+    storm's time evolution; the vertical pitch gain is a viz exaggeration."""
+    from scipy.interpolate import RegularGridInterpolator as RGI
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+    xc, yc, zc = F["xc"], F["yc"], F["zc"]
+    grid = (xc, yc, zc)
+    # same trick as the streamlines: remove the per-height MEAN wind so particles
+    # follow the rotational + updraft perturbation, not the ambient flow
+    up = F["u"] - F["u"].mean(axis=(0, 1), keepdims=True)
+    vp = F["v"] - F["v"].mean(axis=(0, 1), keepdims=True)
+    fu = RGI(grid, up, bounds_error=False, fill_value=0.0)
+    fv = RGI(grid, vp, bounds_error=False, fill_value=0.0)
+    fw = RGI(grid, F["w"], bounds_error=False, fill_value=0.0)
+    gain = args.flow_w_gain                              # vertical pitch (viz only)
+    wmax = max(float(np.nanmax(F["w"])), 1e-3)
+
+    # vortex axis (horizontal centroid of the strong per-height vorticity)
+    zeta = F["zeta"]; perlev = np.abs(zeta).max(axis=(0, 1), keepdims=True) + 1e-30
+    X, Y, Z = np.meshgrid(xc, yc, zc, indexing="ij")
+    m = zeta / perlev > 0.4
+    ax0, ay0 = float(X[m].mean()), float(Y[m].mean())
+    span = 4.0
+    x0, x1 = ax0 - span, ax0 + span; y0, y1 = ay0 - span, ay0 + span
+    ztop = max(6.0, min(10.0, float(zc[-1])))            # keep the view on the vortex
+    zmax = zc[-1]
+
+    rng = np.random.default_rng(0)
+    N, TRAIL = args.flow_particles, args.flow_trail
+    ds = 0.12 * F["dx"] / 1000.0                          # RK4 arc step [km]
+
+    def new_particles(n):                                 # rings around the axis
+        zs = rng.uniform(0.15, 2.2, n)
+        rr = rng.uniform(0.25, 1.5, n)
+        th = rng.uniform(0.0, 2.0 * np.pi, n)
+        return np.stack([ax0 + rr * np.cos(th), ay0 + rr * np.sin(th), zs], axis=1)
+
+    def vel(P):                                           # (N,3): pitch-scaled
+        return np.stack([fu(P), fv(P), gain * fw(P)], axis=1)
+
+    def vdir(P):                                          # UNIT direction (arc-length RK4)
+        V = vel(P)
+        n = np.linalg.norm(V, axis=1, keepdims=True)
+        return np.where(n > 1e-9, V / np.maximum(n, 1e-9), 0.0)
+
+    def rk4(P):
+        k1 = vdir(P); k2 = vdir(P + 0.5 * ds * k1)
+        k3 = vdir(P + 0.5 * ds * k2); k4 = vdir(P + ds * k3)
+        return P + (ds / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+    def inside(P):
+        return ((P[:, 0] > x0) & (P[:, 0] < x1) & (P[:, 1] > y0) & (P[:, 1] < y1)
+                & (P[:, 2] > 0.0) & (P[:, 2] < ztop))
+
+    cmap = plt.get_cmap("coolwarm")
+    P = new_particles(N)
+    trails = np.empty((N, TRAIL, 3))
+    trails[:, 0, :] = P
+    for t in range(1, TRAIL):                        # pre-advance a real trail history
+        trails[:, t, :] = rk4(trails[:, t - 1, :])
+
+    def draw(ax, trails):
+        ax.clear()
+        Tw = fw(trails.reshape(-1, 3)).reshape(N, TRAIL)
+        cols = cmap(np.clip(0.5 + Tw[:, :-1] / (2 * wmax), 0, 1)).reshape(-1, 4)
+        segs = np.stack([trails[:, :-1, :].reshape(-1, 3),
+                         trails[:, 1:, :].reshape(-1, 3)], axis=1)
+        ax.add_collection3d(Line3DCollection(segs, colors=cols, lw=1.1, alpha=0.85))
+        ax.scatter(trails[:, -1, 0], trails[:, -1, 1], trails[:, -1, 2],
+                   c=cols[-N:], s=4, depthshade=False)
+        ax.set_xlim(x0, x1); ax.set_ylim(y0, y1); ax.set_zlim(0, ztop)
+        ax.set_box_aspect((1, 1, args.zexag * ztop / zc[-1])); ax.view_init(elev=45, azim=-60)
+        ax.set_xlabel("x [km]"); ax.set_ylabel("y [km]"); ax.set_zlabel("z [km]")
+        ax.set_title("storm_dynamics 3-D: the FLOW rotating -- particles advected by the\n"
+                     "mesocyclone circulation (colour = w; vertical pitch x%.1f)\n"
+                     "IDEALISED (dx=%.0f m); steady-snapshot advection, camera fixed"
+                     % (gain, F["dx"]), fontsize=9)
+
+    fig = plt.figure(figsize=(8, 8.5)); ax = fig.add_subplot(111, projection="3d")
+    draw(ax, trails); fig.tight_layout()
+    still = os.path.join(outdir, "tornado_3d_flow_still.png")
+    fig.savefig(still, dpi=130); print("still     ->", still)
+    frames = []
+    for _ in range(args.flow_frames):
+        for _ in range(args.flow_substeps):
+            P = rk4(P)
+        bad = ~inside(P)
+        if bad.any():
+            nb = new_particles(int(bad.sum())); P[bad] = nb; trails[bad] = nb[:, None, :]
+        trails = np.concatenate([trails[:, 1:, :], P[:, None, :]], axis=1)
+        draw(ax, trails); fig.canvas.draw()
+        buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+        w_, h_ = fig.canvas.get_width_height()
+        frames.append(Image.fromarray(buf.reshape(h_, w_, 4)[:, :, :3].copy()))
+    gif = os.path.join(outdir, "tornado_3d_flow_rotating.gif")
+    frames[0].save(gif, save_all=True, append_images=frames[1:], duration=80, loop=0)
+    plt.close(fig); print("animation ->", gif)
+    print("IDEALISED, NOT a forecast; particle advection of a steady snapshot "
+          "(vertical pitch x%.1f), not the storm's time evolution." % args.flow_w_gain)
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -155,7 +260,17 @@ def main(argv=None) -> int:
                         "coarse-fine interface; footprint already cell-aligned)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--load", default=None, help="load fields.npz and just re-render")
-    p.add_argument("--mode", choices=["streamlines", "points"], default="streamlines")
+    p.add_argument("--mode", choices=["streamlines", "points", "flow"], default="streamlines")
+    p.add_argument("--flow-frames", type=int, default=40,
+                   help="flow mode: animation frames (particle advection)")
+    p.add_argument("--flow-particles", type=int, default=500,
+                   help="flow mode: number of advected particles")
+    p.add_argument("--flow-substeps", type=int, default=2,
+                   help="flow mode: RK4 advection sub-steps per frame")
+    p.add_argument("--flow-trail", type=int, default=30,
+                   help="flow mode: trail length in advection steps")
+    p.add_argument("--flow-w-gain", type=float, default=0.6,
+                   help="flow mode: vertical pitch exaggeration (viz only)")
     p.add_argument("--stream-steps", type=int, default=180)
     p.add_argument("--w-gain", type=float, default=4.0,
                    help="amplify the vertical pitch of streamlines (viz only; rotation stays real)")
@@ -177,6 +292,9 @@ def main(argv=None) -> int:
     xc, yc, zc, dx = F["xc"], F["yc"], F["zc"], float(F["dx"])
     wmax = float(np.nanmax(F["w"]))
     print("nest dx=%.0f m | zeta_max=%.2e s^-1 | w_max=%.1f m/s" % (dx, float(np.nanmax(F["zeta"])), wmax))
+
+    if args.mode == "flow":
+        return _flow_animation(F, args, args.outdir)
 
     if args.mode == "streamlines":
         lines, (ax0, ay0), _ = _streamlines(F, args)
