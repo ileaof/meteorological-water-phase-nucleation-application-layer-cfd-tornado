@@ -77,6 +77,20 @@ path.
 
 **NEXT: §2 (2a → 2b)** — adaptive regridding, then higher refinement. ★
 
+**Known issue before scale-up (2026-08-31).** Composite mode is *verified* for
+correctness (interface `|div(ρ₀u)|` ~machine precision, mass residual ~1e-15) but
+*not yet stable at long windows on the render-scale grid* (parent 24×24×40, nest
+24×24×40 @ r=3): the velocity sponge is dropped in composite mode (the interface
+coupling replaces it) and, with no lateral damping channel left, the nest
+over-intensifies — w grows smoothly (not a noise spike, max ~5 cells from the
+border, mid-level) to 100 m/s @ window 300 (u_max 18), 75 @ 210 (les_boost 1.5,
+cfl 0.15), 44 @ 180 (u_max 14). The small-grid in-loop test (14×14×16, 18 s) is
+fine. *Next stability item:* a border treatment compatible with the composite
+coupling (absorbing/hyperviscous band that does NOT nudge interface faces back
+toward the coarse state), then re-validate the w_max trajectory before using
+composite mode for presentation figures. Until then the sponge-path figures
+remain the demonstrated-physical ones.
+
 ---
 
 ## 2. AMR completion (the path to a resolved funnel)

@@ -53,10 +53,13 @@ def _run_fields(args):
     spec = nst.NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=half, ncy=half, refine=args.refine)
     print("nest (aligned) over the updraft; refine %d, storm-following%s ..."
           % (args.refine, " + COMPOSITE projection" if args.composite else ""))
-    nest, _ = nst.run_concurrent_nest(parent, spec, window=args.window, follow=True,
-                                      composite_projection=args.composite,
-                                      les_boost=args.les_boost, cfl=args.cfl,
-                                      progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
+    nest, rep = nst.run_concurrent_nest(parent, spec, window=args.window, follow=True,
+                                        composite_projection=args.composite,
+                                        les_boost=args.les_boost, cfl=args.cfl,
+                                        progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
+    if args.composite:
+        print("composite |div(rho0 u)| at interface: %.2e (max over sub-steps)"
+              % rep["nest"]["composite_div_interface"])
     print(" " * 60, end="\r")
     g = nest.grid; to = g.backend.to_cpu
     uc, vc, wcn = rot._centered_velocity(nest.state, g)
