@@ -51,8 +51,10 @@ def _run_fields(args):
     i0 = int(np.clip(i - half // 2, 1, nc - half - 1))
     j0 = int(np.clip(j - half // 2, 1, nc - half - 1))
     spec = nst.NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=half, ncy=half, refine=args.refine)
-    print("nest (aligned) over the updraft; refine %d, storm-following ..." % args.refine)
+    print("nest (aligned) over the updraft; refine %d, storm-following%s ..."
+          % (args.refine, " + COMPOSITE projection" if args.composite else ""))
     nest, _ = nst.run_concurrent_nest(parent, spec, window=args.window, follow=True,
+                                      composite_projection=args.composite,
                                       les_boost=args.les_boost, cfl=args.cfl,
                                       progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     print(" " * 60, end="\r")
@@ -144,6 +146,10 @@ def main(argv=None) -> int:
     p.add_argument("--window", type=float, default=300.0)
     p.add_argument("--les-boost", type=float, default=1.4)
     p.add_argument("--cfl", type=float, default=0.20)
+    p.add_argument("--composite", action="store_true",
+                   help="docs/ROADMAP.md section 1: composite parent+nest mass-flux "
+                        "projection every nest sub-step (div(rho0 u)=0 across the "
+                        "coarse-fine interface; footprint already cell-aligned)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--load", default=None, help="load fields.npz and just re-render")
     p.add_argument("--mode", choices=["streamlines", "points"], default="streamlines")

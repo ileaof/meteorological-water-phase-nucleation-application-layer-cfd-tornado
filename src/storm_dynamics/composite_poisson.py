@@ -816,7 +816,56 @@ def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
     fid = lambda a, b, k: fb + (a * nfy + b) * nz + k
     N = fb + nfx * nfy * nz
     gcol = lambda key, k: (fid(key[1], key[2], k) if key[0] == "f" else cid[(key[1], key[2], k)])
-    rows, cols, data, rhs = [], [], [], np.zeros(N)
+    geom_key, anc = _hz_geom_key(ncx, ncy, nz, r, ci0, ci1, cj0, cj1, periodic_h,
+                                 hcx, hcy, dzc, dzf, cid, cxy)
+    hit = _HZ_LU_CACHE.get(geom_key)
+    if hit is not None:
+        lu = hit
+    else:
+        lu = _build_hz_operator(ncx, ncy, nz, r, ci0, ci1, cj0, cj1, hcx, hcy,
+                                hfx, hfy, nfx, nfy, dzc, dzf, periodic_h,
+                                flux, cov, cxy, cid, fb, fid, N, gcol, anc)
+        if len(_HZ_LU_CACHE) >= 3:                     # bounded: only recent geometries
+            _HZ_LU_CACHE.pop(next(iter(_HZ_LU_CACHE)))
+        _HZ_LU_CACHE[geom_key] = lu
+
+    rhs = np.zeros(N)
+    rhs[fb:fb + nfx * nfy * nz] = np.asarray(f_f, dtype=float).reshape(-1)
+    for (I, J) in cxy:
+        for k in range(nz):
+            rhs[cid[(I, J, k)]] = f_c[I, J, k]
+    rhs[anc] = anchor_value
+    sol = lu.solve(rhs)
+    p_c = np.full((ncx, ncy, nz), np.nan)
+    for (I, J) in cxy:
+        for k in range(nz):
+            p_c[I, J, k] = sol[cid[(I, J, k)]]
+    p_f = sol[fb:].reshape(nfx, nfy, nz)
+    return p_c, p_f
+
+
+# ---- geometry-keyed factorization cache used by :func:`solve_composite_hz` ----
+# The composite operator matrix depends only on the geometry (grid, footprint,
+# spacings); in the time loop the same geometry is re-solved every nest sub-step,
+# so factorize once (SuperLU) and reuse: identical solution, without re-assembling.
+_HZ_LU_CACHE = {}
+
+
+def _hz_geom_key(ncx, ncy, nz, r, ci0, ci1, cj0, cj1, periodic_h, hcx, hcy,
+                 dzc, dzf, cid, cxy):
+    anc = cid[(cxy[0][0], cxy[0][1], 0)]
+    key = (ncx, ncy, nz, r, ci0, ci1, cj0, cj1, bool(periodic_h),
+           float(hcx), float(hcy),
+           tuple(np.asarray(dzc, dtype=float).ravel()),
+           tuple(np.asarray(dzf, dtype=float).ravel()))
+    return key, anc
+
+
+def _build_hz_operator(ncx, ncy, nz, r, ci0, ci1, cj0, cj1, hcx, hcy, hfx, hfy,
+                       nfx, nfy, dzc, dzf, periodic_h, flux, cov, cxy, cid, fb,
+                       fid, N, gcol, anc):
+    """Assemble + factorize the unified composite-hz operator matrix (geometry only)."""
+    rows, cols, data = [], [], []
     add = lambda rr, cc, vv: (rows.append(rr), cols.append(cc), data.append(vv))
 
     def vertical(row, colof, k):                       # variable-dz FV, walls at 0, nz-1
@@ -846,12 +895,10 @@ def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
                 else:
                     add(row, fid(a, b - 1, k), 1 / hfy ** 2); add(row, row, -1 / hfy ** 2)
                 vertical(row, lambda kk, a=a, b=b: fid(a, b, kk), k)
-                rhs[row] = f_f[a, b, k]
 
     for (I, J) in cxy:                                 # coarse cells
         for k in range(nz):
             row = cid[(I, J, k)]
-            rhs[row] = f_c[I, J, k]
             for (dI, dJ, edge, along) in ((1, 0, "L", J), (-1, 0, "R", J),
                                           (0, 1, "B", I), (0, -1, "T", I)):
                 ni, nj = I + dI, J + dJ
@@ -869,15 +916,8 @@ def solve_composite_hz(f_c, f_f, nc, nz, r, ci0, ci1, cj0, cj1, dzc, dzf,
             vertical(row, lambda kk, I=I, J=J: cid[(I, J, kk)], k)
 
     A = sp.csr_matrix((data, (rows, cols)), shape=(N, N)).tolil()
-    anc = cid[(cxy[0][0], cxy[0][1], 0)]
-    A[anc, :] = 0; A[anc, anc] = 1.0; rhs[anc] = anchor_value
-    sol = spla.spsolve(A.tocsr(), rhs)
-    p_c = np.full((ncx, ncy, nz), np.nan)
-    for (I, J) in cxy:
-        for k in range(nz):
-            p_c[I, J, k] = sol[cid[(I, J, k)]]
-    p_f = sol[fb:].reshape(nfx, nfy, nz)
-    return p_c, p_f
+    A[anc, :] = 0; A[anc, anc] = 1.0                    # pin one cell (Neumann compat.)
+    return spla.splu(A.tocsc())
 
 
 def manufactured_error_hz(nc, nz, r=2, s=1.05, Lz=2.0, periodic_h=True, ncy=None):
