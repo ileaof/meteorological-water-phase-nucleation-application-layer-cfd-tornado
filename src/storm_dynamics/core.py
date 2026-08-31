@@ -172,7 +172,16 @@ class StormSimulation:
         return max(dt, 1e-4)
 
     # ---- one anelastic projection step ----
+    # The step is split into phases so the composite (parent+nest) projection can
+    # run once over BOTH levels (storm_dynamics.nesting.run_concurrent_nest) in
+    # place of the two per-level solves: _predictor -> _project -> _transport.
     def _step(self, dt: float) -> None:
+        Km = self._predictor(dt)
+        self._project(dt)
+        self._transport(dt, Km)
+
+    def _predictor(self, dt: float) -> "object":
+        "BCs + diagnose, then the momentum predictor (LES, advection, forces)."
         cfg = self.cfg
         g = self.grid
         xp = g.xp
@@ -207,14 +216,24 @@ class StormSimulation:
         vg = self.dyn.v_guard
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v)
         xp.clip(st.w, -vg, vg, out=st.w)
-        # 3. anelastic projection -> div(rho0 u) ~ 0
         bc.apply_velocity_bcs(st, g, cfg)
+        return Km
+
+    def _project(self, dt: float) -> None:
+        "Step 3: this level's own anelastic projection (skipped in composite mode)."
+        st = self.state
         if self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:
             res, it = self.pressure.project(st, dt, self.rho0)
         self._last_res, self._last_iters = res, it
-        bc.apply_velocity_bcs(st, g, cfg)
+        bc.apply_velocity_bcs(st, self.grid, self.cfg)
+
+    def _transport(self, dt: float, Km: "object") -> None:
+        cfg = self.cfg
+        g = self.grid
+        xp = g.xp
+        st = self.state
         # 4. conservative scalar transport with the divergence-free face velocity
         trc, trwf = self._transport_rho_c, self._transport_rho_wf
         _adv = lambda fld: adv.advect_center_massflux(fld, st.u, st.v, st.w, g, dt,

@@ -181,6 +181,7 @@ def relaxation_weight(nest_grid: Grid, spec: NestSpec):
 # the nested simulation
 # ---------------------------------------------------------------------------
 import copy as _copy
+import dataclasses as _dc
 import time as _time
 
 from meteorological_flow import advection as _adv
@@ -282,6 +283,7 @@ class NestedStormSimulation:
         self.step = 0; self.t = 0.0
         self._last_res = 0.0; self._last_iters = 0
         self._Km = None
+        self._composite = False          # composite_projection mode replaces the sponge
         self._t0 = _time.perf_counter()
 
     # ---- boundary / relaxation ----
@@ -296,18 +298,22 @@ class NestedStormSimulation:
         _zero_gradient_scalars(self.state)
 
     def _relax_to_parent(self, dt):
-        """Nudge the border band toward the frozen parent target (sponge)."""
+        """Nudge the border band toward the frozen parent target (sponge).  In
+        composite-projection mode the velocity sponge is DROPPED -- the composite
+        solve at the coarse-fine interface replaces it (docs/ROADMAP.md §1); only
+        the scalar border still relaxes (open-wall BC needs a scalar tie)."""
         st = self.state
         wu = self._relax                     # (nx,ny,1) centre-cell nudging weight
         xp = self.grid.xp
-        # velocity relaxation weights averaged onto the staggered faces
-        wru = xp.zeros(self.grid.u_shape); wru[1:-1] = 0.5 * (wu[:-1] + wu[1:])
-        wru[0] = wu[0]; wru[-1] = wu[-1]
-        wrv = xp.zeros(self.grid.v_shape); wrv[:, 1:-1] = 0.5 * (wu[:, :-1] + wu[:, 1:])
-        wrv[:, 0] = wu[:, 0]; wrv[:, -1] = wu[:, -1]
-        st.u += wru * dt * (self._tgt["u"] - st.u)
-        st.v += wrv * dt * (self._tgt["v"] - st.v)
-        st.w += wu * dt * (self._tgt["w"] - st.w)
+        if not getattr(self, "_composite", False):
+            # velocity relaxation weights averaged onto the staggered faces
+            wru = xp.zeros(self.grid.u_shape); wru[1:-1] = 0.5 * (wu[:-1] + wu[1:])
+            wru[0] = wu[0]; wru[-1] = wu[-1]
+            wrv = xp.zeros(self.grid.v_shape); wrv[:, 1:-1] = 0.5 * (wu[:, :-1] + wu[:, 1:])
+            wrv[:, 0] = wu[:, 0]; wrv[:, -1] = wu[:, -1]
+            st.u += wru * dt * (self._tgt["u"] - st.u)
+            st.v += wrv * dt * (self._tgt["v"] - st.v)
+            st.w += wu * dt * (self._tgt["w"] - st.w)
         st.theta += wu * dt * (self._tgt["theta"] - st.theta)
         st.qv = xp.maximum(st.qv + wu * dt * (self._tgt["qv"] - st.qv), 0.0)
 
@@ -317,7 +323,14 @@ class NestedStormSimulation:
         return StormSimulation._dt(self)
 
     # ---- one step ----
+    # Split into phases (mirrors core.StormSimulation) so the composite
+    # parent+nest projection can replace this level's own projection.
     def _step(self, dt):
+        Km = self._predictor(dt)
+        self._project(dt)
+        self._transport(dt, Km)
+
+    def _predictor(self, dt):
         cfg = self.cfg; g = self.grid; xp = g.xp; st = self.state
         self._apply_nest_bcs(); st.diagnose(cfg)
         Km = _les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
@@ -337,13 +350,27 @@ class NestedStormSimulation:
         vg = self.dyn.v_guard
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v); xp.clip(st.w, -vg, vg, out=st.w)
         self._apply_nest_bcs()
+        return Km
+
+    def _project(self, dt):
+        "This level's own anelastic projection (skipped in composite mode)."
+        st = self.state
         if self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:
             res, it = self.pressure.project(st, dt, self.rho0)
         self._last_res, self._last_iters = res, it
         self._apply_nest_bcs()
+
+    def _transport(self, dt, Km):
+        cfg = self.cfg; g = self.grid; xp = g.xp; st = self.state
+        if not getattr(self, "_composite", False):
+            # In composite mode the boundary faces were just written by the
+            # composite solve -- re-applying the zero-gradient BC here would
+            # clobber the interface coupling (normal modes: harmless).
+            self._apply_nest_bcs()
         trc, trwf = self._transport_rho_c, self._transport_rho_wf
+        adv = lambda f: _adv.advect_center_massflux(f, st.u, st.v, st.w, g, dt, trc, trwf, order=2)
         adv = lambda f: _adv.advect_center_massflux(f, st.u, st.v, st.w, g, dt, trc, trwf, order=2)
         st.theta = adv(st.theta); st.qv = xp.maximum(adv(st.qv), 0.0)
         st.ensure_hydrometeors()
@@ -600,11 +627,27 @@ def _shift_to_relative_frame(nest, cx: float, cy: float) -> None:
             nest._tgt[nm] = nest._tgt[nm] - (cx if nm == "u" else cy)
 
 
+def _snap_aligned_spec(parent, spec: NestSpec) -> NestSpec:
+    """Snap an arbitrary nest footprint onto parent cell boundaries (and to the
+    parent's vertical grid) so the nest is **cell-aligned, matched-z** -- the
+    prerequisite of the composite projection (:meth:`NestSpec.aligned`)."""
+    pg = parent.grid
+    i0 = max(0, min(int(round(spec.x0 / pg.dx)), pg.nx))
+    j0 = max(0, min(int(round(spec.y0 / pg.dy)), pg.ny))
+    ncx = max(2, min(int(round(spec.Lx / pg.dx)), pg.nx - i0))
+    ncy = max(2, int(round(spec.Ly / pg.dy)))
+    ncy = max(2, min(ncy, pg.ny - j0))
+    return _dc.replace(spec, x0=i0 * pg.dx, y0=j0 * pg.dy,
+                       Lx=ncx * pg.dx, Ly=ncy * pg.dy,
+                       nz=pg.nz, z_stretch=getattr(pg, "z_stretch", 1.0))
+
+
 def run_concurrent_nest(parent, spec: NestSpec, window: float,
                         record_interval=None, capture_frames=False,
                         follow=False, storm_motion=None, two_way=False,
                         two_way_rate=0.5, progress=None,
-                        les_boost=1.25, cfl=0.25):
+                        les_boost=1.25, cfl=0.25,
+                        composite_projection=False):
     """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
 
     The parent keeps stepping alongside the nest; each parent step the parent
@@ -619,11 +662,36 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     a feature that would otherwise advect out is now tracked.  ``storm_motion``
     ``(cx, cy)`` overrides the Bunkers estimate.
 
-    Returns ``(nest, report)``.
+    ``composite_projection`` (**M4**): replace the two independent per-level
+    anelastic projections with ONE composite solve over both levels' staggered
+    mass fluxes (:func:`composite_project_two_level`), so ``div(rho0 u) = 0``
+    holds **consistently across the coarse-fine interface** every nest sub-step.
+    Requires a **cell-aligned, matched-z** nest (``NestSpec.aligned``, or an
+    ``around`` footprint that is snapped here); with ``follow=True`` the nest is
+    reconciled back to the ground frame for the joint solve and shifted back to
+    the storm-relative frame afterwards, and the nest's velocity sponge is
+    dropped (the interface coupling replaces it).  The solve is host-side
+    (NumPy) -- GPU runs pay a host round-trip each sub-step.  Composable with
+    ``two_way`` (the phase-3a injection then feeds the projected fine solution).
+
+    Returns ``(nest, report)``; the report carries the worst-case interface
+    divergence under ``rep["nest"]["composite_div_interface"]``.
     """
-    import dataclasses as _dc
     from .core import StormSimulation as SS
     nest = NestedStormSimulation(parent, spec, les_boost=les_boost, cfl=cfl)
+    if composite_projection:
+        if nest.grid.nz != parent.grid.nz or abs(nest.grid.z_stretch - parent.grid.z_stretch) > 1e-12:
+            raise ValueError(
+                "composite_projection needs a MATCHED-Z nest (nz == parent nz, same "
+                "z_stretch): rebuild the spec with NestSpec.aligned(..., nz=parent.grid.nz, "
+                "z_stretch=parent.grid.z_stretch)")
+        spec = _snap_aligned_spec(parent, spec)
+        r = spec.refine
+        if (nest.grid.nx, nest.grid.ny) != (r * round(spec.Lx / parent.grid.dx),
+                                            r * round(spec.Ly / parent.grid.dy)):
+            raise ValueError("nest grid %dx%d does not match the snapped footprint --"
+                             " rebuild with NestSpec.aligned" % (nest.grid.nx, nest.grid.ny))
+        nest._composite = True
     nest._capture_frames = bool(capture_frames); nest.frames = []
     g = nest.grid
     cx = cy = 0.0
@@ -652,21 +720,52 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
     parent._Km = getattr(parent, "_Km", None)
     t = 0.0
+    div_if_max = 0.0
     while t < window - 1e-9:
         dtp = parent._dt()
         if t + dtp > window:
             dtp = window - t
-        parent._step(dtp)                       # advance the parent
-        tgt_next = _targets_at(parent.state, t + dtp)
-        t_sub = 0.0
-        while t_sub < dtp - 1e-9:
-            dtn = min(nest._dt(), dtp - t_sub)
-            alpha = (t_sub + dtn) / dtp
-            nest.set_target(_blend(tgt_prev, tgt_next, alpha))
-            nest._step(dtn)
-            nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
-            if nest.step % interval == 0:
-                nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+        if composite_projection:
+            # parent predictor only; the composite solve below replaces its
+            # per-level projection (it projects BOTH levels jointly)
+            Km_p = parent._predictor(dtp)
+            tgt_next = _targets_at(parent.state, t + dtp)
+            t_sub = 0.0
+            while t_sub < dtp - 1e-9:
+                dtn = min(nest._dt(), dtp - t_sub)
+                alpha = (t_sub + dtn) / dtp
+                nest.set_target(_blend(tgt_prev, tgt_next, alpha))
+                Km_n = nest._predictor(dtn)
+                # frame reconciliation: the parent is in the GROUND frame, the
+                # storm-following nest in the storm-relative frame -- reconcile
+                # to the ground frame before forming the joint mass fluxes.
+                if follow:
+                    nest.state.u = nest.state.u + cx
+                    nest.state.v = nest.state.v + cy
+                div = composite_project_two_level(parent, nest, spec)
+                div_if = float(div["div_interface"])
+                div_if_max = max(div_if_max, div_if)
+                if follow:
+                    nest.state.u = nest.state.u - cx
+                    nest.state.v = nest.state.v - cy
+                nest._last_res = div_if  # interface residual is the honest solver metric
+                nest._transport(dtn, Km_n)
+                nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
+                if nest.step % interval == 0:
+                    nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
+            parent._transport(dtp, Km_p)
+        else:
+            parent._step(dtp)                   # advance the parent
+            tgt_next = _targets_at(parent.state, t + dtp)
+            t_sub = 0.0
+            while t_sub < dtp - 1e-9:
+                dtn = min(nest._dt(), dtp - t_sub)
+                alpha = (t_sub + dtn) / dtp
+                nest.set_target(_blend(tgt_prev, tgt_next, alpha))
+                nest._step(dtn)
+                nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
+                if nest.step % interval == 0:
+                    nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
         # phase 3a: feed the nest's finer solution back onto the parent overlap
         if two_way:
             restrict_nest_to_parent(nest, parent, spec, cx, cy, t + dtp, rate=two_way_rate)
@@ -680,9 +779,13 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
                  else "concurrent (phase 2: time-evolving parent boundary)")
     if two_way:
         base_mode += " + approximate two-way feedback (phase 3a)"
+    if composite_projection:
+        base_mode += " + composite two-level projection"
     rep["nest"] = {"dx_m": g.dx, "dz0_m": float(g.dz_c[0]),
                    "nx": g.nx, "ny": g.ny, "nz": g.nz, "refine": spec.refine,
                    "storm_motion": [cx, cy], "two_way": bool(two_way), "mode": base_mode}
+    if composite_projection:
+        rep["nest"]["composite_div_interface"] = div_if_max
     return nest, rep
 
 
@@ -690,5 +793,5 @@ __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
     "run_concurrent_nest", "restrict_nest_to_parent", "conservative_restrict",
-    "interior_near_surface_zeta",
+    "interior_near_surface_zeta", "composite_project_two_level",
 ]

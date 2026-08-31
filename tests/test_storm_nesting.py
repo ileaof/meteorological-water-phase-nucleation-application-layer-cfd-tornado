@@ -204,6 +204,42 @@ def test_composite_project_two_level_call_site_divergence_free():
     assert res["div_interface"] < 1e-9, res
 
 
+def test_composite_projection_in_time_loop():
+    """§1 (docs/ROADMAP.md): with ``composite_projection=True`` the stepping driver
+    replaces the two per-level projections with ONE composite solve, so
+    ``div(rho0 u) = 0`` holds across the interface EVERY sub-step (not per level
+    in isolation).  Asserts the worst-case interface divergence over the window
+    stays ~solve tolerance, the run stays stable/physical and conserves."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    from storm_dynamics import rotation as rot
+    scfg = build_storm_config(preset="storm", nx=14, ny=14, nz=16,
+                              Lx=24000, Ly=24000, Lz=12000, duration=180.0,
+                              dt_max=3.0, hodograph_kind="quarter_circle", drag=True,
+                              z_stretch=1.05, U_max=14.0, z_turn=2000.0, C_s=0.22)
+    parent = StormSimulation(scfg)
+    parent.run()
+    wc = np.asarray(parent.grid.backend.to_cpu(rot._centered_velocity(parent.state, parent.grid)[2]))
+    i, j = np.unravel_index(np.argmax(wc.max(axis=2)), wc.shape[:2])
+    spec = nst.NestSpec.aligned(parent.grid, i0=max(0, i - 3), j0=max(0, j - 3),
+                                ncx=6, ncy=6, refine=2)
+    nest, rep = nst.run_concurrent_nest(parent, spec, window=18.0,
+                                        composite_projection=True)
+    r = rep["rotation"]; c = rep["conservation"]
+    # definition of done: |div(rho0 u)| at the interface ~ solve tolerance each step
+    assert rep["nest"]["composite_div_interface"] < 1e-9, rep["nest"]
+    assert rep["n_steps"] > 0 and nest._composite
+    assert np.isfinite(r["zeta_abs_max"])                      # no blow-up
+    assert max(h["w_max"] for h in nest.history) < 45.0        # physical
+    assert abs(c["total_water_rel_err"]) < 3e-2
+    assert c["mass_continuity_residual_norm"] < 1e-2
+    assert "composite two-level projection" in rep["nest"]["mode"]
+    # and it intensifies at least as much as the per-level sponge path
+    nest_sponge, _ = nst.run_concurrent_nest(parent, spec, window=18.0)
+    assert max(x["w_max"] for x in nest.history) >= max(
+        x["w_max"] for x in nest_sponge.history) - 1.0  # at least as strong
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface

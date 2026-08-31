@@ -51,6 +51,12 @@ def main(argv=None) -> int:
     p.add_argument("--two-way", action="store_true",
                    help="M3 phase 3a: approximate two-way feedback -- blend the nest's "
                         "finer solution back onto the parent overlap (implies --concurrent)")
+    p.add_argument("--composite", action="store_true",
+                   help="docs/ROADMAP.md section 1: replace the two per-level anelastic "
+                        "projections with ONE composite parent+nest mass-flux solve so "
+                        "div(rho0 u)=0 holds across the coarse-fine interface every "
+                        "sub-step (implies --concurrent; the nest footprint is snapped "
+                        "to parent cells / matched-z)")
     p.add_argument("--device", choices=["cpu", "gpu", "auto"], default="cpu")
     p.add_argument("--u-max", type=float, default=18.0,
                    help="hodograph magnitude [m/s] (larger = stronger shear -> stronger storm)")
@@ -86,11 +92,25 @@ def main(argv=None) -> int:
 
     spec = nst.NestSpec.around(parent.grid, xc, yc, half=args.half,
                                refine=args.refine, nz=args.nest_nz, z_stretch=1.06)
-    concurrent = args.concurrent or args.follow or args.two_way
+    if args.composite:
+        # composite projection needs a cell-aligned, matched-z nest: snap the
+        # footprint to parent cells + use the parent's vertical grid
+        i0 = int(round(spec.x0 / parent.grid.dx))
+        j0 = int(round(spec.y0 / parent.grid.dy))
+        ncx = int(round(spec.Lx / parent.grid.dx))
+        ncy = int(round(spec.Ly / parent.grid.dy))
+        if args.nest_nz not in (None, parent.grid.nz):
+            print("note        : --composite snaps the nest to the parent's vertical "
+                  "grid (matched z): nest nz %d -> %d" % (args.nest_nz, parent.grid.nz))
+        spec = nst.NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy,
+                                    refine=args.refine)
+    concurrent = args.concurrent or args.follow or args.two_way or args.composite
     mode = ("phase 3a (two-way feedback" + (", storm-following)" if args.follow else ")") if args.two_way else
             "phase 2b (storm-following, concurrent)" if args.follow else
             "phase 2 (concurrent, time-evolving parent boundary)" if concurrent else
             "phase 1 (frozen parent boundary)")
+    if args.composite:
+        mode += " + composite two-level projection"
     print("nest region   : centred (%.1f, %.1f) km, half %.0f km" % (xc / 1000, yc / 1000, args.half / 1000))
     print("mode          : %s" % mode)
     if concurrent:
@@ -103,7 +123,7 @@ def main(argv=None) -> int:
         print("-" * 72)
         nest, rep = nst.run_concurrent_nest(
             parent, spec, window=args.window, capture_frames=args.animate,
-            follow=args.follow, two_way=args.two_way,
+            follow=args.follow, two_way=args.two_way, composite_projection=args.composite,
             les_boost=args.les_boost, cfl=args.cfl,
             progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     else:
