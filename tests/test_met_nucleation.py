@@ -519,15 +519,17 @@ def test_b3_xarray_roundtrip():
     os.makedirs(os.path.dirname(path), exist_ok=True)
     M.to_netcdf(reps, path)
     assert os.path.exists(path)
-    # read back the dataset (variable round-trip).  scipy/NetCDF3 stores the
-    # 'phase' coordinate also as a plain variable, so read without coord
-    # auto-promotion to avoid a data_var/coord name conflict.
-    ds2 = xr.open_dataset(path, engine="scipy", decode_coords=False)
+    # read back the dataset (variable round-trip).  `to_netcdf` picks the best
+    # installed engine (netcdf4 -> h5netcdf -> scipy), so read with xarray's
+    # engine auto-detection instead of pinning engine="scipy".  No 'phase'
+    # data var is written (the mapping lives in ds.attrs['phase_names']), but
+    # keep the tolerant read anyway.
+    ds2 = xr.open_dataset(path, decode_coords=False)
     assert "T_ambient_K" in ds2.variables or "phase" in ds2.variables, \
         "round-trip dataset empty"
     ds2.close()
     os.remove(path)
-    return "xarray -> run -> NetCDF3(scipy) -> read-back round-trip OK"
+    return "xarray -> run -> NetCDF -> auto-engine read-back round-trip OK"
 
 
 def test_b4_grib_graceful():
