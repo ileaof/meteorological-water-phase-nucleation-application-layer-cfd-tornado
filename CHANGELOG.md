@@ -57,6 +57,14 @@ moved byte-identically; SHA-256 checksums preserved).
     4.3e-4→1.7e-3 s⁻¹ (**3.95× intensification**), water +2.7e-3, mass |div| 7e-5. The
     intensifying vortex hits a grid-scale instability at ~320 s (window 300 captures the
     peak); idealised, under-resolved demo — indicative, not a forecast. README updated.
+  - **Adaptive-regridding primitives** (ROADMAP §2a, increment 1): `tag_cells` (tag the
+    coarse columns needing refinement, by updraft-helicity or column-max |ζ|),
+    `cluster_to_box` (bounding box of the tagged region — a single-cluster
+    Berger–Rigoutsos surrogate), and `regrid_spec` (a **data-driven** aligned `NestSpec`
+    that tracks the actual vortex, replacing the constant-C follow). Verified on a
+    synthetic solid-body-rotation blob (`test_adaptive_regridding_primitives_track_the_vortex`).
+    Detection + clustering only; wiring the re-init into the time loop (recreate/shift the
+    nest each regrid, conserving) is the next increment.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test

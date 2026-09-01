@@ -789,9 +789,72 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     return nest, rep
 
 
+# ---------------------------------------------------------------------------
+# Adaptive regridding primitives (ROADMAP §2a): tag WHERE to refine, then
+# cluster the tagged coarse columns into a nest footprint.  Detection +
+# clustering only; the time-loop re-init (recreate/move the nest, transfer
+# state conservatively each regrid) is the next increment built on these.
+# ---------------------------------------------------------------------------
+def tag_cells(state: FlowState, grid: Grid, field: str = "uh", frac: float = 0.5,
+              z_lo: float = 0.0, z_hi: float = 6000.0):
+    """Tag the coarse columns ``(x, y)`` that need refinement: those where a rotation
+    diagnostic exceeds ``frac`` of its domain maximum.
+
+    ``field='uh'`` uses updraft helicity (the mesocyclone footprint); ``'zeta'`` uses
+    the column-max ``|zeta|`` over ``[z_lo, z_hi]``.  Returns a ``(nx, ny)`` boolean
+    array (host NumPy)."""
+    xp = grid.xp; to = grid.backend.to_cpu
+    if field == "uh":
+        d = xp.asarray(_rot.updraft_helicity(state, grid, z_lo=max(z_lo, 2000.0), z_hi=z_hi))
+    elif field == "zeta":
+        zeta = _rot.vertical_vorticity(state, grid)
+        zc = np.asarray(to(grid.zc)); m = (zc >= z_lo) & (zc <= z_hi)
+        d = (xp.max(xp.abs(zeta[:, :, xp.asarray(m)]), axis=2) if m.any()
+             else xp.max(xp.abs(zeta), axis=2))
+    else:
+        raise ValueError("field must be 'uh' or 'zeta'")
+    d = np.asarray(to(d))
+    dmax = float(np.max(d)) if d.size else 0.0
+    if dmax <= 0.0:
+        return np.zeros(d.shape, dtype=bool)
+    return d > frac * dmax
+
+
+def cluster_to_box(tags, margin: int = 2):
+    """Bounding box of the tagged columns, expanded by ``margin`` coarse cells (a
+    simple single-cluster Berger–Rigoutsos surrogate).  Returns ``(i0, j0, ncx, ncy)``
+    clamped to the grid, or ``None`` if nothing is tagged."""
+    tags = np.asarray(tags, dtype=bool)
+    if not tags.any():
+        return None
+    nx, ny = tags.shape
+    xs = np.where(tags.any(axis=1))[0]; ys = np.where(tags.any(axis=0))[0]
+    i0 = max(0, int(xs[0]) - margin); i1 = min(nx, int(xs[-1]) + 1 + margin)
+    j0 = max(0, int(ys[0]) - margin); j1 = min(ny, int(ys[-1]) + 1 + margin)
+    return i0, j0, i1 - i0, j1 - j0
+
+
+def regrid_spec(parent, refine: int = 3, field: str = "uh", frac: float = 0.5,
+                margin: int = 2, min_cells: int = 6, **nest_kw):
+    """Data-driven nest footprint: tag the parent's rotating region and return an
+    **aligned** :class:`NestSpec` covering it (ROADMAP §2a) -- the adaptive-regridding
+    footprint that tracks the actual vortex, replacing the constant-C follow.  Returns
+    ``None`` if nothing is tagged."""
+    box = cluster_to_box(tag_cells(parent.state, parent.grid, field=field, frac=frac),
+                         margin=margin)
+    if box is None:
+        return None
+    i0, j0, ncx, ncy = box
+    nx, ny = parent.grid.nx, parent.grid.ny
+    ncx = min(max(ncx, min_cells), nx); ncy = min(max(ncy, min_cells), ny)
+    i0 = min(i0, nx - ncx); j0 = min(j0, ny - ncy)          # keep the box inside the parent
+    return NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy, refine=refine, **nest_kw)
+
+
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
     "run_concurrent_nest", "restrict_nest_to_parent", "conservative_restrict",
     "interior_near_surface_zeta", "composite_project_two_level",
+    "tag_cells", "cluster_to_box", "regrid_spec",
 ]

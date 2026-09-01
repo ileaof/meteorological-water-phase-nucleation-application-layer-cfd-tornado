@@ -240,6 +240,37 @@ def test_composite_projection_in_time_loop():
         x["w_max"] for x in nest_sponge.history) - 1.0  # at least as strong
 
 
+def test_adaptive_regridding_primitives_track_the_vortex():
+    """ROADMAP §2a: tag_cells + cluster_to_box + regrid_spec detect the rotating region
+    and return an aligned nest footprint that contains the vortex (data-driven follow)."""
+    from types import SimpleNamespace
+    nx = ny = 24; nz = 8
+    pg = Grid(nx=nx, ny=ny, nz=nz, Lx=24000.0, Ly=24000.0, Lz=8000.0, periodic=True)
+    st = FlowState.zeros(pg)
+    ic, jc = 16, 7                                          # vortex centre (coarse column)
+    x0 = float(np.asarray(pg.xc)[ic]); y0 = float(np.asarray(pg.yc)[jc]); sig = 2500.0
+    Xu, Yu = np.meshgrid(np.asarray(pg.xf), np.asarray(pg.yc), indexing="ij")   # u faces
+    Xv, Yv = np.meshgrid(np.asarray(pg.xc), np.asarray(pg.yf), indexing="ij")   # v faces
+    Om = 0.02
+    wu = np.exp(-((Xu - x0) ** 2 + (Yu - y0) ** 2) / (2 * sig ** 2))
+    wv = np.exp(-((Xv - x0) ** 2 + (Yv - y0) ** 2) / (2 * sig ** 2))
+    st.u = np.broadcast_to((-Om * (Yu - y0) * wu)[:, :, None], pg.u_shape).copy()
+    st.v = np.broadcast_to((+Om * (Xv - x0) * wv)[:, :, None], pg.v_shape).copy()
+    parent = SimpleNamespace(state=st, grid=pg)
+
+    tags = nst.tag_cells(st, pg, field="zeta", frac=0.5)
+    assert tags[ic, jc], "the vortex column should be tagged"
+    i0, j0, ncx, ncy = nst.cluster_to_box(tags, margin=2)
+    assert i0 <= ic < i0 + ncx and j0 <= jc < j0 + ncy, "box must contain the vortex"
+    assert nst.cluster_to_box(np.zeros((nx, ny), bool)) is None      # nothing tagged -> None
+
+    spec = nst.regrid_spec(parent, refine=3, field="zeta", frac=0.5, margin=2)
+    fi0 = int(round(spec.x0 / pg.dx)); fj0 = int(round(spec.y0 / pg.dy))
+    fncx = int(round(spec.Lx / pg.dx)); fncy = int(round(spec.Ly / pg.dy))
+    assert fi0 <= ic < fi0 + fncx and fj0 <= jc < fj0 + fncy, "aligned footprint must contain it"
+    assert spec.refine == 3 and spec.nz == nz               # aligned => matched-z
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface

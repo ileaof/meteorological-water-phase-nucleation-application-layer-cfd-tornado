@@ -75,7 +75,8 @@ solve. See §0 "Composite projection IN the time loop". The test
 asserts the interface divergence ~machine precision over the window and w_max ≥ sponge
 path.
 
-**NEXT: §2 (2a → 2b)** — adaptive regridding, then higher refinement. ★
+**NEXT: §2a increment 2** — wire the regridding primitives into the time loop. ★
+(Increment 1 — the detection/clustering primitives — landed 2026-09-01, see §2a.)
 
 **Known issue before scale-up (2026-08-31).** Composite mode is *verified* for
 correctness (interface `|div(ρ₀u)|` ~machine precision, mass residual ~1e-15) but
@@ -98,10 +99,27 @@ remain the demonstrated-physical ones.
 **2a. Adaptive / dynamic regridding (Berger–Oliger).** Detect where to refine each N steps
 (criterion on |ζ|, |∇w|, or updraft-helicity), cluster tagged cells into a new nest
 footprint, re-create/move the nest during integration, restrict/prolong state across the
-regrid. *Start:* a `tag_cells(state, grid, thresh)` + `cluster_to_box(tags)` in
-`nesting.py`, then re-init the nest when the vortex moves out of the current footprint
-(reuse `interpolate_state_to_nest` / `conservative_restrict`). *Done:* the nest follows the
-tightening vortex automatically over a long run, conserving across each regrid.
+regrid.
+
+- **Increment 1 — detection + clustering primitives (DONE 2026-09-01).**
+  `nesting.tag_cells(state, grid, field='uh'|'zeta', frac)` → boolean (nx,ny) tag map;
+  `nesting.cluster_to_box(tags, margin)` → `(i0,j0,ncx,ncy)` bounding box (single-cluster
+  Berger–Rigoutsos surrogate); `nesting.regrid_spec(parent, refine, field, frac, margin)`
+  → an **aligned** `NestSpec` (matched-z) covering the tagged vortex — a *data-driven*
+  footprint that replaces the constant-C follow. Verified: a synthetic solid-body-rotation
+  blob is tagged and the returned aligned footprint contains it
+  (`test_adaptive_regridding_primitives_track_the_vortex`).
+- **Increment 2 — wire into the time loop (NEXT).** In `run_concurrent_nest`, every
+  `regrid_interval` steps: recompute `regrid_spec(parent)`; if the vortex has drifted out
+  of / off-centre in the current footprint, re-create the nest at the new footprint and
+  transfer state — preferring a **spatial shift of the nest's own fine field** where the
+  old and new footprints overlap (preserve fine structure), filling newly-exposed cells
+  from the parent (`interpolate_state_to_nest`); verify conservation across each regrid
+  (`conservative_restrict` on the overlap). Start from the `follow` path (it already moves
+  the sampled region) but drive the footprint from `regrid_spec` instead of constant C.
+
+*Done (whole of 2a):* the nest follows the tightening vortex automatically over a long
+run, conserving across each regrid.
 
 **2b. Higher refinement + subcycling toward O(10–100 m).** Multiple nest levels (r=3–4 per
 level), each subcycling in time (finer dt), refluxing between levels (`amr.TwoLevelReflux`
