@@ -336,7 +336,11 @@ class NestedStormSimulation:
     def _predictor(self, dt):
         cfg = self.cfg; g = self.grid; xp = g.xp; st = self.state
         self._apply_nest_bcs(); st.diagnose(cfg)
-        Km = _les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
+        if self.dyn.les.model == "tke15":       # prognostic Deardorff TKE-1.5
+            Km, self._tke = _les.deardorff_tke_step(st, g, self.dyn.les,
+                                                    getattr(self, "_tke", None), dt, self.theta0_field)
+        else:
+            Km = _les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
         self._Km = Km
         st.u -= self._u0_face; st.v -= self._v0_face
         _les.apply_les_momentum(st, g, Km, dt)

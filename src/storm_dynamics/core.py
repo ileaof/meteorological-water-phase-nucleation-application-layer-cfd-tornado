@@ -269,7 +269,11 @@ class StormSimulation:
         # (a) LES subgrid closure: eddy viscosity from the resolved strain,
         #     momentum diffusion applied to the PERTURBATION so the environmental
         #     hodograph persists (analogous to the scalar perturbation-diffusion).
-        Km = les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
+        if self.dyn.les.model == "tke15":       # prognostic Deardorff TKE-1.5 (evolve e(t))
+            Km, self._tke = les.deardorff_tke_step(st, g, self.dyn.les,
+                                                   getattr(self, "_tke", None), dt, self.theta0_field)
+        else:
+            Km = les.strain_and_viscosity(st, g, self.dyn.les, theta0=self.theta0_field)
         self._Km = Km
         st.u -= self._u0_face; st.v -= self._v0_face
         les.apply_les_momentum(st, g, Km, dt)

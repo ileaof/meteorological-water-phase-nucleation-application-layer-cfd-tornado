@@ -51,9 +51,9 @@ def strain_and_viscosity(state: FlowState, grid: Grid, les: LESConfig,
     if les.model == "none":
         return xp.full(grid.center_shape, les.nu_background, dtype=float)
     if les.model == "tke15":
-        raise NotImplementedError(
-            "TKE-1.5 (Deardorff) closure is a documented future option; use "
-            "les_model='smagorinsky' (see docs/storm_dynamics_guide.md).")
+        # prognostic Deardorff closure; called statelessly here -> return the equilibrium K_m
+        # (the time loop uses deardorff_tke_step to evolve the TKE field, see core._predictor).
+        return deardorff_tke_step(state, grid, les, None, 0.0, theta0)[0]
     if les.model != "smagorinsky":
         raise ValueError("unknown LES model %r" % les.model)
     uc, vc, wc = _centered_velocity(state, grid)
@@ -155,6 +155,72 @@ def apply_les_momentum(state: FlowState, grid: Grid, Km, dt: float) -> None:
     state.w += dt * _center_to_faces(dw, grid, 2)
 
 
+# ---------------------------------------------------------------------------
+# TKE-1.5 (Deardorff 1980) prognostic subgrid closure -- item 3c.
+# A prognostic subgrid TKE ``e`` sets the eddy viscosity, instead of the diagnostic
+# Smagorinsky ``K_m = (C_s Delta)^2 |S|``:
+#     K_m = C_k l sqrt(e),   K_h = (1 + 2 l/Delta) K_m,
+#     de/dt = P_shear + P_buoy - eps + div(2 K_m grad e),
+#     P_shear = K_m |S|^2,  P_buoy = -K_h N^2,  eps = C_eps e^{3/2}/l,
+#     l = Delta (reduced to 0.76 sqrt(e)/N in stable stratification),
+#     C_eps = 0.19 + 0.51 l/Delta.
+# Reference: Deardorff (1980, BLM 18, 495); Moeng & Wyngaard (1988).
+# ---------------------------------------------------------------------------
+_CK = 0.10
+TKE_MIN = 1e-6
+
+
+def _strain_and_stability(state, grid, theta0):
+    """Return ``(modS2, N2, Delta)`` at cell centres: squared strain, Brunt-Vaisala N^2, and
+    the filter width -- the inputs both the Smagorinsky and Deardorff closures share."""
+    xp = grid.xp
+    uc, vc, wc = _centered_velocity(state, grid)
+    dudx = grid._central_x(uc); dudy = grid._central_y(uc); dudz = grid._central_z(uc)
+    dvdx = grid._central_x(vc); dvdy = grid._central_y(vc); dvdz = grid._central_z(vc)
+    dwdx = grid._central_x(wc); dwdy = grid._central_y(wc); dwdz = grid._central_z(wc)
+    Sxy = 0.5 * (dudy + dvdx); Sxz = 0.5 * (dudz + dwdx); Syz = 0.5 * (dvdz + dwdy)
+    modS2 = (2.0 * (dudx ** 2 + dvdy ** 2 + dwdz ** 2) + 4.0 * (Sxy ** 2 + Sxz ** 2 + Syz ** 2))
+    dz = grid.dz if not getattr(grid, "stretched", False) else float(grid.dz_c.mean())
+    Delta = (grid.dx * grid.dy * dz) ** (1.0 / 3.0)
+    dthdz = grid._central_z(state.theta - theta0) + grid._central_z(theta0) if theta0 is not None \
+        else grid._central_z(state.theta)
+    thref = theta0 if theta0 is not None else state.theta
+    N2 = th.g0 / xp.clip(thref, 1e-3, None) * dthdz
+    return modS2, N2, Delta
+
+
+def deardorff_viscosity(tke, N2, Delta, les, xp=np):
+    """Deardorff eddy viscosity/diffusivity from subgrid TKE: returns ``(K_m, K_h, l, eps)``."""
+    e = xp.clip(tke, TKE_MIN, None)
+    Ns = xp.sqrt(xp.clip(N2, 1e-12, None))
+    l = xp.where(N2 > 1e-12, xp.minimum(Delta, 0.76 * xp.sqrt(e) / Ns), Delta)
+    Km = _CK * l * xp.sqrt(e)
+    Kh = (1.0 + 2.0 * l / Delta) * Km
+    Ceps = 0.19 + 0.51 * l / Delta
+    eps = Ceps * e ** 1.5 / xp.clip(l, 1e-3, None)
+    return Km, Kh, l, eps
+
+
+def deardorff_tke_step(state, grid, les, tke, dt, theta0):
+    """Advance the prognostic subgrid TKE one step and return ``(K_m, tke_new)``.
+
+    ``tke=None`` initialises ``e`` from the local Smagorinsky-equilibrium (so the first call is
+    well posed); ``dt=0`` returns the equilibrium viscosity without stepping (diagnostic use)."""
+    xp = grid.xp
+    modS2, N2, Delta = _strain_and_stability(state, grid, theta0)
+    if tke is None:
+        Km_s = (les.C_s * Delta) ** 2 * xp.sqrt(modS2 + 1e-12)
+        tke = xp.clip((Km_s / (_CK * Delta)) ** 2, TKE_MIN, None)
+    Km, Kh, l, eps = deardorff_viscosity(tke, N2, Delta, les, xp=xp)
+    if dt > 0.0:
+        periodic = getattr(grid, "periodic", False)
+        Ps = Km * modS2                                    # shear production (>= 0)
+        Pb = -Kh * N2                                      # buoyancy: <0 stable, >0 unstable
+        diff = _div_k_grad(tke, 2.0 * Km, grid, periodic)  # TKE self-diffusion
+        tke = xp.clip(tke + dt * (Ps + Pb - eps + diff), TKE_MIN, None)
+    return Km + les.nu_background, tke
+
+
 def les_scalar_diffusion(field, Km, grid: Grid, les: LESConfig, dt: float,
                          base=None):
     """Return ``field + dt * div(K_h grad field')`` with ``K_h = K_m / Pr_t``.
@@ -170,4 +236,5 @@ def les_scalar_diffusion(field, Km, grid: Grid, les: LESConfig, dt: float,
 
 __all__ = [
     "strain_and_viscosity", "apply_les_momentum", "les_scalar_diffusion",
+    "deardorff_viscosity", "deardorff_tke_step",
 ]

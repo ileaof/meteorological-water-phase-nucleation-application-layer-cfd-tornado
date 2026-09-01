@@ -230,11 +230,15 @@ via `from_observed_sounding`.
 the actual difference between a *simulation* and a *forecast*. Standalone module consuming
 the model as the forward operator; large.
 
-**3c. Physics completeness.** Implement the advertised **TKE-1.5 (Deardorff)** closure
-(`turbulence.py` raises `NotImplementedError` for `tke15`); add radiation, a land-surface /
-surface-flux scheme, and a more complete microphysics/coupling path; optionally a
-non-hydrostatic **compressible** core alongside the anelastic one for steep terrain / strong
-vertical accelerations.
+**3c. Physics completeness.** *TKE-1.5 (Deardorff) DONE (2026-09-01):* `turbulence.py` now
+evolves a **prognostic subgrid TKE** (`deardorff_tke_step`/`deardorff_viscosity`): `K_m = C_k l
+√e`, `K_h = (1+2l/Δ)K_m`, `de/dt = P_shear + P_buoy − ε + div(2K_m ∇e)`, length `l = Δ` reduced
+to `0.76√e/N` in stable stratification, `ε = C_ε e^{3/2}/l` — wired into `core._predictor` /
+`nesting._predictor` (opt-in `les_model='tke15'`; the `smagorinsky` default is byte-for-byte
+unchanged). Verified: stable run, positive evolving TKE (max ~16 m²/s²), strain-dependent `K_m`
+(`tests/test_tke15.py`). *Remaining §3c:* radiation, a land-surface / surface-flux scheme, a
+fuller microphysics/coupling path; optionally a non-hydrostatic **compressible** core alongside
+the anelastic one for steep terrain / strong vertical accelerations.
 
 **3d. Geometry & Coriolis.** f-plane → β-plane / full variable f; map projections and a
 curved-earth metric for domains large enough that sphericity matters.
