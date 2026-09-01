@@ -346,6 +346,32 @@ def test_fft_tridiag_anelastic_projector_divergence_free():
         assert before > 1e-3 and res < 1e-10, (periodic_h, before, res)   # div driven to round-off
 
 
+def test_iterative_cg_anelastic_projector_matches_fft_and_is_divergence_free():
+    """ROADMAP §3f increment 3 — the GENERAL (non-separable) low-memory solver.  The
+    Jacobi-preconditioned CG on the SPD (negated, volume-weighted) anelastic operator makes
+    div(rho0 u)=0 to round-off on a STRETCHED grid, periodic AND wall, with NO factorisation
+    (splu OOMs, ILU breaks CG's SPD requirement, the wrong-sign operator makes CG stall) — and
+    it AGREES with the independent FFT+tridiag projector, so the two cross-validate."""
+    from storm_dynamics.pressure_iterative import project_anelastic_iterative
+    from storm_dynamics.pressure_fft import project_anelastic_fft, anelastic_divergence
+    nx = 24; nz = 40; dx = dy = 500.0
+    dz = 1.05 ** np.arange(nz); dz *= 15000.0 / dz.sum()
+    zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    rc = np.exp(-zc / 8000.0); rw = np.interp(zf, zc, rc)
+    for periodic_h in (True, False):
+        rng = np.random.default_rng(0)
+        u = rng.standard_normal((nx + 1, nx, nz)); v = rng.standard_normal((nx, nx + 1, nz))
+        w = rng.standard_normal((nx, nx, nz + 1))
+        uf, vf, wf = u.copy(), v.copy(), w.copy()
+        before = np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max()
+        res = project_anelastic_iterative(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+        assert before > 1e-3 and res < 1e-8, (periodic_h, before, res)    # div driven to the CG tol
+        project_anelastic_fft(uf, vf, wf, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+        du = max(np.abs(u - uf).max(), np.abs(v - vf).max(), np.abs(w - wf).max())
+        assert du < 1e-6, (periodic_h, du)                                # two solvers agree
+
+
 def test_pressure_cg_does_not_converge_on_stretched_operator():
     """ROADMAP §2b/§3f — documents *why* the fine-nest memory fix is not just "switch to CG".
     The direct (splu) solve is exact on the stretched anelastic Poisson; the existing

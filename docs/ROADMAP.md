@@ -252,10 +252,23 @@ non-separable grid must fall back, never silently use FFT+tridiag.
 here — guarded by a `separable(grid)` check), replacing the per-level
 `PressureSolver.project_anelastic`; verify a real fine nest steps stably. Then the 3rd level
 (~50 m) runs without OOM.
-**Increment 3 — the general low-memory fallback.** A multigrid-preconditioned CG (or
-geometric multigrid V-cycle, `poisson_mg.py` is the 2-D kernel to generalise) for the
-**non-separable** operators terrain / horizontal variation bring — so §3's forecast model is
-not stuck with direct-LU memory. (Beyond: multi-GPU / MPI domain decomposition.)
+**Increment 3 — the general low-memory fallback (DONE 2026-09-01).**
+`storm_dynamics/pressure_iterative.py`: `project_anelastic_iterative(...)` assembles the
+sparse anelastic Poisson operator and solves it with a **Jacobi-preconditioned CG** — general
+(any sparse SPD operator: terrain, horizontal stretching, x,y-varying coefficients change only
+the assembly, not the solver) and low-memory (no factorisation at all, below even ILU). Two
+subtleties made CG converge, both bugs during dev: (1) the Laplacian is **negative** definite,
+so we assemble/solve the **negated** operator `-L φ = -f` — CG needs SPD; on the wrong-sign
+operator it stalls (this is exactly why the old `PressureSolver` Jacobi-CG "diverges" on the
+stretched grid); (2) the preconditioner must be SPD — `scipy` **ILU is not symmetric** and
+breaks CG (stalls at ~1e-3), so use a **Jacobi (diagonal)** preconditioner. Verified: on a
+48²×40 stretched grid `div` → ~1e-11 in <1 s, periodic AND wall, and it **agrees with the
+independent FFT+tridiag projector to ~2e-9** — the two cross-validate
+(`test_iterative_cg_anelastic_projector_matches_fft_and_is_divergence_free`). scipy.sparse,
+self-contained, does not touch `PressureSolver`. (Optional future upgrade: an algebraic-
+multigrid preconditioner — `pyamg`, or generalise `poisson_mg.py` — cuts iterations on very
+large stiff operators; Jacobi-CG already suffices at storm/nest scale. Beyond: multi-GPU / MPI
+domain decomposition.)
 
 ---
 
