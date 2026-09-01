@@ -372,6 +372,55 @@ def test_iterative_cg_anelastic_projector_matches_fft_and_is_divergence_free():
         assert du < 1e-6, (periodic_h, du)                                # two solvers agree
 
 
+def test_lowmem_pressure_router_matches_direct_and_is_divergence_free():
+    """ROADMAP §3f increment 2 — the router `_project_anelastic_lowmem` picks the low-memory
+    solver by grid structure (`separable` -> FFT+tridiag, else Jacobi-CG) and is physically
+    transparent: on a properly periodic / zero-wall-normal state (what the BCs maintain) it
+    drives div(rho0 u) to round-off AND lands on the same interior field the exact direct
+    solve does, up to the discrete null-space gauge.  So switching large nests onto it does
+    not change the physics."""
+    from meteorological_flow.pressure_solver import PressureSolver
+    from storm_dynamics.core import _project_anelastic_lowmem, separable
+    for periodic in (True, False):
+        g = Grid(nx=16, ny=16, nz=20, Lx=8000.0, Ly=8000.0, Lz=12000.0,
+                 z_stretch=1.05, periodic=periodic)
+        assert separable(g)                                    # storm grids are separable -> FFT
+        rc = np.exp(-np.asarray(g.zc) / 8000.0); rw = np.interp(np.asarray(g.zf), np.asarray(g.zc), rc)
+        rng = np.random.default_rng(0); st = FlowState.zeros(g)
+        st.u = rng.standard_normal(g.u_shape); st.v = rng.standard_normal(g.v_shape)
+        st.w = rng.standard_normal(g.w_shape); st.w[:, :, 0] = 0.0; st.w[:, :, -1] = 0.0
+        if periodic:
+            st.u[-1] = st.u[0]; st.v[:, -1] = st.v[:, 0]       # proper periodic wrap faces
+        else:
+            st.u[0] = st.u[-1] = 0.0; st.v[:, 0] = st.v[:, -1] = 0.0   # solid wall normals
+        sd, sl = st.copy(), st.copy()
+        PressureSolver(g, method="direct").project_anelastic(sd, 1.0, rc, rw)
+        res = _project_anelastic_lowmem(sl, g, rc, rw)
+        assert res < 1e-10, (periodic, res)                    # div driven to round-off
+        iu = slice(0, -1) if periodic else slice(1, -1)        # exclude redundant/wall faces
+        du = np.abs(np.asarray(sd.u)[iu] - np.asarray(sl.u)[iu]).max()
+        assert du < 1e-4, (periodic, du)                       # matches direct in the interior
+
+
+def test_lowmem_pressure_path_steps_stably_in_the_time_loop():
+    """ROADMAP §3f increment 2 — the wired `_project` low-memory branch (forced here on a small
+    grid so it is cheap) steps the full storm stably: the projection keeps the mass-continuity
+    residual near round-off and the rotation diagnostics finite, exactly as the direct solve."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    scfg = build_storm_config(preset="storm", nx=16, ny=16, nz=20, Lx=8000.0, Ly=8000.0,
+                              Lz=12000.0, duration=1.0, device="cpu")
+    sim = StormSimulation(scfg)
+    assert sim.dynamics == "anelastic"
+    sim._lowmem_pressure = True                                # force the §3f route (small grid)
+    sim.cfg.time.duration = 3 * float(sim._dt())
+    rep = sim.run()
+    assert np.isfinite(rep["rotation"]["zeta_abs_max"])
+    # residual is measured after the full predictor->project->transport step (not right after
+    # the projection), so it is small but not round-off -- same order the direct solve gives.
+    assert rep["conservation"]["mass_continuity_residual_norm"] < 1e-3, rep["conservation"]
+
+
 def test_pressure_cg_does_not_converge_on_stretched_operator():
     """ROADMAP §2b/§3f — documents *why* the fine-nest memory fix is not just "switch to CG".
     The direct (splu) solve is exact on the stretched anelastic Poisson; the existing

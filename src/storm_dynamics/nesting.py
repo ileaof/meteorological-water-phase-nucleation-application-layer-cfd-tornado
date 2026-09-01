@@ -275,6 +275,9 @@ class NestedStormSimulation:
             self._transport_rho_c = xp.ones(g.nz); self._transport_rho_wf = xp.ones(g.nz + 1)
             self.rho_ref = self.rho0
         self.pressure = PressureSolver(g, method=_pressure_method(g))
+        from .core import _LOWMEM_N
+        self._lowmem_pressure = (self.dynamics == "anelastic"
+                                 and g.nx * g.ny * g.nz > _LOWMEM_N)   # ROADMAP §3f
         from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
         self.coupler = MicrophysicsCoupler()
         self.couple_nucleation = False
@@ -355,7 +358,10 @@ class NestedStormSimulation:
     def _project(self, dt):
         "This level's own anelastic projection (skipped in composite mode)."
         st = self.state
-        if self.dynamics == "anelastic":
+        if self.dynamics == "anelastic" and getattr(self, "_lowmem_pressure", False):
+            from .core import _project_anelastic_lowmem
+            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface), 0
+        elif self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:
             res, it = self.pressure.project(st, dt, self.rho0)

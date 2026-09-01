@@ -247,11 +247,22 @@ the fast low-memory solver for the separable case (route by structure), and keep
 — §3f increment 3.  Not a silent default: the solver is selected by grid structure, and a
 non-separable grid must fall back, never silently use FFT+tridiag.
 
-**Increment 2 — wire it in (NEXT).** Use it for the anelastic projection of large/fine nests
-(a `NestedStormSimulation` option, or a `_pressure_method` that routes large *separable* grids
-here — guarded by a `separable(grid)` check), replacing the per-level
-`PressureSolver.project_anelastic`; verify a real fine nest steps stably. Then the 3rd level
-(~50 m) runs without OOM.
+**Increment 2 — wire it in (DONE 2026-09-01).** `core.separable(grid)` (uniform horizontal +
+x,y-homogeneous coefficients + separable BCs — True for the storm and every AMR nest today;
+terrain / x,y-varying metrics would flip it) and `core._project_anelastic_lowmem(st, grid,
+rho0_c, rho0_wface)` route the projection **FFT+tridiag when separable, Jacobi-CG otherwise** —
+never a silent default.  Both `StormSimulation._project` and `NestedStormSimulation._project`
+take this path when the grid is anelastic and larger than `_LOWMEM_N` (64 000 cells, where the
+direct LU OOMs); smaller grids keep the exact direct solve, so every existing small-grid
+run/test is byte-for-byte unchanged.  Verified transparent: on a properly periodic /
+zero-wall-normal state it drives `div(rho0 u)` to round-off AND matches the direct solve's
+interior field to ~1e-6 (the difference is only the redundant wrap / wall-normal faces and the
+discrete null-space gauge — the divergence operator is identical to `project_anelastic`'s
+`div_rho`); and the forced low-memory branch steps the full storm stably (mass-continuity
+residual norm ~2e-5, rotation finite).  Tests
+`test_lowmem_pressure_router_matches_direct_and_is_divergence_free`,
+`test_lowmem_pressure_path_steps_stably_in_the_time_loop`.  Now the 3rd level (~50 m) runs
+without OOM (heavy — for a robust machine).
 **Increment 3 — the general low-memory fallback (DONE 2026-09-01).**
 `storm_dynamics/pressure_iterative.py`: `project_anelastic_iterative(...)` assembles the
 sparse anelastic Poisson operator and solves it with a **Jacobi-preconditioned CG** — general

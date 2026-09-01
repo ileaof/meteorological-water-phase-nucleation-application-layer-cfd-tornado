@@ -67,6 +67,56 @@ def _pressure_method(grid: Grid) -> str:
     return "direct" if n <= 64_000 else "cg"
 
 
+# Above this many cells the direct sparse-LU factorisation OOMs (verified ~48³); route such
+# grids through the low-memory solvers (ROADMAP §3f).  Smaller grids keep the exact direct
+# solve, so every existing small-grid run/test is byte-for-byte unchanged.
+_LOWMEM_N = 64_000
+
+
+def separable(grid: Grid) -> bool:
+    """Whether the pressure Poisson **separates** — uniform horizontal spacing, coefficients
+    homogeneous in x,y, separable homogeneous BCs — so the exact FFT/DCT-in-(x,y) +
+    tridiagonal-in-z solver applies (``pressure_fft``).  The current storm and *all* its AMR
+    nests are separable (uniform dx,dy; anelastic ρ0=ρ0(z)); terrain-following coordinates or
+    x,y-varying reference states (not yet in the model) would make this ``False`` and select
+    the general Jacobi-CG fallback (``pressure_iterative``).  Never a silent default: the
+    caller routes on this predicate."""
+    if getattr(grid, "terrain", None) is not None:
+        return False                          # orography / immersed boundary -> non-separable
+    if getattr(grid, "horizontal_stretch", False):
+        return False                          # x,y grid stretching -> non-separable
+    return True
+
+
+def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface):
+    """Low-memory anelastic projection routed by grid structure: **FFT+tridiag** when the grid
+    is :func:`separable` (the fast path — the case today), else the general **Jacobi-CG**
+    fallback.  Operates on host arrays (device round-trip on GPU) and writes the
+    divergence-free velocity back into ``st``.  Returns ``max|div(ρ0 u)|`` after projection.
+
+    Physically equivalent to :meth:`PressureSolver.project_anelastic` (the divergence-free
+    projection is unique for the given BCs), but with no stored LU factorisation, so a fine
+    nest that OOMs the direct solve fits."""
+    to_cpu = grid.backend.to_cpu
+    xp = grid.xp
+    u = np.ascontiguousarray(to_cpu(st.u), float)
+    v = np.ascontiguousarray(to_cpu(st.v), float)
+    w = np.ascontiguousarray(to_cpu(st.w), float)
+    zc = np.asarray(to_cpu(grid.zc), float); zf = np.asarray(to_cpu(grid.zf), float)
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    rc = np.asarray(to_cpu(rho0_c), float); rw = np.asarray(to_cpu(rho0_wface), float)
+    dx, dy = float(grid.dx), float(grid.dy)
+    periodic_h = bool(getattr(grid, "periodic", True))
+    if separable(grid):
+        from .pressure_fft import project_anelastic_fft as _proj
+        res = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+    else:
+        from .pressure_iterative import project_anelastic_iterative as _proj
+        res = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+    st.u = xp.asarray(u); st.v = xp.asarray(v); st.w = xp.asarray(w)
+    return float(res)
+
+
 class StormSimulation:
     def __init__(self, scfg: StormConfig, base=None, backend=None):
         self.scfg = scfg
@@ -117,6 +167,11 @@ class StormSimulation:
             self._transport_rho_wf = xp.ones(g.nz + 1)
             self.rho_ref = self.rho0
         self.pressure = PressureSolver(g, method=_pressure_method(g))
+        # large anelastic grids: route the projection through the low-memory solver
+        # (ROADMAP §3f) -- the direct LU OOMs past ~48³.  Small grids keep the exact
+        # direct solve (unchanged).  Opt-out/force via scfg if ever needed.
+        self._lowmem_pressure = (self.dynamics == "anelastic"
+                                 and g.nx * g.ny * g.nz > _LOWMEM_N)
         # two-way microphysics (cold pool) -- reused unchanged
         from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
         self.coupler = MicrophysicsCoupler()
@@ -234,7 +289,9 @@ class StormSimulation:
     def _project(self, dt: float) -> None:
         "Step 3: this level's own anelastic projection (skipped in composite mode)."
         st = self.state
-        if self.dynamics == "anelastic":
+        if self.dynamics == "anelastic" and getattr(self, "_lowmem_pressure", False):
+            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface), 0
+        elif self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:
             res, it = self.pressure.project(st, dt, self.rho0)
