@@ -75,9 +75,10 @@ solve. See §0 "Composite projection IN the time loop". The test
 asserts the interface divergence ~machine precision over the window and w_max ≥ sponge
 path.
 
-**NEXT: §2b** — higher refinement + subcycling toward O(10–100 m) (the resolution the
-funnel-to-ground needs). ★  (§2a adaptive regridding landed 2026-09-01: increment 1 =
-detection/clustering primitives, increment 2 = the time-loop re-centring, both verified.)
+**NEXT: §2b increment 2** — a concurrent multi-level driver (each level sub-cycles under the
+one above, with inter-level refluxing) so the finest level is *sustained*, not a short
+static snapshot. ★  (§2a adaptive regridding + §2b increment 1 = recursive nesting landed
+2026-09-01, both verified; `--levels 2` in the renderer reaches ~150 m = funnel scale.)
 
 **Known issue before scale-up (2026-08-31).** Composite mode is *verified* for
 correctness (interface `|div(ρ₀u)|` ~machine precision, mass residual ~1e-15) but
@@ -130,9 +131,24 @@ across each re-centre.
 **2b. Higher refinement + subcycling toward O(10–100 m).** Multiple nest levels (r=3–4 per
 level), each subcycling in time (finer dt), refluxing between levels (`amr.TwoLevelReflux`
 generalised to N levels). This is what actually lets a low-level funnel condense to the
-surface — the physics gap behind the "no funnel-to-ground" caveat. *Done:* a resolved
-near-ground vortex that connects vertically to the meso (ζ continuous through the depth;
-the 3-D render then shows a funnel, not a gap).
+surface — the physics gap behind the "no funnel-to-ground" caveat.
+
+- **Increment 1 — recursive nesting (DONE 2026-09-01).** `NestedStormSimulation` **composes**:
+  its `parent` may itself be a `NestedStormSimulation`, so a nest-of-a-nest gives
+  `Δx = parent.dx / r²` (1.3 km → ~440 m → ~150 m; a 3rd level → ~50 m). Verified it builds,
+  matches z through the stack, and runs stably
+  (`test_recursive_nesting_second_level_refines_further`). Wired into the renderer:
+  `examples/render_tornado_3d.py --levels 2` stacks a second level over the finer updraft
+  and renders it (`dx = parent.dx/9`).
+- **Increment 2 — concurrent multi-level driver + inter-level refluxing (NEXT).** Today the
+  extra level runs *static* (phase-1, frozen L1 boundary) for a short window. Generalise the
+  concurrent driver so each level sub-cycles in time under the level above (recursive
+  `run_concurrent_nest`), feeding time-evolving boundaries down and **refluxing mass/momentum
+  up** across each interface (`amr.TwoLevelReflux` per level pair). Then the finest level is
+  *sustained*, not just a short snapshot.
+
+*Done (2b):* a resolved near-ground vortex that connects vertically to the meso (ζ continuous
+through the depth; the 3-D render then shows a funnel, not a gap).
 
 **2c. Framework path (optional, for scale).** The pure-NumPy AMR is a reference; a
 production build wants AMReX `MLMG` + `FluxRegister` (not in the default pyAMReX —

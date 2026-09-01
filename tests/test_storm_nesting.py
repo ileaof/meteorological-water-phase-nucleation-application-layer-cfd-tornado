@@ -326,6 +326,31 @@ def test_regrid_interval_recentres_nest_on_the_vortex():
     assert np.isfinite(float(np.max(np.abs(nest.state.w))))
 
 
+def test_recursive_nesting_second_level_refines_further():
+    """ROADMAP §2b (increment 1 — the funnel-resolution path): a nest OF a nest composes
+    (`NestedStormSimulation(nest1, spec2)`), giving Δx = parent.dx / r² and running stably.
+    Two refinements take 1.3 km-class parents to O(100 m), the tornado-funnel scale."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=16, Lx=18000.0, Ly=18000.0,
+                              Lz=10000.0, duration=1.0, device="cpu")
+    parent = StormSimulation(scfg)
+    spec1 = nst.NestSpec.aligned(parent.grid, i0=6, j0=6, ncx=6, ncy=6, refine=3)
+    nest1 = nst.NestedStormSimulation(parent, spec1)
+    assert abs(nest1.grid.dx - parent.grid.dx / 3) < 1e-6 * parent.grid.dx   # aligned => exact /3
+    spec2 = nst.NestSpec.around(nest1.grid, xc=nest1.grid.Lx / 2, yc=nest1.grid.Ly / 2,
+                                half=nest1.grid.Lx * 0.3, refine=3, nz=nest1.grid.nz,
+                                z_stretch=parent.grid.z_stretch)
+    nest2 = nst.NestedStormSimulation(nest1, spec2)                 # nest of a nest
+    # ~parent.dx/9 (integer-nx rounding on the small sub-nest gives a few % slack)
+    assert abs(nest2.grid.dx - parent.grid.dx / 9) < 0.15 * (parent.grid.dx / 9)
+    assert nest2.grid.dx < nest1.grid.dx < parent.grid.dx           # each level strictly finer
+    assert nest2.grid.nz == parent.grid.nz                          # matched z through the stack
+    nest2.cfg.time.duration = 3 * float(nest2._dt())
+    rep = nest2.run()
+    assert np.isfinite(rep["rotation"]["zeta_abs_max"])             # stable / finite
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface

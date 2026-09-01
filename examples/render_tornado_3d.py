@@ -61,6 +61,20 @@ def _run_fields(args):
         print("composite |div(rho0 u)| at interface: %.2e (max over sub-steps)"
               % rep["nest"]["composite_div_interface"])
     print(" " * 60, end="\r")
+    # ROADMAP §2b: stack further nest levels (nest of a nest) toward the funnel scale.
+    for lvl in range(2, int(getattr(args, "levels", 1)) + 1):
+        ng = nest.grid; ton = ng.backend.to_cpu
+        _, _, wl = rot._centered_velocity(nest.state, ng)
+        wl = np.asarray(ton(wl)); ii, jj = np.unravel_index(np.argmax(wl.max(axis=2)), wl.shape[:2])
+        xcm = float(np.asarray(ton(ng.xc))[ii]); ycm = float(np.asarray(ton(ng.yc))[jj])
+        spec_l = nst.NestSpec.around(ng, xcm, ycm, half=ng.Lx * 0.35, refine=args.refine,
+                                     nz=ng.nz, z_stretch=1.06)
+        sub = nst.NestedStormSimulation(nest, spec_l, les_boost=args.les_boost, cfl=args.cfl)
+        sub.cfg.time.duration = max(0.5 * args.window, 30.0 * float(sub._dt()))
+        print("level %d sub-nest: dx=%.0f m (over the L%d updraft), %.0f s ..."
+              % (lvl, sub.grid.dx, lvl - 1, sub.cfg.time.duration))
+        sub.run(progress=lambda t, d, s, L=lvl: print("  L%d     t=%6.0f/%.0f" % (L, t, d), end="\r"))
+        print(" " * 60, end="\r"); nest = sub
     g = nest.grid; to = g.backend.to_cpu
     uc, vc, wcn = rot._centered_velocity(nest.state, g)
     uc = np.asarray(to(uc)); vc = np.asarray(to(vc)); w = np.asarray(to(wcn))
@@ -251,6 +265,9 @@ def main(argv=None) -> int:
     p.add_argument("--parent-duration", type=float, default=1200.0)
     p.add_argument("--u-max", type=float, default=18.0)
     p.add_argument("--refine", type=int, default=3)
+    p.add_argument("--levels", type=int, default=1,
+                   help="nest levels: 2 adds a nest-of-a-nest (dx -> dx/refine^2, the funnel "
+                        "scale); each extra level runs a short static window over the finer updraft")
     p.add_argument("--window", type=float, default=300.0)
     p.add_argument("--les-boost", type=float, default=1.4)
     p.add_argument("--cfl", type=float, default=0.20)

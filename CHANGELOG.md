@@ -76,6 +76,15 @@ moved byte-identically; SHA-256 checksums preserved).
     (`test_regrid_nest_preserves_fine_structure_in_overlap`) and a nest starting off the
     vortex hops to re-centre on it (`test_regrid_interval_recentres_nest_on_the_vortex`).
     Remaining in §2a: variable footprint size + a per-regrid conservation report.
+  - **Recursive nesting** (ROADMAP §2b, increment 1 — the funnel-resolution path):
+    `NestedStormSimulation` composes — its `parent` may itself be a `NestedStormSimulation`,
+    so a nest-of-a-nest gives `Δx = parent.dx / refine²` (a ~1.3 km parent → ~440 m → ~150 m;
+    a 3rd level → ~50 m, tornado-funnel scale). Verified it builds, matches z through the
+    stack and runs stably (`test_recursive_nesting_second_level_refines_further`). Wired into
+    `examples/render_tornado_3d.py --levels 2` (stacks a second level over the finer updraft
+    and renders it). NEXT (§2b increment 2): a concurrent multi-level driver (each level
+    sub-cycles under the one above, with inter-level refluxing) so the finest level is
+    *sustained* rather than a short static snapshot.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test
