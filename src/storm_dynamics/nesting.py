@@ -573,10 +573,11 @@ def restrict_velocity(nest, parent, spec: NestSpec) -> float:
     place; returns the max |change| (diagnostic).
 
     NOTE: this restricts the momentum in the *overlap*; the complementary flux-register
-    **reflux** of the interface momentum flux — the nonlinear (u²/2) Berger–Colella correction
-    that conserves ∑u across the coarse-fine face — is nailed down as the self-contained
-    reference `amr.TwoLevelBurgersReflux` (verified to machine precision); porting it onto the
-    storm's *staggered* momentum advection is the remaining wire-in (see docs/ROADMAP.md §2b)."""
+    **reflux** of the interface momentum flux is ported onto the storm's own flux in
+    `amr.TwoLevelMomentumReflux` (the normal component, tied bit-for-bit to `momentum`'s
+    `Fx_u`; conserves ∑u across the interface to machine precision — the correction this
+    overlap average-down omits).  Wiring that register into the live sub-cycling driver and the
+    tangential/vertical components is the remaining §2b step (see docs/ROADMAP.md §2b)."""
     pg = parent.grid; ng = nest.grid; xp = pg.xp
     r = spec.refine
     i0 = int(round(spec.x0 / pg.dx)); j0 = int(round(spec.y0 / pg.dy))

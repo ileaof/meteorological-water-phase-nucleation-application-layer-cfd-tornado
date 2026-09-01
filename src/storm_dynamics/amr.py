@@ -234,6 +234,92 @@ class TwoLevelBurgersReflux:
         return float(max(np.abs(self.uc - 2.0).max(), np.abs(self.uf - 2.0).max()))
 
 
+def _momentum_upwind_x(u, dt, h, periodic=True, ghost_left=None):
+    """One flux-form step of the storm's **x-momentum self-advection** viewed on the u-point
+    grid: ``u_t + d/dx(F) = 0`` with the *storm's own* numerical flux ``F_i = Uc_i · u_upwind``,
+    ``Uc_i = ½(u_i + u_{i+1})`` (order-1 upwind) — identical to ``momentum._u_tendency``'s
+    cell-centred ``Fx_u`` for a ``v=w=0`` slab (asserted in the test).  Advection in x only
+    (``F_y=0``), so the domain x-momentum ``∑u`` is conserved to the boundary flux.  Returns
+    ``(u_new, Fx)`` with ``Fx`` (nx+1, ny) the face fluxes (``Fx[i]`` = flux at face i+½)."""
+    nx, ny = u.shape
+    if periodic:
+        up1 = np.roll(u, -1, axis=0)                       # u_{i+1}
+    else:
+        up1 = np.empty_like(u); up1[:-1] = u[1:]; up1[-1] = u[-1]   # clamp at the right wall
+    Uc = 0.5 * (u + up1)                                   # transporting velocity at faces i+½
+    Fc = Uc * np.where(Uc > 0.0, u, up1)                   # upwind cell-centred flux (nx,ny)
+    Fx = np.zeros((nx + 1, ny))
+    Fx[1:, :] = Fc                                         # face i+½ <- Fc[i]
+    if periodic:
+        Fx[0, :] = Fc[-1, :]                               # wrap: face ½ of cell 0 == last face
+    else:
+        u0 = ghost_left                                    # incoming momentum from the coarse side
+        Ucl = 0.5 * (u0 + u[0]); Fx[0, :] = Ucl * np.where(Ucl > 0.0, u0, u[0])
+    un = u - dt / h * (Fx[1:, :] - Fx[:-1, :])
+    return un, Fx
+
+
+@dataclass
+class TwoLevelMomentumReflux:
+    """Static 2-level **x-momentum** advection with optional Berger–Colella refluxing — the
+    port of the flux-register interface reflux onto the storm's *staggered* momentum flux
+    (ROADMAP §2b).  The advected quantity is the storm's face velocity ``u`` and the numerical
+    flux is the storm's own ``Uc·u`` (see :func:`_momentum_upwind_x`), refined in x by
+    ``refine`` over the patch of u-points ``[pi0, pi1)`` and sub-cycled ``refine`` times.
+    Because that flux is nonlinear (``Uc`` depends on ``u``), the coarse interface flux differs
+    from the mean of the fine fluxes, so **without** reflux the domain momentum ``∑u`` drifts;
+    **with** it the interface mismatch corrects the coarse u-point just outside the patch and
+    momentum is conserved to machine precision.  This is exactly the correction
+    :func:`nesting.restrict_velocity` (overlap average-down) does *not* apply."""
+    N: int = 24
+    dx: float = 1.0
+    refine: int = 3
+    pi0: int = 8
+    pi1: int = 16
+    cfl: float = 0.4
+    ny: int = 4
+    u: np.ndarray = field(default=None, repr=False)
+    uf: np.ndarray = field(default=None, repr=False)
+
+    def __post_init__(self):
+        r = self.refine
+        i = np.arange(self.N)[:, None]
+        prof = 1.0 + 0.3 * np.sin(2 * np.pi * i / self.N)  # strictly positive u, resolved gradient
+        self.u = np.repeat(prof, self.ny, axis=1)
+        self.uf = np.repeat(self.u[self.pi0:self.pi1, :], r, axis=0).copy()
+        self.dxf = self.dx / r
+        self.dtc = self.cfl * self.dx / float(self.u.max())
+
+    def total_momentum(self) -> float:
+        mask = np.ones(self.N, bool); mask[self.pi0:self.pi1] = False
+        return float(self.u[mask, :].sum() * self.dx + self.uf.sum() * self.dxf)
+
+    def step(self, reflux: bool = True) -> None:
+        r, dx, dxf, pi0, pi1 = self.refine, self.dx, self.dxf, self.pi0, self.pi1
+        u_new, Fxc = _momentum_upwind_x(self.u, self.dtc, dx, periodic=True)
+        reg_L = Fxc[pi0, :] * self.dtc                     # coarse interface momentum flux (×dt)
+        reg_R = Fxc[pi1, :] * self.dtc
+        dtf = self.dtc / r
+        fL = np.zeros(self.ny); fR = np.zeros(self.ny)
+        for _ in range(r):
+            gl = self.u[pi0 - 1, :]                        # ghost momentum from the coarse left
+            self.uf, Fxf = _momentum_upwind_x(self.uf, dtf, dxf, periodic=False, ghost_left=gl)
+            fL += Fxf[0, :] * dtf
+            fR += Fxf[-1, :] * dtf
+        self.u = u_new
+        self.u[pi0:pi1, :] = self.uf.reshape(pi1 - pi0, r, self.ny).mean(axis=1)  # average-down
+        if reflux:
+            self.u[pi0 - 1, :] += (reg_L - fL) / dx        # interface flux mismatch -> coarse nbr
+            self.u[pi1, :] -= (reg_R - fR) / dx
+
+    def run(self, nsteps: int = 40, reflux: bool = True) -> float:
+        """Run ``nsteps`` and return the relative domain-momentum drift ``|Δ∑u|/∑u₀``."""
+        m0 = self.total_momentum()
+        for _ in range(nsteps):
+            self.step(reflux=reflux)
+        return abs(self.total_momentum() - m0) / abs(m0)
+
+
 def conservative_prolong(coarse_block: np.ndarray, refine: int) -> np.ndarray:
     """Coarse -> fine conservative interpolation (the regridding operator, the
     companion to :func:`storm_dynamics.nesting.conservative_restrict`).
@@ -254,10 +340,13 @@ def demo(nsteps: int = 40) -> dict:
             "free_stream": TwoLevelReflux().free_stream_error(nsteps, reflux=True),
             "momentum_no_reflux": TwoLevelBurgersReflux().run(nsteps, reflux=False),
             "momentum_reflux": TwoLevelBurgersReflux().run(nsteps, reflux=True),
-            "momentum_free_stream": TwoLevelBurgersReflux().free_stream_error(nsteps, reflux=True)}
+            "momentum_free_stream": TwoLevelBurgersReflux().free_stream_error(nsteps, reflux=True),
+            "storm_mom_no_reflux": TwoLevelMomentumReflux().run(nsteps, reflux=False),
+            "storm_mom_reflux": TwoLevelMomentumReflux().run(nsteps, reflux=True)}
 
 
-__all__ = ["TwoLevelReflux", "TwoLevelBurgersReflux", "conservative_prolong", "demo"]
+__all__ = ["TwoLevelReflux", "TwoLevelBurgersReflux", "TwoLevelMomentumReflux",
+           "conservative_prolong", "demo"]
 
 
 if __name__ == "__main__":

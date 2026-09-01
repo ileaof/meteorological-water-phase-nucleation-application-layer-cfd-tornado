@@ -546,6 +546,30 @@ def test_amr_momentum_reflux_conserves_nonlinear_flux():
     assert fs < 1e-12, fs                    # uniform momentum stays uniform
 
 
+def test_amr_momentum_reflux_ports_storm_flux_and_conserves():
+    """ROADMAP §2b — the momentum reflux **ported onto the storm's staggered flux**.  Viewed on
+    the u-point grid, the storm's x-momentum self-advection is a conservation law with the flux
+    `Uc·u` (`Uc=½(uᵢ+uᵢ₊₁)`); `amr._momentum_upwind_x` uses that exact flux (tied here to
+    `momentum._u_tendency`'s `Fx_u` on a v=w=0 slab, bit-for-bit), and the flux-register reflux
+    conserves the domain x-momentum ∑u across a coarse-fine interface to machine precision where
+    it otherwise leaks -- the correction `restrict_velocity` (overlap average-down) omits."""
+    from storm_dynamics import amr, momentum as mom
+    # (1) conservation of the ported reflux
+    no = amr.TwoLevelMomentumReflux().run(nsteps=40, reflux=False)
+    yes = amr.TwoLevelMomentumReflux().run(nsteps=40, reflux=True)
+    assert no > 1e-6, no                     # a real interface momentum leak exists
+    assert yes < 1e-12, yes                  # refluxing conserves ∑u to machine precision
+    assert yes < no / 1e6, (yes, no)
+    # (2) tie the reference flux to the REAL storm operator (identical, v=w=0 slab)
+    g = Grid(nx=24, ny=4, nz=1, Lx=24.0, Ly=4.0, Lz=1.0, periodic=True)
+    prof = 1.0 + 0.3 * np.sin(2 * np.pi * np.arange(24) / 24)
+    u = np.zeros((25, 4, 1)); u[:24, :, 0] = prof[:, None]; u[24] = u[0]
+    st = FlowState.zeros(g); st.u = u; st.v = np.zeros(g.v_shape); st.w = np.zeros(g.w_shape)
+    _, _, _, fx = mom.momentum_advection_tendency(st, g, order=1, periodic=True, return_fluxes=True)
+    _, Fx_mine = amr._momentum_upwind_x(prof[:, None] * np.ones((1, 4)), 0.0, g.dx, periodic=True)
+    assert np.abs(Fx_mine[1:] - fx["Fx_u"][:, :, 0]).max() < 1e-14   # bit-for-bit storm flux
+
+
 def test_amr_port_scaffold_conserves_on_multifab():
     """Port scaffold (M3): the field on an AMReX MultiFab, halo-exchanged by AMReX,
     stepped by our flux-form physics, conserves mass to machine precision.  Skipped

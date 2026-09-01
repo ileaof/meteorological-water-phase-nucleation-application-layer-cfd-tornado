@@ -75,12 +75,18 @@ solve. See §0 "Composite projection IN the time loop". The test
 asserts the interface divergence ~machine precision over the window and w_max ≥ sponge
 path.
 
-**NEXT: §2b remaining** — the momentum-flux **reflux ALGORITHM is now nailed down**
-(`amr.TwoLevelBurgersReflux`, the nonlinear u²/2 flux register; conserves ∑u to machine
-precision, drift 4.9e-5 → 0 with reflux; `test_amr_momentum_reflux_conserves_nonlinear_flux`,
-2026-09-01); what remains is **porting it onto the storm's staggered momentum advection** (the
-overlap average-down `restrict_velocity` is not the interface-flux reflux), a 3rd level
-(Δx≈50 m = true funnel scale — now unblocked by the §3f low-memory solvers), and combining the
+**NEXT: §2b remaining** — the momentum-flux **reflux is nailed down AND ported onto the storm
+flux** (2026-09-01): `amr.TwoLevelBurgersReflux` (nonlinear u²/2 register, ∑u drift 4.9e-5→0)
+proved the algorithm, and `amr.TwoLevelMomentumReflux` runs it on the storm's *own* x-momentum
+flux `Uc·u` — tied bit-for-bit to `momentum._u_tendency`'s `Fx_u` (v=w=0 slab) via
+`momentum_advection_tendency(return_fluxes=True)`, conserving the domain momentum ∑u across a
+coarse-fine interface to machine precision (2.8e-15) where it otherwise leaks 3e-4; the
+correction `restrict_velocity` (overlap average-down) omits. Tests
+`test_amr_momentum_reflux_conserves_nonlinear_flux`,
+`test_amr_momentum_reflux_ports_storm_flux_and_conserves`. **What remains:** wiring this
+register into the live sub-cycling `run_multilevel_nest` loop (correct the parent each coarse
+step) and the tangential/vertical flux components of the full 3-D interface; a 3rd level
+(Δx≈50 m = true funnel scale — now unblocked by the §3f low-memory solvers); and combining the
 multi-level driver with `follow`/`regrid` for a long-lived storm. ★  (§2a regridding + §2b
 increments 1 & 2 — recursive nesting + the concurrent multi-level driver `run_multilevel_nest`
 — landed 2026-09-01, verified; demonstrated at Δx=149 m with ζ_max ~5× the single-level value.)

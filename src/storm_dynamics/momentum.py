@@ -58,8 +58,10 @@ def _face_upwind(qm, qp, vel, sm, sp, xp, order):
     return xp.where(vel > 0.0, qm, qp)
 
 
-def _u_tendency(st, g, order, periodic):
-    """-div(u u) on the u-faces (nx+1, ny, nz)."""
+def _u_tendency(st, g, order, periodic, fluxes=None):
+    """-div(u u) on the u-faces (nx+1, ny, nz).  If ``fluxes`` is a dict, the cell-centred
+    x-flux ``Fx_u`` (the normal u-momentum flux ``Uc·u``, at (nx,ny,nz)) is recorded into it
+    for the interface reflux — the same array the divergence below uses (single source)."""
     xp = g.xp
     u, v, w = st.u, st.v, st.w
     dz = g.dz if not getattr(g, "stretched", False) else g.dz_c[None, None, :]
@@ -70,6 +72,8 @@ def _u_tendency(st, g, order, periodic):
     su = _slope(u, 0, xp, periodic)                         # slope of u along x
     Fx = Uc * _face_upwind(u[:-1, :, :], u[1:, :, :], Uc,
                            su[:-1, :, :], su[1:, :, :], xp, order)   # (nx,ny,nz)
+    if fluxes is not None:
+        fluxes["Fx_u"] = Fx
     # tendency at face I = -(Fx[I]-Fx[I-1])/dx.  Interior faces 1..nx-1:
     tend[1:-1, :, :] += -(Fx[1:, :, :] - Fx[:-1, :, :]) / g.dx
     if periodic:
@@ -128,8 +132,9 @@ def _u_tendency(st, g, order, periodic):
     return tend
 
 
-def _v_tendency(st, g, order, periodic):
-    """-div(u v) on the v-faces (nx, ny+1, nz).  Mirror of :func:`_u_tendency`."""
+def _v_tendency(st, g, order, periodic, fluxes=None):
+    """-div(u v) on the v-faces (nx, ny+1, nz).  Mirror of :func:`_u_tendency`; records the
+    cell-centred normal v-momentum flux ``Fy_v`` when ``fluxes`` is given."""
     xp = g.xp
     u, v, w = st.u, st.v, st.w
     dz = g.dz if not getattr(g, "stretched", False) else g.dz_c[None, None, :]
@@ -140,6 +145,8 @@ def _v_tendency(st, g, order, periodic):
     sv = _slope(v, 1, xp, periodic)
     Fy = Vc * _face_upwind(v[:, :-1, :], v[:, 1:, :], Vc,
                            sv[:, :-1, :], sv[:, 1:, :], xp, order)
+    if fluxes is not None:
+        fluxes["Fy_v"] = Fy
     tend[:, 1:-1, :] += -(Fy[:, 1:, :] - Fy[:, :-1, :]) / g.dy
     if periodic:
         wrap = -(Fy[:, 0, :] - Fy[:, -1, :]) / g.dy
@@ -257,17 +264,22 @@ def _w_tendency(st, g, order, periodic):
 
 
 def momentum_advection_tendency(state: FlowState, grid: Grid, order: int = 2,
-                                periodic: bool | None = None):
+                                periodic: bool | None = None, return_fluxes: bool = False):
     """Return ``(du_dt, dv_dt, dw_dt)`` = -div(u u_i) on the staggered faces.
 
     ``periodic`` defaults to the grid's own lateral periodicity.  ``order`` 1
-    (upwind) or 2 (MUSCL/minmod).
-    """
+    (upwind) or 2 (MUSCL/minmod).  With ``return_fluxes=True`` also returns a dict of the
+    cell-centred **normal momentum fluxes** (``Fx_u`` = ``Uc·u`` at (nx,ny,nz), ``Fy_v`` =
+    ``Vc·v``) — the divergence-form fluxes the interface reflux (``momentum_reflux``) needs;
+    they are the very arrays the tendency divergences use, so recording them is exact."""
     if periodic is None:
         periodic = getattr(grid, "periodic", False)
-    du = _u_tendency(state, grid, order, periodic)
-    dv = _v_tendency(state, grid, order, periodic)
+    fluxes = {} if return_fluxes else None
+    du = _u_tendency(state, grid, order, periodic, fluxes)
+    dv = _v_tendency(state, grid, order, periodic, fluxes)
     dw = _w_tendency(state, grid, order, periodic)
+    if return_fluxes:
+        return du, dv, dw, fluxes
     return du, dv, dw
 
 
