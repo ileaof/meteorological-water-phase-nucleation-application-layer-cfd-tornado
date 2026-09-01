@@ -30,7 +30,7 @@ def load_atmosphere(cfg, cache, logger=print):
             if name == "sounding":
                 raise SourceUnavailable("'sounding' is a 1-D profile, not a gridded atmosphere; "
                                         "use it via use_sounding for the base state")
-        except SourceUnavailable as e:
+        except (SourceUnavailable, FileNotFoundError, OSError) as e:
             logger("[data] %s unavailable (%s) -> trying next source" % (name, e))
             last = e
     raise SourceUnavailable("no atmospheric source available: %s" % last)
@@ -43,7 +43,7 @@ def load_radar(cfg, cache, logger=print):
         if nexrad.available() and not cfg.offline:
             logger("[data] radar: NEXRAD Level II %s" % cfg.data.radar_station)
             return nexrad.load(cfg, cache)
-    except SourceUnavailable as e:
+    except (SourceUnavailable, FileNotFoundError, OSError) as e:
         logger("[data] NEXRAD unavailable (%s) -> synthetic radar" % e)
     logger("[data] radar: SYNTHETIC sample")
     return synthetic.synthetic_radar(cfg)

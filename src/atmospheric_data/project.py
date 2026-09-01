@@ -7,15 +7,19 @@ is never silent (task requirement 5/7).
 """
 from __future__ import annotations
 
-import numpy as np
+import importlib
 
-from .sources.base import optional_import
+import numpy as np
 
 _R_EARTH = 6_371_000.0
 
 
 def _has_pyproj():
-    return optional_import("pyproj") is not None
+    try:
+        importlib.import_module("pyproj")
+        return True
+    except Exception:
+        return False
 
 
 class Projection:
