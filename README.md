@@ -147,14 +147,36 @@ the near-surface rotation now a resolved dense mass rather than a sparse gap:
 
 ```bash
 python examples/render_tornado_3d.py --levels 2 --refine 3 --device gpu   # parent 1.3 km -> 444 m -> 149 m
-# 3 levels (~50 m); keep the finest grid small (the fine pressure solve is a direct sparse LU):
-python examples/render_tornado_3d.py --levels 3 --refine 3 --sub-half-frac 0.22 \
-    --sub-window-frac 0.4 --parent-duration 900 --window 150 --device gpu
 ```
 
-> ⚠️ Still **not a funnel-to-ground**: 149 m resolves the low-level vortex far better but a
-> true condensation funnel needs O(10–100 m) — a **3rd level** (≈50 m, heavy) and momentum
-> refluxing between levels. This is the honest edge of the resolution, moving the right way.
+**The third level — Δx ≈ 49 m, the funnel scale (`--levels 3`).** A *third* refinement
+(parent 1333 m → L1 444 m → L2 148 m → **L3 49 m**) takes the stack to O(10 m). The finest
+nest is now 54²×40 = 116 640 cells — which **used to OOM** the direct sparse-LU pressure
+solve; it now routes automatically through the **low-memory FFT+tridiag solver** (§3f, the
+`separable(grid)` guard), so it completes on a workstation with no factorisation. Rotation
+**intensifies monotonically with resolution** — ζ_max: L1 1.5×10⁻² → L2 4.0×10⁻² → **L3
+1.66×10⁻¹ s⁻¹** (an order of magnitude over L1), w_max ≈ 16 m/s, ~13 min wall on CPU:
+
+| Vorticity column (49 m) | Mesocyclone streamlines (49 m) |
+|---|---|
+| ![3-D vorticity column at 49 m: intense near-surface rotation (red, z < 2 km) under a tall column](docs/media/storm/nest_3d_L3_column.png) | ![3-D storm-relative streamlines at 49 m: a coherent vortex core spiralling from the surface with updraft threads](docs/media/storm/nest_3d_L3_streamlines.gif) |
+
+*Left:* the vorticity **column** — the strongest rotation (red) now concentrates in the
+lowest ~2 km, the near-surface intensification the funnel scale resolves (the "stacked-slab"
+look is the narrow ~2.6 km nest with per-height normalisation). *Right:* storm-relative
+**streamlines** — a coherent, tightly-wound vortex core with converging low-level inflow and
+updraft threads, much more legible as a mesocyclone than the point cloud.
+
+```bash
+# 3 levels (~49 m): the finest grid (n > 64k) auto-routes to the low-memory solver -- no OOM
+python examples/render_tornado_3d.py --levels 3 --refine 3 --device gpu
+```
+
+> ⚠️ Still **not a funnel-to-ground**: 49 m resolves the low-level vortex and its inflow
+> far better, but a true condensation funnel is O(10 m) and would also need the interface
+> **momentum reflux** wired into the live multi-level loop (the algorithm is verified —
+> `amr.TwoLevelMomentumReflux`, ∑u conserved to machine precision — but not yet in the
+> sub-cycling driver). This is the honest edge of the resolution, moving the right way.
 
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
