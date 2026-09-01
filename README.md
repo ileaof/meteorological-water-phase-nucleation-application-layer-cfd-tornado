@@ -194,14 +194,18 @@ parent (1500 s) and a larger, longer finest level (78²×40 = 237 k cells, 75 s 
 ![3-D storm-relative streamlines of the 50 m GPU nest: a vigorous deep updraft (red to ~10 km) with rotational low-level inflow, broader than the CPU snapshot](docs/media/storm/nest_3d_L3_gpu_streamlines.png)
 
 *The GPU run is stronger overall (higher w_max, stronger L2 rotation) yet its **L3 ζ_max is
-lower** — an honest, instructive effect, not a bug: the recursive L2/L3 levels are **static
-boxes** (not storm-following), so the larger footprint + longer window let the vortex
-**advect and spread** within the box, diluting the peak-ζ snapshot. The GPU **compute** is
-fast (parent 46 s, each fine level ~25 s of stepping); the wall time is now dominated by the
-**host-side nest interpolation** when building a large fine level — the next GPU target
-(`interpolate_state_to_nest` / the composite projection → CuPy), per `docs/ROADMAP.md` §3f.
-Take-away: to maximise the funnel ζ, use a **short window or a storm-following L3**, not a long
-static box.*
+lower** — an honest, instructive effect, not a bug, and one that traced to the **footprint,
+not the window**: this GPU run used a *larger* finest box (`--sub-half-frac 0.30`), which
+**spreads** the vortex over more cells and dilutes the peak-ζ snapshot. A controlled test
+(fixed mature L2, one L3 over a long 120 s window with a **tight** `0.22` footprint) shows
+ζ_max instead **rising and then holding** — peak 1.89×10⁻¹ at 84 s, still 1.88×10⁻¹ at 120 s
+(peak/final = 1.00), the highest of any run: a tight static box keeps the funnel-scale vortex
+concentrated and does **not** dilute over the window. So the lever is a **tight L3 footprint**
+around the vortex (storm-following would only matter for much longer windows, once the vortex
+advects out of the box). Separately, the GPU **compute** is fast (parent 46 s, each fine level
+~25 s of stepping); wall time is now dominated by the **host-side nest interpolation** when
+building a large fine level — the next GPU target (`interpolate_state_to_nest` / the composite
+projection → CuPy), per `docs/ROADMAP.md` §3f.*
 
 ```bash
 python examples/render_tornado_3d.py --levels 3 --refine 3 --device gpu   # the whole stack on-device
