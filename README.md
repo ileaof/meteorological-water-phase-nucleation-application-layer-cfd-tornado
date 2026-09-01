@@ -178,6 +178,35 @@ python examples/render_tornado_3d.py --levels 3 --refine 3 --device gpu
 > `amr.TwoLevelMomentumReflux`, ∑u conserved to machine precision — but not yet in the
 > sub-cycling driver). This is the honest edge of the resolution, moving the right way.
 
+**On the GPU (`--device gpu`).** The low-memory solver is **device-agnostic** (§3f): on a GPU
+backend the whole separable projection runs on-device (cuFFT / cupyx DCT + batched Thomas),
+no host round-trip. The same 3-level stack, run on an **RTX 4050 (6 GB)** with a more mature
+parent (1500 s) and a larger, longer finest level (78²×40 = 237 k cells, 75 s window):
+
+| | CPU run | GPU run (more mature / larger L3) |
+|---|---|---|
+| L2 — Δx / ζ_max | 148 m / 4.0×10⁻² | 149 m / **5.1×10⁻²** |
+| L3 — Δx / ζ_max / cells | 49 m / **1.66×10⁻¹** / 116 k | 50 m / 7.6×10⁻² / **237 k** |
+| w_max | 16 m/s | **20 m/s** |
+| wall clock | 797 s | **518 s** |
+| VRAM used | — | 1.1 GB (of 6) |
+
+![3-D storm-relative streamlines of the 50 m GPU nest: a vigorous deep updraft (red to ~10 km) with rotational low-level inflow, broader than the CPU snapshot](docs/media/storm/nest_3d_L3_gpu_streamlines.png)
+
+*The GPU run is stronger overall (higher w_max, stronger L2 rotation) yet its **L3 ζ_max is
+lower** — an honest, instructive effect, not a bug: the recursive L2/L3 levels are **static
+boxes** (not storm-following), so the larger footprint + longer window let the vortex
+**advect and spread** within the box, diluting the peak-ζ snapshot. The GPU **compute** is
+fast (parent 46 s, each fine level ~25 s of stepping); the wall time is now dominated by the
+**host-side nest interpolation** when building a large fine level — the next GPU target
+(`interpolate_state_to_nest` / the composite projection → CuPy), per `docs/ROADMAP.md` §3f.
+Take-away: to maximise the funnel ζ, use a **short window or a storm-following L3**, not a long
+static box.*
+
+```bash
+python examples/render_tornado_3d.py --levels 3 --refine 3 --device gpu   # the whole stack on-device
+```
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing
