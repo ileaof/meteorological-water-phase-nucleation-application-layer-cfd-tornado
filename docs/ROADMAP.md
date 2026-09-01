@@ -205,6 +205,16 @@ multi-month effort; listed so the direction is explicit.
 RAP/HRRR) for the base state and, for a limited-area run, time-dependent lateral BCs from a
 driving model (relaxation/Davies zone — the nest machinery already does the LBC pattern).
 *Seam:* `base_state`, `soundings.py`, the BC application in `core.py`/`bc`.
+*First increment DONE (2026-09-01):* `soundings.from_observed_sounding(grid, pressure_hPa,
+height_m, temperature_C, dewpoint_C|qv_kgkg, wind_dir_deg/wind_speed_ms|u_ms/v_ms)` ingests a
+real **radiosonde** column (any observed sounding), converts it to `(theta, qv, u, v)`,
+interpolates onto the model levels and **re-integrates the pressure hydrostatically on the
+stretched mesh** → a `BaseState` that drops straight into `StormSimulation(scfg, base=...)`.
+Verified: a round-trip of a known analytic atmosphere recovers θ/qv/winds to round-off and
+CAPE to <1%; the bundled illustrative `example_observed_sounding()` builds a supercell
+environment (CAPE ~3300 J/kg, 0-6 km shear ~32 m/s, SRH ~230 m²/s²) and the storm steps
+stably on it (`tests/test_real_sounding.py`, `examples/real_sounding_storm.py`). *Remaining:*
+reanalysis/gridded ingestion (ERA5/HRRR) + time-dependent lateral BCs from a driving model.
 
 **3b. Data assimilation.** 3D/4D-Var or EnKF to fit initial conditions to observations —
 the actual difference between a *simulation* and a *forecast*. Standalone module consuming
