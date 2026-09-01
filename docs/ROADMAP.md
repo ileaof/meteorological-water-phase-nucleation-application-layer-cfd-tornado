@@ -292,6 +292,24 @@ multigrid preconditioner — `pyamg`, or generalise `poisson_mg.py` — cuts ite
 large stiff operators; Jacobi-CG already suffices at storm/nest scale. Beyond: multi-GPU / MPI
 domain decomposition.)
 
+**Increment 4 — GPU-capable FFT+tridiag (DONE 2026-09-01).** `pressure_fft` is now
+device-agnostic: it infers the array module from the field arrays and runs the whole
+projection on the **same device** — cuFFT / `cupyx.scipy.fft` DCT + batched Thomas on the GPU,
+or NumPy/scipy on the CPU (byte-identical CPU path). `core._project_anelastic_lowmem` takes the
+separable FFT path **on-device with no host round-trip** on a GPU backend (the cost the
+composite projection still pays); the scipy Jacobi-CG fallback stays host-side. Verified on an
+RTX 4050 (6 GB): GPU `div` → 3.5e-17 at 54²×40 (periodic AND wall), matching the CPU result to
+~2e-15, and a GPU `StormSimulation` steps stably on-device.
+
+**GPU architecture decision (2026-09-01): NO multigrid for this application.** For the
+*separable* operator (the current model + every AMR nest) FFT+tridiag is already
+asymptotically optimal and maps directly onto cuFFT; multigrid would be more code and slower.
+Multigrid (geometric, preconditioning CG — built on `poisson_mg.py`, GPU-friendly smoothers;
+**not** AMG on GPU) is worth it *only* if the model later becomes **non-separable** (terrain,
+x,y-varying reference state) **and** large enough that Jacobi-CG's iteration count (∝ L/dx)
+dominates. The remaining GPU return here is porting the **composite two-level projection** to
+CuPy (still host NumPy → a round-trip per sub-step), not a new solver.
+
 ---
 
 ## 4. How to resume after a session loss
