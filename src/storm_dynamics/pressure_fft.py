@@ -15,6 +15,16 @@ The projection is exact for the discrete operator: ``u = u* - grad(phi)/rho0`` m
 ``div(rho0 u) = div(rho0 u*) - lap(phi) = 0`` to the transform's round-off.  This module is
 self-contained (NumPy + scipy.fft); it does **not** modify ``meteorological_flow``'s
 ``PressureSolver``.  Wire it into a nest via :func:`project_anelastic_fft`.
+
+**Assumptions / generality (see docs/ROADMAP.md §3f).**  Exact but only for the *separable*
+case: **uniform horizontal spacing** (constant dx, dy), coefficients **homogeneous in x,y**
+(anelastic ``rho0 = rho0(z)`` only — the z-tridiagonal is the same for every column; dz(z)
+and rho0(z) may vary in z, not in x,y), and **separable homogeneous BCs** (periodic -> FFT,
+uniform wall -> DCT).  The current storm and all its AMR nests are in this class (no loss).
+It does **not** handle terrain-following coordinates, horizontal grid stretching, map
+projections, x,y-varying reference states, or irregular/immersed boundaries — those need the
+general direct / multigrid-preconditioned solvers; select this one only when ``grid`` is
+separable, never as a silent default.
 """
 from __future__ import annotations
 

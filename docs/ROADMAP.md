@@ -231,11 +231,31 @@ was the one subtlety).  Verified: on a 48²×40 stretched grid `div` → ~2e-17 
 4e-17 (wall) in ~0.01 s, **no LU factorisation** — the direct-splu OOM is gone
 (`test_fft_tridiag_anelastic_projector_divergence_free`).  NumPy + `scipy.fft`, self-contained,
 does not touch `meteorological_flow.PressureSolver`.
+**Generality — the tradeoff (important).** FFT+tridiag is **exact, not an approximation**,
+but only for the **separable** case, and it *does* lose generality relative to the direct/
+iterative solvers.  It requires: (a) **uniform horizontal spacing** (constant dx,dy — the
+transform diagonalises a constant-coefficient horizontal Laplacian); (b) coefficients
+**homogeneous in x,y** (anelastic ρ0=ρ0(z) only; the z-tridiagonal must be the same for every
+column — dz(z) and ρ0(z) may vary in z, not in x,y); (c) **separable homogeneous BCs**
+(periodic → FFT, uniform wall → DCT/DST).  The **current model and all its AMR nests sit
+exactly in this class**, so there is *no* loss today — machine precision.  It would NOT
+handle **terrain-following coordinates / orography, horizontal grid stretching, map
+projections, x,y-varying reference states, or immersed/irregular boundaries** — the general
+regimes the forecast-model generalisation (§3d, §3c) introduces.  Design: keep FFT+tridiag as
+the fast low-memory solver for the separable case (route by structure), and keep the
+**direct (small grids) + a multigrid-preconditioned CG (the general, non-separable fallback)**
+— §3f increment 3.  Not a silent default: the solver is selected by grid structure, and a
+non-separable grid must fall back, never silently use FFT+tridiag.
+
 **Increment 2 — wire it in (NEXT).** Use it for the anelastic projection of large/fine nests
-(a `NestedStormSimulation` option, or a `_pressure_method` that routes large grids here),
-replacing the per-level `PressureSolver.project_anelastic`; verify a real fine nest steps
-stably. Then the 3rd level (~50 m) runs without OOM.  (Beyond: multi-GPU / MPI; a multigrid
-preconditioner for fully non-separable operators.)
+(a `NestedStormSimulation` option, or a `_pressure_method` that routes large *separable* grids
+here — guarded by a `separable(grid)` check), replacing the per-level
+`PressureSolver.project_anelastic`; verify a real fine nest steps stably. Then the 3rd level
+(~50 m) runs without OOM.
+**Increment 3 — the general low-memory fallback.** A multigrid-preconditioned CG (or
+geometric multigrid V-cycle, `poisson_mg.py` is the 2-D kernel to generalise) for the
+**non-separable** operators terrain / horizontal variation bring — so §3's forecast model is
+not stuck with direct-LU memory. (Beyond: multi-GPU / MPI domain decomposition.)
 
 ---
 
