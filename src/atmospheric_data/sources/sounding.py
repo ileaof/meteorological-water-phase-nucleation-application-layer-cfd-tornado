@@ -54,6 +54,9 @@ def read_sounding(path):
     prof = {"height_m": z, "pressure_Pa": p, "temperature_K": T, "dewpoint_K": Td,
             "relative_humidity": rh, "specific_humidity": q, "u_ms": u, "v_ms": v}
     prof = {k: val for k, val in prof.items() if val is not None}
+    if "height_m" not in prof or "pressure_Pa" not in prof or "temperature_K" not in prof:
+        raise ValueError("incomplete/corrupt sounding %r: need at least height, pressure and "
+                         "temperature columns (found %s)" % (path, sorted(prof)))
     if "height_m" in prof:                                   # sort by height, ascending
         order = np.argsort(prof["height_m"])
         prof = {k: np.asarray(val)[order] for k, val in prof.items()}

@@ -86,8 +86,9 @@ def regrid_to_model(state, x_model, y_model, z_model, variables=None, conservati
                 for i in range(nxt):
                     res[it, :, j, i] = vertical_remap(horiz[:, j, i], z_src, z_model, conservative=cons)
             if cons:                                        # track column-integral (mass) drift
-                src_int = np.trapz(horiz, z_src, axis=0)
-                tgt_int = np.trapz(res[it], z_model, axis=0)
+                _trapz = getattr(np, "trapezoid", np.trapz)
+                src_int = _trapz(horiz, z_src, axis=0)
+                tgt_int = _trapz(res[it], z_model, axis=0)
                 col_int_err = max(col_int_err, float(np.nanmax(np.abs(tgt_int - src_int)
                                                                / (np.abs(src_int) + 1e-12))))
         out[nm] = res
