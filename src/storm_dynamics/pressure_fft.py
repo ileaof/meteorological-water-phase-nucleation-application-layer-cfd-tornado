@@ -37,6 +37,37 @@ except Exception:                                    # pragma: no cover
     _HAVE_DCT = False
 
 
+# --- device dispatch (CPU/NumPy or GPU/CuPy) -------------------------------------------
+# The field arrays (f, u, v, w) may live on the GPU (CuPy).  We infer the array module
+# from the data and run the transforms on the SAME device, so a GPU nest never round-trips
+# to the host (the cost the composite projection paid).  Coefficient arrays (the z
+# tridiagonal, the horizontal eigenvalues) are tiny 1-D host NumPy and are moved onto the
+# data's device only where they meet the big arrays.  The CPU path is byte-identical to
+# the previous NumPy/scipy version (same np.fft / scipy.fft calls).
+def _xp_of(a):
+    """Return the array module (``cupy`` or ``numpy``) that owns ``a``."""
+    if type(a).__module__.split(".", 1)[0] == "cupy":
+        import cupy as cp
+        return cp
+    return np
+
+
+def _dctn(x, xp, **kw):
+    if xp is np:
+        if not _HAVE_DCT:
+            raise RuntimeError("scipy.fft.dctn required for wall (non-periodic) domains")
+        return dctn(x, **kw)
+    from cupyx.scipy.fft import dctn as _cp_dctn      # GPU DCT (cuFFT-backed)
+    return _cp_dctn(x, **kw)
+
+
+def _idctn(x, xp, **kw):
+    if xp is np:
+        return idctn(x, **kw)
+    from cupyx.scipy.fft import idctn as _cp_idctn
+    return _cp_idctn(x, **kw)
+
+
 def _z_tridiag(dzc, dzf):
     """Variable-dz vertical finite-volume operator (Neumann walls) as (lower, diag, upper).
 
@@ -54,16 +85,18 @@ def _z_tridiag(dzc, dzf):
 
 
 def _thomas_batch(lower, diag, upper, rhs):
-    """Solve a batch of tridiagonals sharing off-diagonals: ``lower``/``upper`` (nz,),
-    ``diag`` (B, nz), ``rhs`` (B, nz) -> x (B, nz).  Vectorised over the batch B."""
+    """Solve a batch of tridiagonals sharing off-diagonals: ``lower``/``upper`` (nz,, host),
+    ``diag`` (B, nz), ``rhs`` (B, nz) -> x (B, nz).  Vectorised over the batch B, on whatever
+    device ``rhs`` lives (the scalar off-diagonals broadcast against the device batch)."""
+    xp = _xp_of(rhs)
     nz = diag.shape[1]
-    cp = np.empty_like(diag); dp = np.empty_like(rhs)
+    cp = xp.empty_like(diag); dp = xp.empty_like(rhs)
     cp[:, 0] = upper[0] / diag[:, 0]; dp[:, 0] = rhs[:, 0] / diag[:, 0]
     for k in range(1, nz):
         m = diag[:, k] - lower[k] * cp[:, k - 1]
         cp[:, k] = (upper[k] / m) if k < nz - 1 else 0.0
         dp[:, k] = (rhs[:, k] - lower[k] * dp[:, k - 1]) / m
-    x = np.empty_like(rhs); x[:, -1] = dp[:, -1]
+    x = xp.empty_like(rhs); x[:, -1] = dp[:, -1]
     for k in range(nz - 2, -1, -1):
         x[:, k] = dp[:, k] - cp[:, k] * x[:, k + 1]
     return x
@@ -72,45 +105,45 @@ def _thomas_batch(lower, diag, upper, rhs):
 def _solve_poisson(f, dx, dy, dzc, dzf, periodic_h):
     """Solve ``lap(phi) = f`` (uniform x,y + variable-dz z, Neumann z-walls) by transform +
     batched Thomas.  ``periodic_h`` -> FFT; else DCT-II (wall).  Returns phi (nx,ny,nz)."""
+    xp = _xp_of(f)
     nx, ny, nz = f.shape
-    lower, diagz, upper = _z_tridiag(dzc, dzf)
+    lower, diagz, upper = _z_tridiag(np.asarray(dzc), np.asarray(dzf))   # tiny host coeffs
     if periodic_h:
-        fh = np.fft.fft2(f, axes=(0, 1))
+        fh = xp.fft.fft2(f, axes=(0, 1))
         lamx = -2.0 * (1.0 - np.cos(2 * np.pi * np.arange(nx) / nx)) / dx ** 2
         lamy = -2.0 * (1.0 - np.cos(2 * np.pi * np.arange(ny) / ny)) / dy ** 2
     else:
-        if not _HAVE_DCT:
-            raise RuntimeError("scipy.fft.dctn required for wall (non-periodic) domains")
-        fh = dctn(f, axes=(0, 1), type=2, norm="ortho")
+        fh = _dctn(f, xp, axes=(0, 1), type=2, norm="ortho")
         lamx = -2.0 * (1.0 - np.cos(np.pi * np.arange(nx) / nx)) / dx ** 2
         lamy = -2.0 * (1.0 - np.cos(np.pi * np.arange(ny) / ny)) / dy ** 2
-    shift = (lamx[:, None] + lamy[None, :]).reshape(-1)          # (nx*ny,)
-    rhs = fh.reshape(nx * ny, nz)
-    diag = diagz[None, :] + shift[:, None]                       # (B, nz)
+    shift = (lamx[:, None] + lamy[None, :]).reshape(-1)          # (nx*ny,) host
+    rhs = fh.reshape(nx * ny, nz)                               # on f's device
+    diag = xp.asarray(diagz)[None, :] + xp.asarray(shift)[:, None]      # (B, nz) device
     # the shift==0 mode(s) (the (0,0) horizontal mean) give the pure vertical Neumann
     # operator L_z, singular ONLY in the additive constant -> solve pinned, don't zero.
-    sing = np.abs(shift) < 1e-12 * (np.abs(diagz).max() + 1e-30)
-    diag_safe = diag.copy(); diag_safe[sing, :] = 1.0           # dummy (overwritten below)
+    sing = np.abs(shift) < 1e-12 * (np.abs(diagz).max() + 1e-30)         # host mask
+    diag_safe = diag.copy(); diag_safe[xp.asarray(sing), :] = 1.0        # dummy (overwritten)
     ph = _thomas_batch(lower, diag_safe, upper, rhs)
     if sing.any():                                              # pinned vertical solve: phi[0]=0
         di = diagz.copy(); up = upper.copy(); lo = lower
         di[0] = 1.0; up[0] = 0.0
-        A = np.diag(di) + np.diag(up[:-1], 1) + np.diag(lo[1:], -1)
+        A = xp.asarray(np.diag(di) + np.diag(up[:-1], 1) + np.diag(lo[1:], -1))
         for idx in np.where(sing)[0]:
-            rr = rhs[idx].copy(); rr[0] = 0.0
-            ph[idx] = np.linalg.solve(A, rr)
+            rr = rhs[int(idx)].copy(); rr[0] = 0.0
+            ph[int(idx)] = xp.linalg.solve(A, rr)
     ph = ph.reshape(nx, ny, nz)
     if periodic_h:
-        return np.real(np.fft.ifft2(ph, axes=(0, 1)))
-    return idctn(ph, axes=(0, 1), type=2, norm="ortho")
+        return xp.real(xp.fft.ifft2(ph, axes=(0, 1)))
+    return _idctn(ph, xp, axes=(0, 1), type=2, norm="ortho")
 
 
 def anelastic_divergence(u, v, w, rho0_c, rho0_wface, dx, dy, dzc):
     """``div(rho0 u)`` at cell centres from the staggered mass flux (rho0=rho0(z))."""
-    rc = np.asarray(rho0_c)[None, None, :]; rw = np.asarray(rho0_wface)[None, None, :]
+    xp = _xp_of(u)
+    rc = xp.asarray(rho0_c)[None, None, :]; rw = xp.asarray(rho0_wface)[None, None, :]
     return (rc * (u[1:, :, :] - u[:-1, :, :]) / dx
             + rc * (v[:, 1:, :] - v[:, :-1, :]) / dy
-            + (rw[:, :, 1:] * w[:, :, 1:] - rw[:, :, :-1] * w[:, :, :-1]) / np.asarray(dzc)[None, None, :])
+            + (rw[:, :, 1:] * w[:, :, 1:] - rw[:, :, :-1] * w[:, :, :-1]) / xp.asarray(dzc)[None, None, :])
 
 
 def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodic_h=True):
@@ -118,8 +151,12 @@ def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodi
     **low-memory** FFT/DCT + tridiagonal solve.  ``u`` (nx+1,ny,nz), ``v`` (nx,ny+1,nz),
     ``w`` (nx,ny,nz+1) (host NumPy, modified in place); ``rho0_c`` (nz,), ``rho0_wface``
     (nz+1,); ``dzc`` (nz,), ``dzf`` (nz-1,).  ``periodic_h`` wraps x,y (parent) else solid
-    walls (nest).  Returns ``max|div(rho0 u)|`` after projection (should be ~round-off)."""
-    rc = np.asarray(rho0_c); rw = np.asarray(rho0_wface)
+    walls (nest).  Returns ``max|div(rho0 u)|`` after projection (should be ~round-off).
+
+    Device-agnostic: if ``u,v,w`` are CuPy arrays the whole solve runs on the GPU (cuFFT /
+    cupyx DCT + batched Thomas), no host round-trip; NumPy arrays keep the CPU path."""
+    xp = _xp_of(u)
+    rc = xp.asarray(rho0_c); rw = xp.asarray(rho0_wface)
     w[:, :, 0] = 0.0; w[:, :, -1] = 0.0                         # solid top/bottom
     if periodic_h:                                             # sync the redundant wrap face
         u[-1, :, :] = u[0, :, :]; v[:, -1, :] = v[:, 0, :]
@@ -130,7 +167,7 @@ def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodi
     # correct: u -= grad(phi)/rho0   (rho0 at the face)
     gx = (phi[1:, :, :] - phi[:-1, :, :]) / dx
     gy = (phi[:, 1:, :] - phi[:, :-1, :]) / dy
-    gz = (phi[:, :, 1:] - phi[:, :, :-1]) / np.asarray(dzf)[None, None, :]
+    gz = (phi[:, :, 1:] - phi[:, :, :-1]) / xp.asarray(dzf)[None, None, :]
     if periodic_h:
         u[1:-1, :, :] -= gx / rc[None, None, :]
         u[0, :, :] -= (phi[0, :, :] - phi[-1, :, :]) / dx / rc[None, :]        # periodic wrap
@@ -143,4 +180,4 @@ def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodi
         v[:, 1:-1, :] -= gy / rc[None, None, :]
     # interior z-faces (k = 1..nz-1): w -= (dphi/dz)/rho0_wface  (walls at k=0,nz stay 0)
     w[:, :, 1:-1] -= gz / rw[None, None, 1:-1]
-    return float(np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())
+    return float(xp.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())

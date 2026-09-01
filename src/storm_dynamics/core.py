@@ -96,18 +96,26 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface):
 
     Physically equivalent to :meth:`PressureSolver.project_anelastic` (the divergence-free
     projection is unique for the given BCs), but with no stored LU factorisation, so a fine
-    nest that OOMs the direct solve fits."""
+    nest that OOMs the direct solve fits.  On a **GPU** backend the separable FFT path runs
+    entirely on the device (cuFFT / cupyx DCT + batched Thomas) with **no host round-trip**;
+    the non-separable Jacobi-CG fallback is scipy/host-only, so it round-trips."""
     to_cpu = grid.backend.to_cpu
     xp = grid.xp
-    u = np.ascontiguousarray(to_cpu(st.u), float)
-    v = np.ascontiguousarray(to_cpu(st.v), float)
-    w = np.ascontiguousarray(to_cpu(st.w), float)
     zc = np.asarray(to_cpu(grid.zc), float); zf = np.asarray(to_cpu(grid.zf), float)
-    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
-    rc = np.asarray(to_cpu(rho0_c), float); rw = np.asarray(to_cpu(rho0_wface), float)
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)                 # tiny host coefficients
     dx, dy = float(grid.dx), float(grid.dy)
     periodic_h = bool(getattr(grid, "periodic", True))
-    if separable(grid):
+    sep = separable(grid)
+    is_gpu = type(st.u).__module__.split(".", 1)[0] == "cupy"
+    if sep and is_gpu:                                        # GPU fast path: solve on-device
+        from .pressure_fft import project_anelastic_fft as _proj
+        return float(_proj(st.u, st.v, st.w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
+                           periodic_h=periodic_h))            # modifies st.{u,v,w} in place
+    u = np.ascontiguousarray(to_cpu(st.u), float)             # host path (CPU, or the
+    v = np.ascontiguousarray(to_cpu(st.v), float)             # scipy Jacobi-CG fallback)
+    w = np.ascontiguousarray(to_cpu(st.w), float)
+    rc = np.asarray(to_cpu(rho0_c), float); rw = np.asarray(to_cpu(rho0_wface), float)
+    if sep:
         from .pressure_fft import project_anelastic_fft as _proj
         res = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
     else:
