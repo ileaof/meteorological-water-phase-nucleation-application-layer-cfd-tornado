@@ -1,0 +1,77 @@
+# storm-watch operational auto mode (ROADMAP §3a).  Run:
+#   python -m atmospheric_data storm-watch replay tests/data/sample_tornado_alert.json
+#   python -m atmospheric_data storm-watch start  config/storm_watch.yaml --offline --max-iterations 3
+#   python -m atmospheric_data storm-watch status config/storm_watch.yaml
+#   python -m atmospheric_data storm-watch cases  config/storm_watch.yaml
+storm_watch:
+  enabled: true
+  region:
+    country: US
+    states: ["OK", "TX", "KS"]
+  events:
+    - Tornado Warning
+    - Severe Thunderstorm Warning
+    - Tornado Watch
+  minimum_severity: severe
+  alert_poll_seconds: 60
+
+  actions:
+    auto_download: true
+    auto_preprocess: true
+    auto_simulate: false          # SAFE default -- never auto-runs the CFD
+
+  data:
+    hrrr: true
+    hrrr_subhourly: true
+    nexrad: true
+    metar: true
+    sounding: true
+
+  radar:
+    maximum_distance_km: 250
+    use_multiple_radars: true
+    maximum_radars: 3
+
+  automatic_domain:
+    upstream_margin_km: 250
+    downstream_margin_km: 350
+    lateral_margin_km: 200
+    vertical_extent_km: 20
+
+  time_window:
+    before_alert_minutes: 120
+    after_expiration_minutes: 60
+    radar_update_seconds: 300
+    alert_poll_seconds: 60
+
+  simulation_trigger:
+    minimum_level: confirmed
+    minimum_severity: severe
+
+  resource_limits:
+    maximum_active_cases: 2
+    maximum_storage_gb: 500
+    maximum_case_storage_gb: 100
+    maximum_concurrent_downloads: 4
+    delete_raw_data: false
+    compression: true
+
+  notifications:
+    desktop: true
+    email: false
+
+  workdir: outputs/storm_watch
+
+# ---- base model/domain params reused when a case is auto-created from an alert ----
+model:
+  execution_backend: auto
+  input_mode: real_case
+  parent_dx_m: 3000
+  nest_dx_m: 1000
+  fine_dx_m: 300
+  moving_nest: true
+processing:
+  interpolation: conservative
+  hydrostatic_adjustment: true
+data:
+  cache_directory: data/cache

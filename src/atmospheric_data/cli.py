@@ -107,10 +107,78 @@ def cmd_compare_radar(args):
     return 0
 
 
+def cmd_storm_watch(args):
+    """Operational auto mode: start|status|stop|alerts|cases|retry|replay."""
+    from .storm_watch import StormWatchConfig, StormWatchMonitor
+    from .storm_watch.db import WatchDB
+    action = args.action
+    rest = list(args.rest or [])
+    # interpret positionals per action: replay/retry take a target first, then optional config
+    target, config = None, "config/storm_watch.yaml"
+    if action in ("replay", "retry"):
+        target = rest[0] if rest else None
+        config = rest[1] if len(rest) > 1 else config
+    else:
+        config = rest[0] if rest else config
+    args.target = target
+    sw = StormWatchConfig.from_yaml(config) if os.path.exists(config) else StormWatchConfig()
+    try:
+        base = CaseConfig.from_yaml(config)
+    except Exception:
+        base = CaseConfig()
+    stop_flag = os.path.join(sw.workdir, "STOP")
+
+    if action == "start":
+        os.path.exists(stop_flag) and os.remove(stop_flag)
+        mon = StormWatchMonitor(sw, base_case_config=base, offline=args.offline, max_n=args.max_n)
+        print("[storm-watch] starting (auto_simulate=%s, offline=%s). Ctrl-C or `stop` to end."
+              % (sw.actions.auto_simulate, args.offline))
+        it = 0
+        while args.max_iterations is None or it < args.max_iterations:
+            if os.path.exists(stop_flag):
+                print("[storm-watch] stop flag seen; exiting"); break
+            mon.poll_once(); it += 1
+            if args.max_iterations is not None and it >= args.max_iterations:
+                break
+            import time; time.sleep(sw.alert_poll_seconds)
+        mon.close(); return 0
+    if action == "stop":
+        os.makedirs(sw.workdir, exist_ok=True); open(stop_flag, "w").close()
+        print("[storm-watch] stop flag written:", stop_flag); return 0
+
+    db = WatchDB(os.path.join(sw.workdir, "storm_watch.sqlite"))
+    if action == "status":
+        print(json.dumps({"workdir": sw.workdir, "active_cases": db.active_case_count(),
+                          "queued": db.queue_size(), "auto": sw.actions.__dict__}, indent=2))
+    elif action == "alerts":
+        for a in db.list_alerts():
+            print("  %-10s %-28s sev=%-8s status=%s" % (a["level"], a["event"], a["severity"], a["status"]))
+    elif action == "cases":
+        for c in db.list_cases():
+            print("  %s  %-22s  %-22s  (%.2f,%.2f)" % (c["case_id"], c["name"], c["state"],
+                                                       c["center_lat"], c["center_lon"]))
+    elif action == "replay":
+        mon = StormWatchMonitor(sw, base_case_config=base, offline=True, max_n=args.max_n)
+        print("[storm-watch] replay:", json.dumps(mon.replay(args.target), indent=2)); mon.close()
+    elif action == "retry":
+        c = db.get_case(args.target)
+        print("[storm-watch] retry", args.target, "->", "not found" if not c else "re-enqueued")
+        if c:
+            db.set_state(args.target, "DETECTED", "manual retry")
+    db.close(); return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser("atmospheric_data", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command", required=True)
+    swp = sub.add_parser("storm-watch", help="operational auto mode")
+    swp.add_argument("action", choices=["start", "status", "stop", "alerts", "cases", "retry", "replay"])
+    swp.add_argument("rest", nargs="*", help="[FILE|CASE_ID] and/or config.yaml (see docs)")
+    swp.add_argument("--offline", action="store_true")
+    swp.add_argument("--max-iterations", type=int, default=None, dest="max_iterations")
+    swp.add_argument("--max-n", type=int, default=24, dest="max_n")
+    swp.set_defaults(func=cmd_storm_watch)
     cmds = {"case-info": cmd_case_info, "download": cmd_download, "preprocess": cmd_preprocess,
             "validate-input": cmd_validate_input, "run-case": cmd_run_case,
             "compare-radar": cmd_compare_radar}
@@ -123,4 +191,6 @@ def main(argv=None):
                         help="cap grid points per axis (test/dev; raise for production)")
         sp.add_argument("--steps", type=int, default=None, help="run-case: number of steps")
     args = p.parse_args(argv)
+    if hasattr(args, "func"):
+        return args.func(args)
     return cmds[args.command](args)

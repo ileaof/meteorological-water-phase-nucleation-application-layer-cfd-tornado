@@ -1,0 +1,53 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "urn:oid:2.49.0.1.840.0.sample.tornado.moore.2013",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-97.62, 35.28], [-97.34, 35.28], [-97.34, 35.44], [-97.62, 35.44], [-97.62, 35.28]]]
+      },
+      "properties": {
+        "id": "urn:oid:2.49.0.1.840.0.sample.tornado.moore.2013",
+        "event": "Tornado Warning",
+        "severity": "Extreme",
+        "certainty": "Observed",
+        "urgency": "Immediate",
+        "effective": "2013-05-20T19:56:00-05:00",
+        "onset": "2013-05-20T19:56:00-05:00",
+        "expires": "2013-05-20T20:30:00-05:00",
+        "headline": "Tornado Warning issued for Cleveland County until 8:30 PM CDT",
+        "description": "At 356 PM CDT, a large and extremely dangerous tornado was confirmed by radar and storm spotters near Newcastle, moving northeast at 25 mph. This is a RADAR CONFIRMED TORNADO with a tornado debris signature. Considerable damage threat.",
+        "instruction": "TAKE COVER NOW! Move to a basement or an interior room on the lowest floor of a sturdy building.",
+        "areaDesc": "Cleveland, OK; McClain, OK",
+        "geocode": {"SAME": ["040027", "040087"], "UGC": ["OKC027", "OKC087"]},
+        "senderName": "NWS Norman OK"
+      }
+    },
+    {
+      "id": "urn:oid:2.49.0.1.840.0.sample.svr.sample2",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-98.1, 35.0], [-97.8, 35.0], [-97.8, 35.2], [-98.1, 35.2], [-98.1, 35.0]]]
+      },
+      "properties": {
+        "id": "urn:oid:2.49.0.1.840.0.sample.svr.sample2",
+        "event": "Severe Thunderstorm Warning",
+        "severity": "Severe",
+        "certainty": "Likely",
+        "urgency": "Expected",
+        "effective": "2013-05-20T19:40:00-05:00",
+        "onset": "2013-05-20T19:40:00-05:00",
+        "expires": "2013-05-20T20:15:00-05:00",
+        "headline": "Severe Thunderstorm Warning",
+        "description": "Quarter size hail and 60 mph wind gusts, storm moving northeast at 40 mph.",
+        "instruction": "Move to an interior room.",
+        "areaDesc": "Grady, OK",
+        "geocode": {"SAME": ["040051"], "UGC": ["OKC051"]},
+        "senderName": "NWS Norman OK"
+      }
+    }
+  ]
+}
