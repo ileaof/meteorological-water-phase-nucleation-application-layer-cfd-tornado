@@ -75,12 +75,15 @@ solve. See §0 "Composite projection IN the time loop". The test
 asserts the interface divergence ~machine precision over the window and w_max ≥ sponge
 path.
 
-**NEXT: §2b remaining** — momentum (velocity) refluxing between levels (`amr.TwoLevelReflux`
-per pair; the multi-level up-feedback is scalar-only so far), a 3rd level (Δx≈50 m = true
-funnel scale), and combining the multi-level driver with `follow`/`regrid` for a long-lived
-storm. ★  (§2a regridding + §2b increments 1 & 2 — recursive nesting + the concurrent
-multi-level driver `run_multilevel_nest` — landed 2026-09-01, verified; demonstrated at
-Δx=149 m with ζ_max ~5× the single-level value.)
+**NEXT: §2b remaining** — the momentum-flux **reflux ALGORITHM is now nailed down**
+(`amr.TwoLevelBurgersReflux`, the nonlinear u²/2 flux register; conserves ∑u to machine
+precision, drift 4.9e-5 → 0 with reflux; `test_amr_momentum_reflux_conserves_nonlinear_flux`,
+2026-09-01); what remains is **porting it onto the storm's staggered momentum advection** (the
+overlap average-down `restrict_velocity` is not the interface-flux reflux), a 3rd level
+(Δx≈50 m = true funnel scale — now unblocked by the §3f low-memory solvers), and combining the
+multi-level driver with `follow`/`regrid` for a long-lived storm. ★  (§2a regridding + §2b
+increments 1 & 2 — recursive nesting + the concurrent multi-level driver `run_multilevel_nest`
+— landed 2026-09-01, verified; demonstrated at Δx=149 m with ζ_max ~5× the single-level value.)
 
 **Known issue before scale-up (2026-08-31).** Composite mode is *verified* for
 correctness (interface `|div(ρ₀u)|` ~machine precision, mass residual ~1e-15) but
@@ -157,10 +160,12 @@ surface — the physics gap behind the "no funnel-to-ground" caveat.
   restrict_momentum=True)`): conservative face average-down of the fine staggered velocity
   onto the coarse overlap faces (mass-flux-preserving), complementing the scalar
   `conservative_restrict`. Verified (`test_restrict_velocity_face_average_down`).
-  *Remaining in 2b:* a true **flux-register interface reflux** of the momentum *flux*
-  (`amr.TwoLevelReflux` per pair — `restrict_velocity` restricts the overlap, not the
-  interface flux), a **3rd level** (Δx≈50 m, true funnel scale), and combining the
-  multi-level driver with `follow`/`regrid` so the stack tracks a long-lived storm.
+  *Remaining in 2b:* the **flux-register interface reflux** of the momentum *flux* — its
+  algorithm is now the verified reference `amr.TwoLevelBurgersReflux` (nonlinear u²/2 register,
+  ∑u conserved to machine precision; `restrict_velocity` restricts the overlap, not the
+  interface flux), and what is left is porting it onto the storm's *staggered* momentum
+  advection; a **3rd level** (Δx≈50 m, true funnel scale — now unblocked by §3f); and combining
+  the multi-level driver with `follow`/`regrid` so the stack tracks a long-lived storm.
   **Memory note (investigated 2026-09-01):** the finest level's pressure solve is a
   *direct sparse LU*, so a 3rd level at 48³ OOM'd.  The obvious fix — switch large grids to
   the existing **CG** — does **NOT** work: Jacobi-preconditioned CG diverges on the

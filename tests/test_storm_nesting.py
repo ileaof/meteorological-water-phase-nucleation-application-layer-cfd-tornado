@@ -527,6 +527,25 @@ def test_amr_refluxing_conserves_across_interface():
     assert d["free_stream"] < 1e-12, d       # a uniform field stays uniform (correctness)
 
 
+def test_amr_momentum_reflux_conserves_nonlinear_flux():
+    """ROADMAP §2b — the flux-register reflux extended to **momentum** (a NONLINEAR flux
+    u²/2, inviscid Burgers): the coarse interface flux differs from the average of the fine
+    fluxes across a resolved gradient, so WITHOUT reflux the total momentum ∑u drifts; WITH
+    reflux the interface mismatch is applied back to the coarse cell outside the patch and
+    momentum is conserved to machine precision.  This is the momentum-conservation algorithm
+    the storm's staggered interface reflux ports onto a FluxRegister (`TwoLevelBurgersReflux`),
+    nailed down in pure NumPy first -- and the rigorous complement to `restrict_velocity`,
+    which only averages the overlap, not the interface flux."""
+    from storm_dynamics.amr import TwoLevelBurgersReflux
+    no = TwoLevelBurgersReflux().run(nsteps=40, reflux=False)
+    yes = TwoLevelBurgersReflux().run(nsteps=40, reflux=True)
+    fs = TwoLevelBurgersReflux().free_stream_error(nsteps=30, reflux=True)
+    assert no > 1e-6, no                     # a real nonlinear interface leak exists
+    assert yes < 1e-12, yes                  # refluxing conserves momentum to machine precision
+    assert yes < no / 1e6, (yes, no)
+    assert fs < 1e-12, fs                    # uniform momentum stays uniform
+
+
 def test_amr_port_scaffold_conserves_on_multifab():
     """Port scaffold (M3): the field on an AMReX MultiFab, halo-exchanged by AMReX,
     stepped by our flux-form physics, conserves mass to machine precision.  Skipped

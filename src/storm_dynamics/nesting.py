@@ -572,8 +572,11 @@ def restrict_velocity(nest, parent, spec: NestSpec) -> float:
     preserves the mass flux through the coarse face.  Modifies ``parent.state.{u,v,w}`` in
     place; returns the max |change| (diagnostic).
 
-    NOTE: this restricts the momentum in the *overlap*; it is not (yet) a flux-register
-    **reflux** of the interface momentum flux (`amr.TwoLevelReflux`) — see docs/ROADMAP.md §2b."""
+    NOTE: this restricts the momentum in the *overlap*; the complementary flux-register
+    **reflux** of the interface momentum flux — the nonlinear (u²/2) Berger–Colella correction
+    that conserves ∑u across the coarse-fine face — is nailed down as the self-contained
+    reference `amr.TwoLevelBurgersReflux` (verified to machine precision); porting it onto the
+    storm's *staggered* momentum advection is the remaining wire-in (see docs/ROADMAP.md §2b)."""
     pg = parent.grid; ng = nest.grid; xp = pg.xp
     r = spec.refine
     i0 = int(round(spec.x0 / pg.dx)); j0 = int(round(spec.y0 / pg.dy))
@@ -874,9 +877,11 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
     up).  Ground frame (drive short windows, or layer ``regrid``/``follow`` on top later).
 
     So the finest level is **sustained** by the whole stack rather than a one-off static
-    snapshot.  Momentum (velocity) refluxing between levels via a flux register
-    (:class:`amr.TwoLevelReflux`) is the remaining rigour; here the up-feedback is the
-    conservative scalar average-down.  Returns ``(sims, rep)`` with ``sims[0]=parent`` …
+    snapshot.  Here the up-feedback is the conservative scalar average-down (`restrict_up`) plus
+    optional velocity average-down in the overlap (`restrict_momentum`).  The rigorous
+    interface-momentum **reflux** (nonlinear u²/2 flux register) is verified as the reference
+    :class:`amr.TwoLevelBurgersReflux`; wiring it onto the storm's staggered advection is the
+    remaining step.  Returns ``(sims, rep)`` with ``sims[0]=parent`` …
     ``sims[-1]=finest``; ``rep`` is the finest level's report + a ``rep['nest']`` summary."""
     from .core import StormSimulation as SS
     sims = [parent]; rspecs = []
