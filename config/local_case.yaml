@@ -1,0 +1,44 @@
+# Fully OFFLINE / no-download example (ROADMAP §3a).  Uses the synthetic sample so the whole
+# pipeline runs with no network and no heavy dependencies:
+#   python -m atmospheric_data preprocess config/local_case.yaml --offline
+# To use YOUR OWN data offline, set atmospheric_source to hrrr/era5 and drop the files into the
+# cache_directory (see docs/REAL_CASE_DATA.md for the expected filenames), then run --offline.
+case:
+  name: local_offline
+  date: "2013-05-20"
+  start_time_utc: "20:00"
+  end_time_utc: "21:00"
+
+domain:
+  center_lat: 35.34
+  center_lon: -97.49
+  width_km: 120
+  height_km: 15
+  projection: lambert_conformal      # falls back to equirectangular if pyproj is absent
+
+data:
+  atmospheric_source: synthetic       # no download; a labelled synthetic environment
+  fallback_source: synthetic
+  radar_station: KTLX
+  use_sounding: false
+  use_metar: false
+  cache_directory: data/cache
+
+model:
+  execution_backend: cpu
+  input_mode: real_case
+  parent_dx_m: 6000
+  nest_dx_m: 1500
+  fine_dx_m: 400
+  moving_nest: false
+
+processing:
+  output_format: netcdf4
+  interpolation: conservative
+  hydrostatic_adjustment: true
+  temporal_interpolation: linear
+
+validation:
+  radar: true
+  surface_stations: false
+  tornado_track: false

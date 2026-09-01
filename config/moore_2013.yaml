@@ -1,0 +1,47 @@
+# Moore, Oklahoma EF5 tornado -- 20 May 2013 (ROADMAP §3a real_case).
+# The documented historical case; the architecture is general -- change date/time/domain/radar
+# for any other event.  Run:
+#   python -m atmospheric_data case-info      config/moore_2013.yaml
+#   python -m atmospheric_data preprocess     config/moore_2013.yaml   # downloads if online
+#   python -m atmospheric_data validate-input config/moore_2013.yaml
+#   python -m atmospheric_data run-case       config/moore_2013.yaml
+#   python -m atmospheric_data compare-radar  config/moore_2013.yaml
+case:
+  name: moore_2013
+  date: "2013-05-20"
+  start_time_utc: "18:00"
+  end_time_utc: "23:59"
+
+domain:
+  center_lat: 35.34
+  center_lon: -97.49
+  width_km: 400
+  height_km: 20
+  projection: lambert_conformal
+
+data:
+  atmospheric_source: hrrr        # hrrr | era5 | sounding | synthetic
+  fallback_source: era5           # used automatically if the primary is unavailable
+  radar_station: KTLX             # KTLX = Twin Lakes, OK (Moore is in range)
+  use_sounding: true
+  use_metar: true
+  cache_directory: data/cache
+
+model:
+  execution_backend: auto         # auto (GPU if present, else CPU) | cpu | gpu
+  input_mode: real_case           # idealized | real_case  (idealized mode is untouched)
+  parent_dx_m: 1300
+  nest_dx_m: 444
+  fine_dx_m: 125
+  moving_nest: true
+
+processing:
+  output_format: netcdf4
+  interpolation: conservative     # conservative | linear
+  hydrostatic_adjustment: true
+  temporal_interpolation: linear
+
+validation:
+  radar: true
+  surface_stations: true
+  tornado_track: true
