@@ -213,6 +213,28 @@ projection → CuPy), per `docs/ROADMAP.md` §3f.*
 python examples/render_tornado_3d.py --levels 3 --refine 3 --device gpu   # the whole stack on-device
 ```
 
+#### Toward the real atmosphere — initialise from a real observed sounding (ROADMAP §3a)
+
+The environment no longer has to be the analytic Weisman–Klemp column:
+`soundings.from_observed_sounding(...)` ingests a **real radiosonde sounding** — pressure,
+height, temperature, dewpoint (or mixing ratio), and winds (direction/speed or `u,v`) — and
+builds the storm's base state from it. The observed column is converted to `(θ, qv, u, v)`,
+interpolated onto the model levels, and the pressure is **re-integrated hydrostatically on the
+stretched mesh**, so the base state is discretely balanced rather than a raw pressure
+interpolation. It drops straight into `StormSimulation(scfg, base=...)`.
+
+```bash
+python examples/real_sounding_storm.py            # bundled illustrative supercell sounding
+#   CAPE 3281 J/kg | CIN -6 | LCL/LFC/EL 928/1098/12997 m | 0-6 km shear 32.2 m/s | SRH 231 m²/s²
+```
+
+*Verified (`tests/test_real_sounding.py`): a **round-trip** of a known analytic atmosphere back
+through the ingestor recovers θ/qv/winds to round-off and CAPE to <1 %; the bundled
+`example_observed_sounding()` builds a supercell environment and the storm steps stably on it.
+This is the first step of the "idealised core → atmospheric model" arc (ROADMAP §3): a real
+sounding sets the **environment** — it is still an idealised warm-bubble run, not a forecast
+(no data assimilation, no observational verification).*
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing
