@@ -130,6 +130,19 @@ python examples/render_tornado_3d.py --device gpu --mode streamlines   # or --mo
 python examples/render_tornado_3d.py --load outputs/tornado_3d/fields.npz --mode streamlines
 ```
 
+**Photorealistic `--mode volume` (PyVista/VTK).** A ray-cast **volume** render of the 50 m nest
+— an iso-surface funnel wrapped in a translucent storm-cloud volume, on a dark storm sky with
+ambient occlusion, the stretched z resampled to a fine uniform grid first (that resampling is
+what removed the point-cloud "stacked-slab" banding). Coloured by **vertical velocity**: red =
+warm updraft, blue = cold downdraft.
+
+![Photorealistic PyVista volume render of the 50 m nest funnel, coloured by vertical velocity (red updraft / blue downdraft), orbiting 360°](docs/media/storm/nest_3d_L3_volume_wcolor.gif)
+
+```bash
+pip install pyvista imageio                                       # VTK-backed, off-screen
+python examples/render_tornado_3d.py --load outputs/.../fields.npz --mode volume --zexag 2.2
+```
+
 > ⚠️ **What this is (and isn't).** These show the storm's **3-D rotational structure**, not
 > a resolved tornado. At Δx = 444 m the low-level vortex is **under-resolved** and does
 > *not* connect to the mid-level mesocyclone — there is an honest gap, no funnel-to-ground
