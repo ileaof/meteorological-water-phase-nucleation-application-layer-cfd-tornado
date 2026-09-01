@@ -61,6 +61,28 @@ def synthetic_atmosphere(cfg, nz=30, ny=24, nx=24, ntime=2):
     return st
 
 
+def synthetic_pressure_level_state(cfg, nz=11, ny=10, nx=10):
+    """A small PRESSURE-LEVEL state (as the HRRR/ERA5 readers produce before height conversion):
+    the z coordinate is a pressure proxy and ``p,T,qv`` fields are present -- for testing
+    ``sources._common.to_height_levels`` (pressure -> geometric height)."""
+    dom = cfg.domain
+    plev = np.array([1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150.0]) * 100.0  # Pa
+    z_proxy = -np.log(plev)                                  # monotone proxy (not height)
+    x = np.linspace(-5e4, 5e4, nx); y = np.linspace(-5e4, 5e4, ny)
+    t0 = np.datetime64("%sT%s" % (cfg.case.date, cfg.case.start_time_utc.zfill(5)))
+    st = AtmosphericState.new(np.atleast_1d(t0), z_proxy, y, x, projection=dom.projection, source="synthetic")
+    # a standard-atmosphere-ish column, broadcast over x,y
+    theta = 300.0 + 0.03 * (np.arange(nz))                  # increasing potential temperature
+    T = thermo.temperature_from_theta(theta, plev)
+    qv = 0.012 * (plev / plev[0]) ** 3
+    b = lambda a: np.broadcast_to(a[None, :, None, None], (1, nz, ny, nx)).copy()
+    st.add("p", b(plev), source="synthetic", units="Pa")
+    st.add("T", b(T), source="synthetic")
+    st.add("qv", b(qv), source="synthetic")
+    st.add("theta", b(theta), source="synthetic")
+    return st
+
+
 def synthetic_sounding():
     """A supercell proximity sounding as radiosonde columns (SI-friendly kwargs)."""
     z = np.array([100, 800, 1500, 3000, 4500, 6000, 8000, 10000, 12000, 14000.0])

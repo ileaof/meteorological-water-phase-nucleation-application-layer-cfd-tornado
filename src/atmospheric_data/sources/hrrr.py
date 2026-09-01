@@ -66,7 +66,8 @@ def load(cfg, cache):
     #  hand back the standardised native-grid state for that step)
     st = _to_state(iso, cfg, proj)
     iso.close()
-    return st
+    from ._common import to_height_levels
+    return to_height_levels(st)                              # pressure proxy -> geometric height
 
 
 def _to_state(iso, cfg, proj):

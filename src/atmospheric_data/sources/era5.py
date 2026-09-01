@@ -84,7 +84,8 @@ def load(cfg, cache):
         st.add("theta", thermo.potential_temperature(st.var("T"), p_full), source="era5",
                original_name="derived", interpolation_method="theta(T,p)")
     ds.close()
-    return st
+    from ._common import to_height_levels
+    return to_height_levels(st)                              # pressure proxy -> geometric height
 
 
 def available():

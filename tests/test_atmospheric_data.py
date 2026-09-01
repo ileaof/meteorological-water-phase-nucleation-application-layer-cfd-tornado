@@ -95,6 +95,19 @@ def test_interpolation_horizontal_vertical_and_clamp():
     assert interpolate.vertical_remap(col, zs, np.array([0.5]))[0] == pytest.approx(1.5)
 
 
+# ---- pressure -> geometric height (task-2 refinement) ---------------------------
+def test_pressure_to_height_conversion():
+    p = np.array([1.0e5, 5.0e4]); Tv = np.array([288.0, 265.0])
+    z = thermo.hypsometric_height(p, Tv)
+    assert 5000 < z[1] < 6000                              # 1000->500 hPa ~ 5.5 km
+    from atmospheric_data.sources._common import to_height_levels
+    st = synthetic.synthetic_pressure_level_state(ad.CaseConfig())
+    st2 = to_height_levels(st)
+    zz = np.asarray(st2.ds["z"].values)
+    assert np.all(np.diff(zz) > 0) and zz[0] == pytest.approx(0.0) and zz[-1] > 10000
+    assert "hypsometric" in st2.provenance["vertical_conversion"]
+
+
 # ---- 9 base state + decomposition -----------------------------------------------
 def test_basestate_and_perturbation_decomposition():
     cfg = ad.CaseConfig()

@@ -103,6 +103,21 @@ def brunt_vaisala_squared(theta, z):
     return g0 / np.clip(theta, 1e-3, None) * np.gradient(theta, z)
 
 
+def hypsometric_height(p_desc, Tv, z0=0.0):
+    """Geometric height [m] of pressure levels via the hypsometric equation.
+
+    ``p_desc`` pressure [Pa] ordered **descending** (surface first, p high -> top, p low);
+    ``Tv`` virtual temperature [K] per level; ``z0`` surface height.  Ascending height:
+    ``z_k = z_{k-1} + (R_d T_v_mean / g) ln(p_{k-1}/p_k)`` -- the physically correct
+    pressure->height map used to put pressure-level analyses on the model's height coordinate."""
+    p = np.asarray(p_desc, float); Tv = np.asarray(Tv, float)
+    z = np.empty(p.size); z[0] = float(z0)
+    for k in range(1, p.size):
+        Tv_mean = 0.5 * (Tv[k] + Tv[k - 1])
+        z[k] = z[k - 1] + Rd * Tv_mean / g0 * np.log(p[k - 1] / p[k])
+    return z
+
+
 def hydrostatic_base_pressure(z, theta0, qv0, p_sfc):
     """Integrate the hydrostatic base pressure upward for a given theta0(z), qv0(z) column.
 
