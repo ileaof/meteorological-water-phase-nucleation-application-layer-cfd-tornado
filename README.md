@@ -191,7 +191,9 @@ parent (1500 s) and a larger, longer finest level (78²×40 = 237 k cells, 75 s 
 | wall clock | 797 s | **518 s** |
 | VRAM used | — | 1.1 GB (of 6) |
 
-![3-D storm-relative streamlines of the 50 m GPU nest: a vigorous deep updraft (red to ~10 km) with rotational low-level inflow, broader than the CPU snapshot](docs/media/storm/nest_3d_L3_gpu_streamlines.png)
+| Streamlines (50 m, GPU) | Rotating vorticity column (360°) |
+|---|---|
+| ![3-D storm-relative streamlines of the 50 m GPU nest: a vigorous deep updraft (red to ~10 km) with rotational low-level inflow, broader than the CPU snapshot](docs/media/storm/nest_3d_L3_gpu_streamlines.png) | ![Rotating 360-degree view of the 50 m GPU nest vorticity column](docs/media/storm/nest_3d_L3_gpu_column.gif) |
 
 *The GPU run is stronger overall (higher w_max, stronger L2 rotation) yet its **L3 ζ_max is
 lower** — an honest, instructive effect, not a bug, and one that traced to the **footprint,
