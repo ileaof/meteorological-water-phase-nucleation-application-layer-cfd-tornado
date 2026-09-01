@@ -326,6 +326,34 @@ def test_regrid_interval_recentres_nest_on_the_vortex():
     assert np.isfinite(float(np.max(np.abs(nest.state.w))))
 
 
+def test_pressure_cg_does_not_converge_on_stretched_operator():
+    """ROADMAP §2b/§3f — documents *why* the fine-nest memory fix is not just "switch to CG".
+    The direct (splu) solve is exact on the stretched anelastic Poisson; the existing
+    Jacobi-preconditioned **CG does NOT converge** on it, so `_pressure_method` must keep
+    stretched grids on `direct` (and the real low-memory fix is a proper solver — FFT/DST +
+    tridiagonal-in-z, or ILU/multigrid-preconditioned CG).  If CG is ever fixed, this test
+    fails and should be updated to the matches-direct assertion."""
+    import warnings
+    from meteorological_flow.pressure_solver import PressureSolver
+    from storm_dynamics.core import _pressure_method
+    g = Grid(nx=12, ny=12, nz=16, Lx=12000.0, Ly=12000.0, Lz=10000.0, periodic=False, z_stretch=1.06)
+    assert _pressure_method(g) == "direct"                        # stretched -> direct (never CG)
+    rng = np.random.default_rng(0)
+    st = FlowState.zeros(g)
+    st.u = rng.standard_normal(g.u_shape); st.v = rng.standard_normal(g.v_shape)
+    st.w = rng.standard_normal(g.w_shape); st.w[:, :, 0] = 0.0; st.w[:, :, -1] = 0.0
+    sd, sc = st.copy(), st.copy()
+    rho0_c = np.exp(-np.asarray(g.zc) / 8000.0)
+    rho0_wf = np.interp(np.asarray(g.zf), np.asarray(g.zc), rho0_c)
+    resd, _ = PressureSolver(g, method="direct").project_anelastic(sd, 1.0, rho0_c, rho0_wf)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rescg, _ = PressureSolver(g, method="cg", tol=1e-10, maxiter=5000).project_anelastic(sc, 1.0, rho0_c, rho0_wf)
+    assert resd < 1e-6, resd                                      # direct is exact
+    du = np.abs(np.asarray(g.backend.to_cpu(sd.u)) - np.asarray(g.backend.to_cpu(sc.u))).max()
+    assert not (du < 1e-3), "CG unexpectedly matches direct -- update _pressure_method + this test"
+
+
 def test_recursive_nesting_second_level_refines_further():
     """ROADMAP §2b (increment 1 — the funnel-resolution path): a nest OF a nest composes
     (`NestedStormSimulation(nest1, spec2)`), giving Δx = parent.dx / r² and running stably.

@@ -49,6 +49,18 @@ from .soundings import build_sounding
 
 
 def _pressure_method(grid: Grid) -> str:
+    """Pick the pressure Poisson solver.  Stretched grids (all storm grids) use the exact
+    direct (splu) solve; large *uniform* grids fall back to CG.
+
+    KNOWN LIMITATION (memory / fine AMR nests): the direct solve stores a full sparse LU
+    factorisation, which OOMs at ~48³.  Switching to the existing CG is **not** a fix —
+    Jacobi-preconditioned CG does *not* converge on the stretched anelastic operator
+    (verified: NaN on the periodic pure-Neumann system, and residual ~8 after 5000 iters on
+    the wall system; `test_pressure_cg_does_not_converge_on_stretched_operator`).  The real
+    low-memory fix is a proper solver — an **FFT/DST-in-(x,y) + tridiagonal-in-z** direct
+    solve (exploiting the stretched-z-only structure: low memory, exact) or an
+    **ILU/multigrid-preconditioned CG** — see docs/ROADMAP.md §2b/§3f.  Until then keep fine
+    nests small (`render_tornado_3d.py --sub-half-frac`)."""
     n = grid.nx * grid.ny * grid.nz
     if getattr(grid, "stretched", False):
         return "direct"

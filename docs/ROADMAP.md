@@ -161,10 +161,15 @@ surface — the physics gap behind the "no funnel-to-ground" caveat.
   (`amr.TwoLevelReflux` per pair — `restrict_velocity` restricts the overlap, not the
   interface flux), a **3rd level** (Δx≈50 m, true funnel scale), and combining the
   multi-level driver with `follow`/`regrid` so the stack tracks a long-lived storm.
-  **Memory note:** the finest level's pressure solve is a *direct sparse LU*, so a 3rd
-  level at 48³ OOM'd — keep the finer footprints SMALL (`render_tornado_3d.py
-  --sub-half-frac 0.22 --sub-window-frac 0.4`); the deeper fix is an iterative/multigrid
-  pressure solve at fine levels (`poisson_mg.py` is the kernel) — see §3f.
+  **Memory note (investigated 2026-09-01):** the finest level's pressure solve is a
+  *direct sparse LU*, so a 3rd level at 48³ OOM'd.  The obvious fix — switch large grids to
+  the existing **CG** — does **NOT** work: Jacobi-preconditioned CG diverges on the
+  stretched anelastic operator (NaN on the periodic pure-Neumann system, residual ~8 after
+  5000 iters on the wall system; the storm always uses stretched grids, so this CG path was
+  never actually exercised before). Verified/guarded by
+  `test_pressure_cg_does_not_converge_on_stretched_operator`; `_pressure_method` keeps
+  stretched grids on `direct`.  The **real low-memory fix** is in §3f. Until then keep the
+  finer footprints SMALL (`render_tornado_3d.py --sub-half-frac 0.22 --sub-window-frac 0.4`).
 
 *Done (2b):* a resolved near-ground vortex that connects vertically to the meso (ζ continuous
 through the depth; the 3-D render then shows a funnel, not a gap).
@@ -208,8 +213,22 @@ Straka, Weisman–Klemp supercell intercomparison, warm-bubble) and, once foreca
 observational verification (against radar/METAR). This is how "indicative" becomes
 "quantitative".
 
-**3f. Performance & scaling.** Multi-GPU / MPI domain decomposition; the direct pressure
-solve → scalable multigrid/CG at scale (`poisson_mg.py` is the kernel).
+**3f. Performance & scaling — the low-memory pressure solver (★ the fine-nest memory fix).**
+The direct sparse-LU pressure solve stores a full factorisation and OOMs at ~48³; CG with
+the current Jacobi preconditioner diverges on the stretched anelastic operator (see §2b
+memory note). The clean fix exploits the storm's structure — **uniform-x,y + stretched-z
+only**, so the horizontal Laplacian diagonalises under a transform:
+- **Parent (periodic x,y):** FFT in x,y → for each horizontal wavenumber `(kx,ky)` a
+  **tridiagonal** system in z (the variable-dz anelastic operator minus `k²`), solved by
+  Thomas. O(N log N) time, **O(N) memory** (no stored factorisation), exact.
+- **Nest (wall x,y):** the same with a **DST/DCT** (Neumann/Dirichlet) instead of the FFT.
+- **Anelastic ρ0(z):** enters only the z-tridiagonal coefficients — still tridiagonal.
+Implement as a `method="fft_tridiag"` path (a new solver module in `storm_dynamics`, NOT a
+change to `meteorological_flow`'s `PressureSolver` behaviour), verified against the direct
+solve on small grids and then used for large/fine nests via `_pressure_method`.  This is the
+enabler for the 3rd level (~50 m) and deep multi-level AMR without OOM.  (Beyond it:
+multi-GPU / MPI domain decomposition; a multigrid preconditioner is an alternative to
+FFT+tridiag for fully non-separable operators.)
 
 ---
 
