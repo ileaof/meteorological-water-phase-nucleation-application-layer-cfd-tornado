@@ -159,9 +159,12 @@ surface — the physics gap behind the "no funnel-to-ground" caveat.
   `conservative_restrict`. Verified (`test_restrict_velocity_face_average_down`).
   *Remaining in 2b:* a true **flux-register interface reflux** of the momentum *flux*
   (`amr.TwoLevelReflux` per pair — `restrict_velocity` restricts the overlap, not the
-  interface flux), a **3rd level** (Δx≈50 m, true funnel scale, heavy compute), and
-  combining the multi-level driver with `follow`/`regrid` so the stack tracks a long-lived
-  storm.
+  interface flux), a **3rd level** (Δx≈50 m, true funnel scale), and combining the
+  multi-level driver with `follow`/`regrid` so the stack tracks a long-lived storm.
+  **Memory note:** the finest level's pressure solve is a *direct sparse LU*, so a 3rd
+  level at 48³ OOM'd — keep the finer footprints SMALL (`render_tornado_3d.py
+  --sub-half-frac 0.22 --sub-window-frac 0.4`); the deeper fix is an iterative/multigrid
+  pressure solve at fine levels (`poisson_mg.py` is the kernel) — see §3f.
 
 *Done (2b):* a resolved near-ground vortex that connects vertically to the meso (ζ continuous
 through the depth; the 3-D render then shows a funnel, not a gap).

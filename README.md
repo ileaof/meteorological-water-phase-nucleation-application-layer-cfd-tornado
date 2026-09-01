@@ -147,6 +147,9 @@ the near-surface rotation now a resolved dense mass rather than a sparse gap:
 
 ```bash
 python examples/render_tornado_3d.py --levels 2 --refine 3 --device gpu   # parent 1.3 km -> 444 m -> 149 m
+# 3 levels (~50 m); keep the finest grid small (the fine pressure solve is a direct sparse LU):
+python examples/render_tornado_3d.py --levels 3 --refine 3 --sub-half-frac 0.22 \
+    --sub-window-frac 0.4 --parent-duration 900 --window 150 --device gpu
 ```
 
 > ⚠️ Still **not a funnel-to-ground**: 149 m resolves the low-level vortex far better but a
