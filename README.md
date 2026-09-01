@@ -248,6 +248,33 @@ This is the first step of the "idealised core → atmospheric model" arc (ROADMA
 sounding sets the **environment** — it is still an idealised warm-bubble run, not a forecast
 (no data assimilation, no observational verification).*
 
+#### Real cases from observations — the `real_case` mode (`atmospheric_data`)
+
+A full ingestion module initialises and validates the storm CFD with **real data** — NOAA
+**HRRR**, **ERA5**, **NEXRAD Level II**, radiosondes, METAR/ASOS, and NOAA Storm Events/SWDI —
+without replacing the idealised mode (`model.input_mode: idealized | real_case`). It downloads
+or reads each source, converts everything to one **CF‑NetCDF** internal format in SI units,
+builds the model's initial + lateral boundary conditions (a Davies relaxation zone), runs a
+**quality‑control report**, and validates the simulated winds against Doppler radar in
+**radial‑velocity space** (`V_r = V·r̂`, never treated as the 3‑D vector). CPU/GPU with
+automatic CPU fallback; every heavy reader is optional and degrades gracefully (a labelled
+synthetic sample keeps the whole workflow runnable offline). One case = one YAML:
+
+```bash
+python -m atmospheric_data case-info      config/moore_2013.yaml   # config + source availability
+python -m atmospheric_data preprocess     config/moore_2013.yaml   # -> IC/BC/surface + QC report
+python -m atmospheric_data validate-input config/moore_2013.yaml   # QC gate (exit != 0 on fail)
+python -m atmospheric_data run-case       config/moore_2013.yaml   # start the CFD
+python -m atmospheric_data compare-radar  config/moore_2013.yaml   # synthetic V_r vs NEXRAD
+python -m atmospheric_data preprocess     config/local_case.yaml --offline   # no network, no heavy deps
+```
+
+The shipped case is the **Moore, OK EF5 of 20 May 2013** (general — change date/domain/radar for
+any event). Docs: **[REAL_CASE_DATA](docs/REAL_CASE_DATA.md)** (+ HRRR/ERA5/NEXRAD import,
+Moore 2013). *Honest limits (documented): HRRR/ERA5 set the environment, not the vortex; radar
+gives radial velocity, not 3‑D wind; the reported track is observations, not a boundary
+condition; the tornado must emerge from the dynamics; ingestion is not data assimilation.*
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing
