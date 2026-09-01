@@ -351,6 +351,26 @@ def test_recursive_nesting_second_level_refines_further():
     assert np.isfinite(rep["rotation"]["zeta_abs_max"])             # stable / finite
 
 
+def test_multilevel_concurrent_driver_sustains_finest_level():
+    """ROADMAP §2b increment 2: run_multilevel_nest drives a 2-level stack — each level
+    sub-cycles under the one above (boundaries fed down, conservative scalar restriction
+    up) — so the finest level (Δx = parent.dx / r²) is integrated over the window, stable."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=16, Lx=18000.0, Ly=18000.0,
+                              Lz=10000.0, duration=1.0, dt_max=2.0, device="cpu")
+    parent = StormSimulation(scfg)
+    spec1 = nst.NestSpec.aligned(parent.grid, i0=6, j0=6, ncx=6, ncy=6, refine=3)
+    spec2 = lambda g: nst.NestSpec.around(g, g.Lx / 2, g.Ly / 2, half=g.Lx * 0.3, refine=3,
+                                          nz=g.nz, z_stretch=parent.grid.z_stretch)
+    sims, rep = nst.run_multilevel_nest(parent, [spec1, spec2], window=4.0)
+    assert len(sims) == 3                                       # parent + 2 nest levels
+    assert rep["nest"]["levels"] == 2 and rep["nest"]["total_refine"] == 9
+    assert abs(sims[-1].grid.dx - parent.grid.dx / 9) < 0.15 * (parent.grid.dx / 9)
+    assert sims[-1].step > 0                                    # the finest level was sub-cycled
+    assert np.isfinite(rep["rotation"]["zeta_abs_max"])         # stable / finite
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface

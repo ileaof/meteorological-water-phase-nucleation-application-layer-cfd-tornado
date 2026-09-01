@@ -75,10 +75,12 @@ solve. See §0 "Composite projection IN the time loop". The test
 asserts the interface divergence ~machine precision over the window and w_max ≥ sponge
 path.
 
-**NEXT: §2b increment 2** — a concurrent multi-level driver (each level sub-cycles under the
-one above, with inter-level refluxing) so the finest level is *sustained*, not a short
-static snapshot. ★  (§2a adaptive regridding + §2b increment 1 = recursive nesting landed
-2026-09-01, both verified; `--levels 2` in the renderer reaches ~150 m = funnel scale.)
+**NEXT: §2b remaining** — momentum (velocity) refluxing between levels (`amr.TwoLevelReflux`
+per pair; the multi-level up-feedback is scalar-only so far), a 3rd level (Δx≈50 m = true
+funnel scale), and combining the multi-level driver with `follow`/`regrid` for a long-lived
+storm. ★  (§2a regridding + §2b increments 1 & 2 — recursive nesting + the concurrent
+multi-level driver `run_multilevel_nest` — landed 2026-09-01, verified; demonstrated at
+Δx=149 m with ζ_max ~5× the single-level value.)
 
 **Known issue before scale-up (2026-08-31).** Composite mode is *verified* for
 correctness (interface `|div(ρ₀u)|` ~machine precision, mass residual ~1e-15) but
@@ -140,12 +142,21 @@ surface — the physics gap behind the "no funnel-to-ground" caveat.
   (`test_recursive_nesting_second_level_refines_further`). Wired into the renderer:
   `examples/render_tornado_3d.py --levels 2` stacks a second level over the finer updraft
   and renders it (`dx = parent.dx/9`).
-- **Increment 2 — concurrent multi-level driver + inter-level refluxing (NEXT).** Today the
-  extra level runs *static* (phase-1, frozen L1 boundary) for a short window. Generalise the
-  concurrent driver so each level sub-cycles in time under the level above (recursive
-  `run_concurrent_nest`), feeding time-evolving boundaries down and **refluxing mass/momentum
-  up** across each interface (`amr.TwoLevelReflux` per level pair). Then the finest level is
-  *sustained*, not just a short snapshot.
+- **Increment 2 — concurrent multi-level driver (DONE 2026-09-01).** `run_multilevel_nest(
+  parent, specs, window)` builds the chain (each level's parent is the level above) and, per
+  parent step, drives every finer level recursively: each **sub-cycles in time under the
+  level above** (its own finer dt), with time-evolving boundaries blended down and a
+  **conservative scalar restriction up** onto the parent overlap (`restrict_up`). `specs`
+  entries may be callables `(grid_above)->NestSpec`. Verified: a 2-level stack sub-cycles the
+  finest level (Δx=parent.dx/r²) over the window, stable/finite
+  (`test_multilevel_concurrent_driver_sustains_finest_level`). Demonstrated at Δx=149 m
+  (`render_tornado_3d.py --levels 2`): ζ_max 6.7×10⁻² s⁻¹ — ~5× the single-level value; the
+  near-surface rotation is now a resolved dense mass, not a sparse gap
+  (`docs/media/storm/nest_3d_L2_column.png`).
+  *Remaining in 2b:* **momentum (velocity) refluxing** across each interface
+  (`amr.TwoLevelReflux` per pair — the up-feedback here is scalar-only), a 3rd level
+  (Δx≈50 m, true funnel scale, heavy compute), and combining the multi-level driver with
+  `follow`/`regrid` so the stack tracks a long-lived storm.
 
 *Done (2b):* a resolved near-ground vortex that connects vertically to the meso (ζ continuous
 through the depth; the 3-D render then shows a funnel, not a gap).

@@ -85,6 +85,19 @@ moved byte-identically; SHA-256 checksums preserved).
     and renders it). NEXT (§2b increment 2): a concurrent multi-level driver (each level
     sub-cycles under the one above, with inter-level refluxing) so the finest level is
     *sustained* rather than a short static snapshot.
+  - **Concurrent multi-level driver** (ROADMAP §2b, increment 2): `run_multilevel_nest(
+    parent, specs, window)` builds the nest chain (each level's parent is the level above)
+    and, per parent step, drives every finer level recursively — each **sub-cycles in time
+    under the level above** with boundaries blended down and a **conservative scalar
+    restriction up** onto the parent overlap (`restrict_up`); `specs` entries may be
+    callables `(grid_above)->NestSpec`. So the finest level is *sustained* by the stack, not
+    a one-off static snapshot. Verified on a 2-level stack
+    (`test_multilevel_concurrent_driver_sustains_finest_level`) and demonstrated at Δx=149 m
+    (`render_tornado_3d.py --levels 2`): ζ_max 6.7×10⁻² s⁻¹, ~5× the single-level value, with
+    the near-surface rotation now a resolved dense mass (`docs/media/storm/nest_3d_L2_column.png`,
+    README). Remaining §2b: **momentum refluxing** between levels (`amr.TwoLevelReflux` per
+    pair — the up-feedback is scalar-only so far), a 3rd level (≈50 m, true funnel scale), and
+    combining the driver with `follow`/`regrid`.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test

@@ -138,6 +138,21 @@ python examples/render_tornado_3d.py --load outputs/tornado_3d/fields.npz --mode
 > exaggerated so it reads, because a mesocyclone is mostly a *horizontal* spin). The 3-D
 > fields are cached to `fields.npz` so the view re-renders instantly with `--load`.
 
+**Toward the funnel — a second nest level (`--levels 2`, Δx ≈ 150 m).** A nest *of a nest*
+refines twice (Δx = parent.dx / refine²), and the finer mesh resolves a **much stronger,
+tighter low-level vortex** — here ζ_max ≈ 6.7×10⁻² s⁻¹, ~5× the single-level value, with
+the near-surface rotation now a resolved dense mass rather than a sparse gap:
+
+![3-D vorticity column at 149 m: a dense near-surface rotation mass under a mid-level column](docs/media/storm/nest_3d_L2_column.png)
+
+```bash
+python examples/render_tornado_3d.py --levels 2 --refine 3 --device gpu   # parent 1.3 km -> 444 m -> 149 m
+```
+
+> ⚠️ Still **not a funnel-to-ground**: 149 m resolves the low-level vortex far better but a
+> true condensation funnel needs O(10–100 m) — a **3rd level** (≈50 m, heavy) and momentum
+> refluxing between levels. This is the honest edge of the resolution, moving the right way.
+
 **Phase 2b — storm-following nest (the sustained, long animation).** Running the
 nest in the **storm-relative frame** keeps the cell centred, so the finer mesh
 **sustains and intensifies the updraft from ~7 to ~23 m/s over 500 s** (growing

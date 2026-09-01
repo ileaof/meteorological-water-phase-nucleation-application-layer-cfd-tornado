@@ -818,6 +818,80 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     return nest, rep
 
 
+def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
+                        record_interval=None, restrict_up=True, progress=None):
+    """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
+
+    ``specs`` is the nest hierarchy: ``specs[0]`` a sub-region of the parent, ``specs[1]``
+    of level 1, ...  A chain of :class:`NestedStormSimulation` is built (each level's
+    ``parent`` is the level above), then every parent step each finer level **sub-cycles in
+    time under the level above** (its own finer dt), sees time-evolving boundaries fed down
+    (linearly-blended targets), and — with ``restrict_up`` — is **averaged back onto its
+    parent's overlap** after the coarse step (conservative scalar restriction: the feedback
+    up).  Ground frame (drive short windows, or layer ``regrid``/``follow`` on top later).
+
+    So the finest level is **sustained** by the whole stack rather than a one-off static
+    snapshot.  Momentum (velocity) refluxing between levels via a flux register
+    (:class:`amr.TwoLevelReflux`) is the remaining rigour; here the up-feedback is the
+    conservative scalar average-down.  Returns ``(sims, rep)`` with ``sims[0]=parent`` …
+    ``sims[-1]=finest``; ``rep`` is the finest level's report + a ``rep['nest']`` summary."""
+    from .core import StormSimulation as SS
+    sims = [parent]; rspecs = []
+    for sp in specs:                                    # each spec may be a NestSpec or a
+        sp = sp(sims[-1].grid) if callable(sp) else sp   # callable(grid_above) -> NestSpec
+        rspecs.append(sp)
+        sims.append(NestedStormSimulation(sims[-1], sp, les_boost=les_boost, cfl=cfl))
+    specs = rspecs
+    finest = sims[-1]
+    interval = record_interval or max(1, finest.cfg.output.interval_steps)
+    initial = _diag.initial_budgets(finest.state, finest.rho_ref)
+    tgt_prev = [_interp_targets(sims[k].state, sims[k].grid, sims[k + 1].grid, specs[k])
+                for k in range(len(specs))]
+    for k in range(len(specs)):
+        sims[k + 1].set_target(tgt_prev[k])
+    finest.tracker.update(finest.t, finest.state, finest.grid); SS._record(finest, initial)
+
+    def drive(level, dtc):
+        """Advance sims[level] under sims[level-1] over the coarse step dtc, recursing
+        into finer levels each sub-step."""
+        coarse, nest, sp = sims[level - 1], sims[level], specs[level - 1]
+        tgt_next = _interp_targets(coarse.state, coarse.grid, nest.grid, sp)
+        t_sub = 0.0
+        while t_sub < dtc - 1e-9:
+            dtn = min(nest._dt(), dtc - t_sub); alpha = (t_sub + dtn) / dtc
+            nest.set_target(_blend(tgt_prev[level - 1], tgt_next, alpha))
+            nest._step(dtn)
+            if level < len(sims) - 1:
+                drive(level + 1, dtn)
+            nest.step += 1; nest.t = float(nest.state.t); t_sub += dtn
+            if nest is finest and nest.step % interval == 0:
+                nest.tracker.update(nest.t, nest.state, nest.grid); SS._record(nest, initial)
+        tgt_prev[level - 1] = tgt_next
+        if restrict_up:
+            try:
+                conservative_restrict(nest, coarse, sp)       # scalar average-down (feedback up)
+            except ValueError:
+                pass                                           # non-aligned pair -> skip up-feedback
+
+    t = 0.0
+    while t < window - 1e-9:
+        dtp = parent._dt()
+        if t + dtp > window:
+            dtp = window - t
+        parent._step(dtp)
+        drive(1, dtp)
+        t += dtp
+        if progress:
+            progress(t, window, finest.step)
+    finest.tracker.update(finest.t, finest.state, finest.grid); SS._record(finest, initial)
+    rep = SS._finalise(finest, initial)
+    rep["nest"] = {"levels": len(specs), "dx_m": finest.grid.dx, "nz": finest.grid.nz,
+                   "nx": finest.grid.nx, "ny": finest.grid.ny,
+                   "refine_per_level": [s.refine for s in specs],
+                   "total_refine": int(round(parent.grid.dx / finest.grid.dx))}
+    return sims, rep
+
+
 # ---------------------------------------------------------------------------
 # Adaptive regridding primitives (ROADMAP §2a): tag WHERE to refine, then
 # cluster the tagged coarse columns into a nest footprint.  Detection +
@@ -921,7 +995,7 @@ def regrid_nest(old_nest, parent, new_spec: NestSpec, les_boost=1.25, cfl=0.25):
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
-    "run_concurrent_nest", "restrict_nest_to_parent", "conservative_restrict",
-    "interior_near_surface_zeta", "composite_project_two_level",
+    "run_concurrent_nest", "run_multilevel_nest", "restrict_nest_to_parent",
+    "conservative_restrict", "interior_near_surface_zeta", "composite_project_two_level",
     "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest",
 ]
