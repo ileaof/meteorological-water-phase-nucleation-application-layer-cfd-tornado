@@ -36,8 +36,17 @@ back after; the nest velocity sponge is dropped; footprints are snapped cell-ali
 matched-z (`_snap_aligned_spec`). Verified in the loop
 (`test_composite_projection_in_time_loop`: interface `|div(ρ0 u)|` ~4e-18 every sub-step,
 stable, w_max ≥ the sponge path, mass residual ~1e-15; example flag `--composite`).
-Remaining: anisotropic/non-aligned nests (generalisation) and adaptive/dynamic
-regridding — see `docs/amr_design.md` / `docs/ROADMAP.md` §2.
+**Adaptive regridding (§2a) DONE (2026-09-01):** `tag_cells`/`cluster_to_box`/`regrid_spec`
+(data-driven footprint) + `regrid_nest` (re-create at a shifted aligned footprint,
+preserving the old fine field in the overlap by an exact integer fine-cell shift, parent-fill
+on the exposed strip) + `run_concurrent_nest(regrid_interval=N)` (ground-frame data-driven
+storm-following; example `--regrid-interval`). Tests
+`test_adaptive_regridding_primitives_track_the_vortex`,
+`test_regrid_nest_preserves_fine_structure_in_overlap`,
+`test_regrid_interval_recentres_nest_on_the_vortex` (28 pass, 1 skip). Remaining:
+**§2b** higher refinement + subcycling toward O(10–100 m) (the funnel resolution), variable
+footprint size + per-regrid conservation report, anisotropic/non-aligned nests — see
+`docs/ROADMAP.md` §2 / `docs/amr_design.md`.
 
 ## Objective
 

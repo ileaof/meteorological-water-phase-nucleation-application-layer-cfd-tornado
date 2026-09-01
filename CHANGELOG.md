@@ -63,8 +63,19 @@ moved byte-identically; SHA-256 checksums preserved).
     Berger–Rigoutsos surrogate), and `regrid_spec` (a **data-driven** aligned `NestSpec`
     that tracks the actual vortex, replacing the constant-C follow). Verified on a
     synthetic solid-body-rotation blob (`test_adaptive_regridding_primitives_track_the_vortex`).
-    Detection + clustering only; wiring the re-init into the time loop (recreate/shift the
-    nest each regrid, conserving) is the next increment.
+    Detection + clustering only; wiring the re-init into the time loop is increment 2.
+  - **Adaptive regridding in the time loop** (ROADMAP §2a, increment 2): `regrid_nest(
+    old_nest, parent, new_spec)` re-creates the nest at a shifted **aligned** footprint,
+    preserving the old nest's fine field in the overlap by an **exact integer fine-cell
+    shift** (`_shift_copy` — no interpolation/smoothing) and filling the newly-exposed strip
+    from the parent (carries `t/step/tracker/history`).
+    `run_concurrent_nest(regrid_interval=N, regrid_field, regrid_frac)` (ground frame,
+    `follow=False`; example `--regrid-interval`) re-centres the fixed-size nest on the
+    parent's tagged vortex every N parent steps — **data-driven storm-following** replacing
+    the constant-C follow. Verified: the overlap is preserved exactly
+    (`test_regrid_nest_preserves_fine_structure_in_overlap`) and a nest starting off the
+    vortex hops to re-centre on it (`test_regrid_interval_recentres_nest_on_the_vortex`).
+    Remaining in §2a: variable footprint size + a per-regrid conservation report.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test

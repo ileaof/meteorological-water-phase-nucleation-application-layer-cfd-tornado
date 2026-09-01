@@ -647,7 +647,8 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
                         follow=False, storm_motion=None, two_way=False,
                         two_way_rate=0.5, progress=None,
                         les_boost=1.25, cfl=0.25,
-                        composite_projection=False):
+                        composite_projection=False,
+                        regrid_interval=None, regrid_field="uh", regrid_frac=0.5):
     """M3 phase 2: integrate the nest with **time-evolving** parent boundaries.
 
     The parent keeps stepping alongside the nest; each parent step the parent
@@ -721,6 +722,9 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
     parent._Km = getattr(parent, "_Km", None)
     t = 0.0
     div_if_max = 0.0
+    psteps = 0; nregrids = 0
+    if regrid_interval and follow:
+        raise ValueError("regrid_interval is a ground-frame data-driven follow; use follow=False")
     while t < window - 1e-9:
         dtp = parent._dt()
         if t + dtp > window:
@@ -771,6 +775,27 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
             restrict_nest_to_parent(nest, parent, spec, cx, cy, t + dtp, rate=two_way_rate)
         tgt_prev = tgt_next
         t += dtp
+        psteps += 1
+        # ---- adaptive regridding (ROADMAP §2a increment 2): every regrid_interval
+        # parent steps, re-centre the fixed-size nest on the parent's tagged vortex
+        # (ground frame, data-driven follow), preserving fine structure in the overlap.
+        if regrid_interval and (psteps % regrid_interval == 0):
+            ncx = int(round(spec.Lx / parent.grid.dx)); ncy = int(round(spec.Ly / parent.grid.dy))
+            box = cluster_to_box(tag_cells(parent.state, parent.grid, field=regrid_field,
+                                           frac=regrid_frac), margin=0)
+            if box is not None:
+                nxp, nyp = parent.grid.nx, parent.grid.ny
+                ci = box[0] + box[2] // 2; cj = box[1] + box[3] // 2
+                i0 = int(np.clip(ci - ncx // 2, 0, nxp - ncx)); j0 = int(np.clip(cj - ncy // 2, 0, nyp - ncy))
+                if (i0, j0) != (int(round(spec.x0 / parent.grid.dx)),
+                                int(round(spec.y0 / parent.grid.dy))):
+                    new_spec = NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy,
+                                                refine=spec.refine, nz=spec.nz, z_stretch=spec.z_stretch,
+                                                relax_width=spec.relax_width, relax_rate=spec.relax_rate)
+                    nest = regrid_nest(nest, parent, new_spec, les_boost=les_boost, cfl=cfl)
+                    spec = new_spec; g = nest.grid; nregrids += 1
+                    initial = _diag.initial_budgets(nest.state, nest.rho_ref)
+                    tgt_prev = _targets_at(parent.state, t); nest.set_target(tgt_prev)
         if progress:
             progress(t, window, nest.step)
     nest.tracker.update(nest.t, nest.state, g); SS._record(nest, initial)
@@ -786,6 +811,10 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
                    "storm_motion": [cx, cy], "two_way": bool(two_way), "mode": base_mode}
     if composite_projection:
         rep["nest"]["composite_div_interface"] = div_if_max
+    if regrid_interval:
+        rep["nest"]["regrids"] = nregrids
+        rep["nest"]["final_footprint"] = [int(round(spec.x0 / parent.grid.dx)),
+                                          int(round(spec.y0 / parent.grid.dy))]
     return nest, rep
 
 
@@ -851,10 +880,48 @@ def regrid_spec(parent, refine: int = 3, field: str = "uh", frac: float = 0.5,
     return NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy, refine=refine, **nest_kw)
 
 
+def _shift_copy(A_old, A_new, d0, d1):
+    """``A_new[i,j] <- A_old[i+d0, j+d1]`` for every index in range (integer shift on the
+    first two axes); cells with no source keep their current (parent-filled) value.
+    Same-shape arrays."""
+    L0, L1 = A_old.shape[0], A_old.shape[1]
+    ds0, de0 = max(0, -d0), min(L0, L0 - d0); ss0, se0 = max(0, d0), min(L0, L0 + d0)
+    ds1, de1 = max(0, -d1), min(L1, L1 - d1); ss1, se1 = max(0, d1), min(L1, L1 + d1)
+    if de0 > ds0 and de1 > ds1:
+        A_new[ds0:de0, ds1:de1] = A_old[ss0:se0, ss1:se1]
+
+
+def regrid_nest(old_nest, parent, new_spec: NestSpec, les_boost=1.25, cfl=0.25):
+    """Re-create the nest at ``new_spec`` (same refine), **preserving the old nest's fine
+    field where the footprints overlap** and filling newly-exposed cells from the parent
+    (ROADMAP §2a increment 2).  Both footprints are cell-aligned, so the overlap transfer
+    is an **exact integer fine-cell shift** — no interpolation, no smoothing of the fine
+    structure the nest has developed.  Carries the integration state (t, step, tracker,
+    history).  Returns the new :class:`NestedStormSimulation`.
+
+    Ground-frame only (drive it from a ``follow=False`` run): the parent-filled cells are
+    in the parent frame, so the preserved cells must be too.  Same-size footprints keep the
+    fine structure; a size change degrades gracefully to a full parent re-interpolation."""
+    pg = parent.grid; r = new_spec.refine
+    oi0 = int(round(old_nest.spec.x0 / pg.dx)); oj0 = int(round(old_nest.spec.y0 / pg.dy))
+    ni0 = int(round(new_spec.x0 / pg.dx)); nj0 = int(round(new_spec.y0 / pg.dy))
+    d0, d1 = (ni0 - oi0) * r, (nj0 - oj0) * r            # new[i] <- old[i + d]
+    new = NestedStormSimulation(parent, new_spec, les_boost=les_boost, cfl=cfl)
+    new._composite = getattr(old_nest, "_composite", False)
+    for nm in ("u", "v", "w", "p", "theta", "qv", "ql", "qi", "qr", "qs", "qg", "qh"):
+        A_old = getattr(old_nest.state, nm, None); A_new = getattr(new.state, nm, None)
+        if A_old is not None and A_new is not None and A_old.shape == A_new.shape:
+            _shift_copy(A_old, A_new, d0, d1)
+    new.state.diagnose(new.cfg)
+    new.t = old_nest.t; new.step = old_nest.step
+    new.tracker = old_nest.tracker; new.history = old_nest.history
+    return new
+
+
 __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
     "run_concurrent_nest", "restrict_nest_to_parent", "conservative_restrict",
     "interior_near_surface_zeta", "composite_project_two_level",
-    "tag_cells", "cluster_to_box", "regrid_spec",
+    "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest",
 ]

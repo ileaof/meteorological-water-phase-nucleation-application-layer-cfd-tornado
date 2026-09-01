@@ -40,6 +40,10 @@ def main(argv=None) -> int:
     p.add_argument("--half", type=float, default=8000.0, help="nest half-width [m]")
     p.add_argument("--nest-nz", type=int, default=44)
     p.add_argument("--window", type=float, default=120.0, help="nest integration window [s]")
+    p.add_argument("--regrid-interval", type=int, default=None,
+                   help="M3/§2a adaptive regridding: every N parent steps, re-centre the "
+                        "fixed-size nest on the tagged vortex (data-driven follow, ground "
+                        "frame; not combinable with --follow)")
     p.add_argument("--concurrent", action="store_true",
                    help="M3 phase 2: step the parent alongside the nest so the nest "
                         "border sees time-evolving parent boundaries (sustains the "
@@ -92,9 +96,9 @@ def main(argv=None) -> int:
 
     spec = nst.NestSpec.around(parent.grid, xc, yc, half=args.half,
                                refine=args.refine, nz=args.nest_nz, z_stretch=1.06)
-    if args.composite:
-        # composite projection needs a cell-aligned, matched-z nest: snap the
-        # footprint to parent cells + use the parent's vertical grid
+    if args.composite or args.regrid_interval:
+        # composite projection AND adaptive regridding need a cell-aligned, matched-z
+        # nest: snap the footprint to parent cells + use the parent's vertical grid
         i0 = int(round(spec.x0 / parent.grid.dx))
         j0 = int(round(spec.y0 / parent.grid.dy))
         ncx = int(round(spec.Lx / parent.grid.dx))
@@ -104,7 +108,7 @@ def main(argv=None) -> int:
                   "grid (matched z): nest nz %d -> %d" % (args.nest_nz, parent.grid.nz))
         spec = nst.NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy,
                                     refine=args.refine)
-    concurrent = args.concurrent or args.follow or args.two_way or args.composite
+    concurrent = args.concurrent or args.follow or args.two_way or args.composite or args.regrid_interval
     mode = ("phase 3a (two-way feedback" + (", storm-following)" if args.follow else ")") if args.two_way else
             "phase 2b (storm-following, concurrent)" if args.follow else
             "phase 2 (concurrent, time-evolving parent boundary)" if concurrent else
@@ -124,7 +128,7 @@ def main(argv=None) -> int:
         nest, rep = nst.run_concurrent_nest(
             parent, spec, window=args.window, capture_frames=args.animate,
             follow=args.follow, two_way=args.two_way, composite_projection=args.composite,
-            les_boost=args.les_boost, cfl=args.cfl,
+            les_boost=args.les_boost, cfl=args.cfl, regrid_interval=args.regrid_interval,
             progress=lambda t, d, s: print("  nest   t=%6.0f/%.0f" % (t, d), end="\r"))
     else:
         nest = nst.NestedStormSimulation(parent, spec)

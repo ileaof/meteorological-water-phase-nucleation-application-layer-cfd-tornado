@@ -271,6 +271,61 @@ def test_adaptive_regridding_primitives_track_the_vortex():
     assert spec.refine == 3 and spec.nz == nz               # aligned => matched-z
 
 
+def test_regrid_nest_preserves_fine_structure_in_overlap():
+    """ROADMAP §2a increment 2: regrid_nest re-creates the nest at a shifted (aligned)
+    footprint, preserving the old nest's fine field EXACTLY in the overlap (integer
+    fine-cell shift) and filling the newly-exposed strip from the parent."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=16, Lx=18000.0, Ly=18000.0,
+                              Lz=10000.0, duration=1.0, device="cpu")
+    parent = StormSimulation(scfg)
+    spec = nst.NestSpec.aligned(parent.grid, i0=6, j0=6, ncx=6, ncy=6, refine=3)
+    nest = nst.NestedStormSimulation(parent, spec)
+    nfx, nfy, nz = nest.grid.nx, nest.grid.ny, nest.grid.nz
+    # stamp a distinctive fine pattern (unique per fine column) into theta
+    a = np.arange(nfx)[:, None, None]; b = np.arange(nfy)[None, :, None]
+    nest.state.theta = (300.0 + 1.0 * a + 0.1 * b) * np.ones((nfx, nfy, nz))
+    old_theta = nest.state.theta.copy()
+
+    new_spec = nst.NestSpec.aligned(parent.grid, i0=7, j0=6, ncx=6, ncy=6, refine=3)  # +1 coarse cell in x
+    new = nst.regrid_nest(nest, parent, new_spec)
+    d0 = (7 - 6) * 3                                        # exact fine-cell shift
+    # overlap: new.theta[:nfx-d0] must equal the old field shifted by d0 (structure preserved)
+    assert np.allclose(new.state.theta[:nfx - d0], old_theta[d0:], atol=1e-9), "overlap not preserved"
+    # the newly-exposed strip came from the parent (horizontally uniform base state,
+    # NOT the stamped x-ramp) -> its columns should be ~constant in x, unlike old_theta
+    strip = np.asarray(new.state.theta[nfx - d0:])
+    assert np.ptp(strip[:, 0, nz // 2]) < 0.5, "exposed strip should be parent-filled (uniform), not the ramp"
+    assert int(round(new.spec.x0 / parent.grid.dx)) == 7 and new.grid.nx == nfx
+
+
+def test_regrid_interval_recentres_nest_on_the_vortex():
+    """ROADMAP §2a increment 2 (loop wiring): with regrid_interval, a nest that starts
+    off the vortex hops (data-driven, ground frame) to re-centre on the tagged rotation."""
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    scfg = build_storm_config(preset="storm", nx=18, ny=18, nz=12, Lx=18000.0, Ly=18000.0,
+                              Lz=9000.0, duration=1.0, dt_max=2.0, device="cpu")
+    parent = StormSimulation(scfg); pg = parent.grid
+    ic, jc = 14, 14                                        # vortex far from the nest's start
+    x0 = float(np.asarray(pg.xc)[ic]); y0 = float(np.asarray(pg.yc)[jc]); sig = 2500.0
+    Xu, Yu = np.meshgrid(np.asarray(pg.xf), np.asarray(pg.yc), indexing="ij")
+    Xv, Yv = np.meshgrid(np.asarray(pg.xc), np.asarray(pg.yf), indexing="ij")
+    Om = 0.03
+    wu = np.exp(-((Xu - x0) ** 2 + (Yu - y0) ** 2) / (2 * sig ** 2))
+    wv = np.exp(-((Xv - x0) ** 2 + (Yv - y0) ** 2) / (2 * sig ** 2))
+    parent.state.u = parent.state.u + np.broadcast_to((-Om * (Yu - y0) * wu)[:, :, None], pg.u_shape)
+    parent.state.v = parent.state.v + np.broadcast_to((+Om * (Xv - x0) * wv)[:, :, None], pg.v_shape)
+    spec = nst.NestSpec.aligned(pg, i0=1, j0=1, ncx=6, ncy=6, refine=3)     # start in a corner
+    nest, rep = nst.run_concurrent_nest(parent, spec, window=2.5, regrid_interval=1,
+                                        regrid_field="zeta", regrid_frac=0.5)
+    assert rep["nest"]["regrids"] >= 1, rep["nest"]
+    fi0, fj0 = rep["nest"]["final_footprint"]
+    assert fi0 >= 6 and fj0 >= 6, (fi0, fj0)              # hopped toward the vortex at (14,14)
+    assert np.isfinite(float(np.max(np.abs(nest.state.w))))
+
+
 def test_amr_refluxing_conserves_across_interface():
     """AMR Milestone 1: Berger-Colella refluxing restores exact conservation across
     a static coarse-fine interface -- WITHOUT it the total mass drifts (interface
