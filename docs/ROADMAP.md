@@ -233,6 +233,15 @@ curved-earth metric for domains large enough that sphericity matters.
 Straka, Weisman–Klemp supercell intercomparison, warm-bubble) and, once forecasting,
 observational verification (against radar/METAR). This is how "indicative" becomes
 "quantitative".
+*First benchmark DONE (2026-09-01):* `benchmarks.straka_simulation` / `straka_front_position`
+run the **Straka et al. (1993) density current** — a cold bubble (Δθ=−15 K) collapsing in a
+neutral, dry, non-rotating atmosphere at a *fixed* ν=75 m²/s (achieved with no engine change:
+`les_model='none'` + `nu_background=75`, `Pr_t=1`; Coriolis/drag off; `neutral_dry_base`). At
+200 m the 900 s surface front reaches **13.7 km** (symmetric; 100 m reference ~15.5 km) with
+Kelvin–Helmholtz-rotor updrafts **~17 m/s** (reference ~15–20) and the cold pool bounded (no
+blow-up) — the model reproduces the community density current, not just its own conservation.
+`tests/test_benchmarks.py`, `examples/straka_benchmark.py` (`--ref` for 100 m). *Remaining:*
+Weisman–Klemp supercell intercomparison; observational verification (needs forecasting).
 
 **3f. Performance & scaling — the low-memory pressure solver (★ the fine-nest memory fix).**
 The direct sparse-LU pressure solve stores a full factorisation and OOMs at ~48³; CG with
