@@ -271,7 +271,22 @@ python -m atmospheric_data preprocess     config/local_case.yaml --offline   # n
 
 The shipped case is the **Moore, OK EF5 of 20 May 2013** (general — change date/domain/radar for
 any event). Docs: **[REAL_CASE_DATA](docs/REAL_CASE_DATA.md)** (+ HRRR/ERA5/NEXRAD import,
-Moore 2013). *Honest limits (documented): HRRR/ERA5 set the environment, not the vortex; radar
+Moore 2013).
+
+**Operational auto mode — `storm-watch`.** Continuously monitors official **NWS/CAP alerts** and,
+when a severe/tornadic storm is detected, auto-builds the domain from the warning polygon, selects
+the nearest NEXRAD radars + the latest HRRR run, downloads/validates the data and generates the
+internal NetCDF — leaving the case ready for simulation (a case **state machine** logged in
+SQLite; auto-simulate is **off** by default, gated by level/severity). *An alert only triggers
+data collection — the tornado must still emerge from the dynamics; a Tornado Warning is not a
+confirmed tornado.* Offline replay runs the whole automation with no network:
+
+```bash
+python -m atmospheric_data storm-watch replay tests/data/sample_tornado_alert.json config/storm_watch.yaml
+python -m atmospheric_data storm-watch start  config/storm_watch.yaml     # realtime (systemd / Task Scheduler in deploy/)
+```
+
+Docs: **[STORM_WATCH](docs/STORM_WATCH.md)**. *Honest limits (documented): HRRR/ERA5 set the environment, not the vortex; radar
 gives radial velocity, not 3‑D wind; the reported track is observations, not a boundary
 condition; the tornado must emerge from the dynamics; ingestion is not data assimilation.*
 

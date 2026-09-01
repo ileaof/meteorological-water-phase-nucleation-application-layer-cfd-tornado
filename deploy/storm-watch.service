@@ -1,0 +1,18 @@
+# systemd user service for storm-watch (Linux).
+#   mkdir -p ~/.config/systemd/user && cp deploy/storm-watch.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now storm-watch
+[Unit]
+Description=met_h2o storm-watch (NWS alert monitor -> auto real_case ingestion)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/met_h2o_nucleation_cfd_tornado
+Environment=PYTHONPATH=%h/met_h2o_nucleation_cfd_tornado/src
+ExecStart=/usr/bin/env python -m atmospheric_data storm-watch start config/storm_watch.yaml
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
