@@ -213,8 +213,18 @@ stretched mesh** → a `BaseState` that drops straight into `StormSimulation(scf
 Verified: a round-trip of a known analytic atmosphere recovers θ/qv/winds to round-off and
 CAPE to <1%; the bundled illustrative `example_observed_sounding()` builds a supercell
 environment (CAPE ~3300 J/kg, 0-6 km shear ~32 m/s, SRH ~230 m²/s²) and the storm steps
-stably on it (`tests/test_real_sounding.py`, `examples/real_sounding_storm.py`). *Remaining:*
-reanalysis/gridded ingestion (ERA5/HRRR) + time-dependent lateral BCs from a driving model.
+stably on it (`tests/test_real_sounding.py`, `examples/real_sounding_storm.py`).
+*Lateral BCs DONE (2026-09-01):* `limited_area.py` — a **Davies relaxation zone** for the
+outermost domain (`lateral_relaxation_weight`, `apply_lateral_relaxation`,
+`environment_target`): over a `width`-cell band at every lateral edge the fields are nudged
+toward a prescribed external target (`w = rate·[max(0,1−d/width)]²`), the same pattern the AMR
+nest uses to tie to its parent, now exposed for a limited-area run driven by an environment.
+The target may be **time-dependent** (swap each step — how a real LAM ingests its LBCs).
+Verified: consistency (state==target → no tendency) and the sponge (a boundary perturbation is
+driven to the target while the interior is untouched) — `tests/test_limited_area.py`.
+*Remaining:* reanalysis/gridded **ingestion** itself (reading ERA5/HRRR files → the
+time-varying target); the BC operator it feeds is in place, and point profiles already ingest
+via `from_observed_sounding`.
 
 **3b. Data assimilation.** 3D/4D-Var or EnKF to fit initial conditions to observations —
 the actual difference between a *simulation* and a *forecast*. Standalone module consuming
