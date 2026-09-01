@@ -153,10 +153,15 @@ surface — the physics gap behind the "no funnel-to-ground" caveat.
   (`render_tornado_3d.py --levels 2`): ζ_max 6.7×10⁻² s⁻¹ — ~5× the single-level value; the
   near-surface rotation is now a resolved dense mass, not a sparse gap
   (`docs/media/storm/nest_3d_L2_column.png`).
-  *Remaining in 2b:* **momentum (velocity) refluxing** across each interface
-  (`amr.TwoLevelReflux` per pair — the up-feedback here is scalar-only), a 3rd level
-  (Δx≈50 m, true funnel scale, heavy compute), and combining the multi-level driver with
-  `follow`/`regrid` so the stack tracks a long-lived storm.
+  **Momentum feedback up** (`restrict_velocity`, opt-in `run_multilevel_nest(
+  restrict_momentum=True)`): conservative face average-down of the fine staggered velocity
+  onto the coarse overlap faces (mass-flux-preserving), complementing the scalar
+  `conservative_restrict`. Verified (`test_restrict_velocity_face_average_down`).
+  *Remaining in 2b:* a true **flux-register interface reflux** of the momentum *flux*
+  (`amr.TwoLevelReflux` per pair — `restrict_velocity` restricts the overlap, not the
+  interface flux), a **3rd level** (Δx≈50 m, true funnel scale, heavy compute), and
+  combining the multi-level driver with `follow`/`regrid` so the stack tracks a long-lived
+  storm.
 
 *Done (2b):* a resolved near-ground vortex that connects vertically to the meso (ζ continuous
 through the depth; the 3-D render then shows a funnel, not a gap).

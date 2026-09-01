@@ -558,6 +558,42 @@ def conservative_restrict(nest, parent, spec: NestSpec) -> dict:
     return out
 
 
+def restrict_velocity(nest, parent, spec: NestSpec) -> float:
+    """Conservative face average-down of the nest's staggered **velocity** onto the parent's
+    overlap faces — the *momentum* feedback up, complementing :func:`conservative_restrict`
+    (scalars).  Cell-aligned, matched-z: each coarse face is tiled tangentially by ``r`` fine
+    faces (``r×r`` for the horizontal w-faces), so the coarse face value = their mean, which
+    preserves the mass flux through the coarse face.  Modifies ``parent.state.{u,v,w}`` in
+    place; returns the max |change| (diagnostic).
+
+    NOTE: this restricts the momentum in the *overlap*; it is not (yet) a flux-register
+    **reflux** of the interface momentum flux (`amr.TwoLevelReflux`) — see docs/ROADMAP.md §2b."""
+    pg = parent.grid; ng = nest.grid; xp = pg.xp
+    r = spec.refine
+    i0 = int(round(spec.x0 / pg.dx)); j0 = int(round(spec.y0 / pg.dy))
+    ncx, ncy = ng.nx // r, ng.ny // r
+    if ng.nx != ncx * r or ng.ny != ncy * r or ng.nz != pg.nz:
+        raise ValueError("restrict_velocity needs a cell-aligned, matched-z nest")
+    to = pg.backend.to_cpu
+    fu = np.asarray(to(nest.state.u)); fv = np.asarray(to(nest.state.v)); fw = np.asarray(to(nest.state.w))
+    cu = np.asarray(to(parent.state.u)).copy(); cv = np.asarray(to(parent.state.v)).copy()
+    cw = np.asarray(to(parent.state.w)).copy()
+    chg = 0.0
+    for A in range(ncx + 1):                              # coarse x-faces (mean over r fine y-faces)
+        for B in range(ncy):
+            val = fu[A * r, B * r:(B + 1) * r, :].mean(axis=0)
+            chg = max(chg, float(np.max(np.abs(val - cu[i0 + A, j0 + B, :]))))
+            cu[i0 + A, j0 + B, :] = val
+    for A in range(ncx):                                  # coarse y-faces (mean over r fine x-faces)
+        for B in range(ncy + 1):
+            cv[i0 + A, j0 + B, :] = fv[A * r:(A + 1) * r, B * r, :].mean(axis=0)
+    for A in range(ncx):                                  # coarse z-faces (mean over r×r fine, matched z)
+        for B in range(ncy):
+            cw[i0 + A, j0 + B, :] = fw[A * r:(A + 1) * r, B * r:(B + 1) * r, :].mean(axis=(0, 1))
+    parent.state.u = xp.asarray(cu); parent.state.v = xp.asarray(cv); parent.state.w = xp.asarray(cw)
+    return chg
+
+
 def composite_project_two_level(parent, nest, spec: NestSpec, periodic_h=None) -> dict:
     """**The composite two-level anelastic pressure projection** -- one solve over the
     parent (coarse) + nest (fine) mass fluxes so that ``div(rho0 u) = 0`` holds
@@ -819,7 +855,8 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
 
 
 def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
-                        record_interval=None, restrict_up=True, progress=None):
+                        record_interval=None, restrict_up=True, restrict_momentum=False,
+                        progress=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
     ``specs`` is the nest hierarchy: ``specs[0]`` a sub-region of the parent, ``specs[1]``
@@ -870,6 +907,8 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
         if restrict_up:
             try:
                 conservative_restrict(nest, coarse, sp)       # scalar average-down (feedback up)
+                if restrict_momentum:
+                    restrict_velocity(nest, coarse, sp)       # + momentum (velocity) average-down
             except ValueError:
                 pass                                           # non-aligned pair -> skip up-feedback
 
@@ -996,6 +1035,7 @@ __all__ = [
     "NestSpec", "build_nest_grid", "interpolate_state_to_nest",
     "interpolate_base_to_nest", "relaxation_weight", "NestedStormSimulation",
     "run_concurrent_nest", "run_multilevel_nest", "restrict_nest_to_parent",
-    "conservative_restrict", "interior_near_surface_zeta", "composite_project_two_level",
+    "conservative_restrict", "restrict_velocity", "interior_near_surface_zeta",
+    "composite_project_two_level",
     "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest",
 ]

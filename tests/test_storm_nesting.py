@@ -351,6 +351,27 @@ def test_recursive_nesting_second_level_refines_further():
     assert np.isfinite(rep["rotation"]["zeta_abs_max"])             # stable / finite
 
 
+def test_restrict_velocity_face_average_down():
+    """ROADMAP §2b: restrict_velocity conservatively averages the fine staggered velocity
+    onto the coincident coarse faces of the overlap (the mass-flux-preserving momentum
+    feedback up), coarse x-face = block-mean of the r fine faces it tiles."""
+    from types import SimpleNamespace
+    r = 3
+    pg = Grid(nx=12, ny=12, nz=6, Lx=12000.0, Ly=12000.0, Lz=6000.0, periodic=True)
+    spec = nst.NestSpec.aligned(pg, i0=4, j0=4, ncx=4, ncy=4, refine=r)
+    ng = nst.build_nest_grid(spec, pg)
+    parent = SimpleNamespace(grid=pg, state=FlowState.zeros(pg))
+    nest = SimpleNamespace(grid=ng, state=FlowState.zeros(ng))
+    # stamp u = (fine y-index): a coarse x-face is the block-mean of the r fine y-faces
+    yidx = np.arange(ng.ny)[None, :, None].astype(float)
+    nest.state.u = np.broadcast_to(yidx, ng.u_shape).copy()
+    chg = nst.restrict_velocity(nest, parent, spec)
+    cu = np.asarray(pg.backend.to_cpu(parent.state.u))
+    for B in range(4):
+        assert np.allclose(cu[4, 4 + B, :], B * r + (r - 1) / 2.0), (B, cu[4, 4 + B, 0])
+    assert chg > 0.0
+
+
 def test_multilevel_concurrent_driver_sustains_finest_level():
     """ROADMAP §2b increment 2: run_multilevel_nest drives a 2-level stack — each level
     sub-cycles under the one above (boundaries fed down, conservative scalar restriction

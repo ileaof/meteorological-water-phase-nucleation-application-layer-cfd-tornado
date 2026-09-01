@@ -95,9 +95,14 @@ moved byte-identically; SHA-256 checksums preserved).
     (`test_multilevel_concurrent_driver_sustains_finest_level`) and demonstrated at Δx=149 m
     (`render_tornado_3d.py --levels 2`): ζ_max 6.7×10⁻² s⁻¹, ~5× the single-level value, with
     the near-surface rotation now a resolved dense mass (`docs/media/storm/nest_3d_L2_column.png`,
-    README). Remaining §2b: **momentum refluxing** between levels (`amr.TwoLevelReflux` per
-    pair — the up-feedback is scalar-only so far), a 3rd level (≈50 m, true funnel scale), and
-    combining the driver with `follow`/`regrid`.
+    README).
+  - **Momentum feedback up** (`restrict_velocity`; `run_multilevel_nest(restrict_momentum=True)`):
+    conservative face average-down of the fine staggered velocity onto the coarse overlap faces
+    (mass-flux-preserving), complementing the scalar `conservative_restrict`
+    (`test_restrict_velocity_face_average_down`). Remaining §2b: a true flux-register interface
+    **reflux** of the momentum flux (`amr.TwoLevelReflux` per pair; this restricts the overlap,
+    not the interface flux), a 3rd level (≈50 m, true funnel scale), and combining the driver
+    with `follow`/`regrid`.
   - **Conservative restriction** (`conservative_restrict`, `NestSpec.aligned`): the
     first rigorous conservation piece — average-down of a cell-aligned, matched-z
     nest preserves the overlap scalar integral **exactly** (machine precision; test
