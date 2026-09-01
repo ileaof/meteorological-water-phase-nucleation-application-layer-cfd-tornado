@@ -223,12 +223,19 @@ only**, so the horizontal Laplacian diagonalises under a transform:
   Thomas. O(N log N) time, **O(N) memory** (no stored factorisation), exact.
 - **Nest (wall x,y):** the same with a **DST/DCT** (Neumann/Dirichlet) instead of the FFT.
 - **Anelastic ρ0(z):** enters only the z-tridiagonal coefficients — still tridiagonal.
-Implement as a `method="fft_tridiag"` path (a new solver module in `storm_dynamics`, NOT a
-change to `meteorological_flow`'s `PressureSolver` behaviour), verified against the direct
-solve on small grids and then used for large/fine nests via `_pressure_method`.  This is the
-enabler for the 3rd level (~50 m) and deep multi-level AMR without OOM.  (Beyond it:
-multi-GPU / MPI domain decomposition; a multigrid preconditioner is an alternative to
-FFT+tridiag for fully non-separable operators.)
+**Increment 1 — the solver (DONE 2026-09-01).** `storm_dynamics/pressure_fft.py`:
+`project_anelastic_fft(u,v,w, rho0_c, rho0_wface, dx,dy, dzc,dzf, periodic_h)` makes
+`div(rho0 u)=0` via FFT (periodic parent) / DCT-II (wall nest) in x,y + a batched Thomas
+sweep in z (the `(0,0)`/mean mode is a *pinned* vertical Neumann solve, not zeroed — that
+was the one subtlety).  Verified: on a 48²×40 stretched grid `div` → ~2e-17 (periodic) /
+4e-17 (wall) in ~0.01 s, **no LU factorisation** — the direct-splu OOM is gone
+(`test_fft_tridiag_anelastic_projector_divergence_free`).  NumPy + `scipy.fft`, self-contained,
+does not touch `meteorological_flow.PressureSolver`.
+**Increment 2 — wire it in (NEXT).** Use it for the anelastic projection of large/fine nests
+(a `NestedStormSimulation` option, or a `_pressure_method` that routes large grids here),
+replacing the per-level `PressureSolver.project_anelastic`; verify a real fine nest steps
+stably. Then the 3rd level (~50 m) runs without OOM.  (Beyond: multi-GPU / MPI; a multigrid
+preconditioner for fully non-separable operators.)
 
 ---
 

@@ -326,6 +326,26 @@ def test_regrid_interval_recentres_nest_on_the_vortex():
     assert np.isfinite(float(np.max(np.abs(nest.state.w))))
 
 
+def test_fft_tridiag_anelastic_projector_divergence_free():
+    """ROADMAP §3f — the low-memory fine-nest pressure solver. The FFT/DCT-in-(x,y) +
+    tridiagonal-in-z projector makes div(rho0 u)=0 to round-off on a STRETCHED grid, for
+    both the parent (periodic x,y) and the nest (wall x,y), with no stored LU factorisation
+    (the direct splu that OOMs at ~48³ is replaced by O(N) transforms + Thomas)."""
+    from storm_dynamics.pressure_fft import project_anelastic_fft, anelastic_divergence
+    nx = 24; nz = 40; dx = dy = 500.0
+    dz = 1.05 ** np.arange(nz); dz *= 15000.0 / dz.sum()
+    zf = np.concatenate([[0.0], np.cumsum(dz)]); zc = 0.5 * (zf[:-1] + zf[1:])
+    dzc = zf[1:] - zf[:-1]; dzf = np.diff(zc)
+    rc = np.exp(-zc / 8000.0); rw = np.interp(zf, zc, rc)
+    for periodic_h in (True, False):
+        rng = np.random.default_rng(0)
+        u = rng.standard_normal((nx + 1, nx, nz)); v = rng.standard_normal((nx, nx + 1, nz))
+        w = rng.standard_normal((nx, nx, nz + 1))
+        before = np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max()
+        res = project_anelastic_fft(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+        assert before > 1e-3 and res < 1e-10, (periodic_h, before, res)   # div driven to round-off
+
+
 def test_pressure_cg_does_not_converge_on_stretched_operator():
     """ROADMAP §2b/§3f — documents *why* the fine-nest memory fix is not just "switch to CG".
     The direct (splu) solve is exact on the stretched anelastic Poisson; the existing
