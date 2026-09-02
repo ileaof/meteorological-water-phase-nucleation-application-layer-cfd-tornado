@@ -71,6 +71,27 @@ def tilting_Tzeta(uc, vc, wc, grid):
     return dwdx * dvdz - dwdy * dudz
 
 
+def tilting_efficiency(uc, vc, wc, grid):
+    """Factorise the tilting term to explain *why* horizontal vorticity does (or does not) become
+    vertical rotation.  Tilting = omega_h . grad_h w = |omega_h| |grad_h w| cos(theta), so a weak
+    tilting rate is one of three distinct failures:
+
+    * ``omega_h`` small  -> no horizontal vorticity available (weak shear / weak cold pool),
+    * ``grad_h w`` small -> no low-level updraft gradient to do the tilting,
+    * ``alignment`` ~ 0  -> both present but geometrically MISALIGNED (the updraft gradient is not
+      oriented to lift the vortex lines).
+
+    Returns a dict of fields: ``omega_h``, ``grad_h_w``, ``tilting``, ``alignment`` (cos theta)."""
+    xp = grid.xp
+    xi, eta = horizontal_vorticity(uc, vc, wc, grid)
+    dwdx = grid._central_x(wc); dwdy = grid._central_y(wc)
+    omh = xp.sqrt(xi * xi + eta * eta)
+    gw = xp.sqrt(dwdx * dwdx + dwdy * dwdy)
+    tilt = xi * dwdx + eta * dwdy
+    return {"omega_h": omh, "grad_h_w": gw, "tilting": tilt,
+            "alignment": tilt / (omh * gw + 1e-20)}
+
+
 def baroclinic_horizontal_generation(rho, grid, g0=9.81):
     """Hydrostatic baroclinic generation of **horizontal** vorticity from the density (cold-pool)
     field: with the solenoidal term (1/rho^2) grad rho x grad p and hydrostatic
@@ -182,6 +203,6 @@ def dominant_mechanism(terms, grid, z_lo=0.0, z_hi=1000.0):
 
 __all__ = [
     "horizontal_vorticity", "streamwise_crosswise", "tilting_Tzeta",
-    "baroclinic_horizontal_generation",
+    "baroclinic_horizontal_generation", "tilting_efficiency",
     "budget_from_velocity", "zeta_budget", "budget_layer_summary", "dominant_mechanism",
 ]

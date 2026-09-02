@@ -113,6 +113,28 @@ def test_tendency_is_sum_of_terms():
     assert np.allclose(np.asarray(t["tendency"]), np.asarray(s), rtol=1e-10, atol=1e-14)
 
 
+def test_tilting_efficiency_factorisation():
+    g = _grid()
+    X, Y, Z = _mesh(g); xp = g.xp
+    # omega_h along +x (xi=W via dw/dy) and grad_h w along +x -> perfectly ALIGNED (cos=1)
+    W, A = 3e-3, 4e-3
+    uc = xp.zeros_like(X); vc = xp.zeros_like(X); wc = W * Y + A * X
+    e = vb.tilting_efficiency(uc, vc, wc, g)
+    # xi = dw/dy = W, eta = -dw/dx = -A ; grad_h w = (A, W)
+    # tilting = xi*A + eta*W = W*A - A*W = 0 -> orthogonal, alignment ~ 0
+    assert abs(float(np.asarray(_interior(e["alignment"])).mean())) < 1e-6
+    # genuine alignment: shear vorticity xi=W along +x, with a WEAK dw/dx (A2 << W) so the
+    # w-gradient's own contribution to eta (=-dw/dx) does not rotate omega_h away from +x.
+    # Then alignment = W/sqrt(W^2+A2^2) -> ~1.
+    A2 = 1e-4
+    wc2 = A2 * X
+    vc2 = -W * Z                     # dv/dz = -W -> xi = dw/dy - dv/dz = 0 + W = W
+    e2 = vb.tilting_efficiency(uc, vc2, wc2, g)
+    expected = W / np.sqrt(W ** 2 + A2 ** 2)
+    got = float(np.asarray(_interior(e2["alignment"])).mean())
+    assert got > 0.99 and abs(got - expected) < 1e-3
+
+
 def test_baroclinic_horizontal_generation():
     g = _grid()
     X, Y, Z = _mesh(g); xp = g.xp
