@@ -70,6 +70,22 @@ class SurfaceDragConfig:
 
 
 @dataclass
+class MesoForcingConfig:
+    """Sustained low-level mesoscale-ascent forcing (a dryline/convergence proxy):
+    a heating(+moistening) cylinder that keeps lifting parcels through the CIN cap for
+    ``duration_s``, so a supercell can establish from a *real* (capped) environment
+    instead of a single warm bubble that pulses and decays.  Off by default -- idealised
+    runs keep the one-shot bubble (see :mod:`storm_dynamics.forcing`)."""
+    enabled: bool = False
+    heat_rate_K_s: float = 0.0        # potential-temperature source in the core [K/s]
+    moist_rate_kgkg_s: float = 0.0    # water-vapour source in the core [kg/kg/s]
+    radius_m: float = 6000.0          # horizontal radius of the forced cylinder
+    z_top_m: float = 2500.0           # forcing confined below this height [m]
+    duration_s: float = 1200.0        # active for the first duration_s, then removed
+    center: tuple = None              # (x, y) [m]; None -> domain centre
+
+
+@dataclass
 class StormDynamicsConfig:
     latitude_deg: float = 36.0                       # Tornado Alley (f-plane)
     coriolis: bool = True
@@ -78,6 +94,7 @@ class StormDynamicsConfig:
     momentum_order: int = 2                            # 1 upwind | 2 MUSCL/minmod
     les: LESConfig = field(default_factory=LESConfig)
     drag: SurfaceDragConfig = field(default_factory=SurfaceDragConfig)
+    forcing: MesoForcingConfig = field(default_factory=MesoForcingConfig)
     hodograph: HodographConfig = field(default_factory=HodographConfig)
     v_guard: float = 150.0     # extreme numerical guard only (NOT a physical cap);
                                # documented, should never bite in a resolved vortex.
@@ -206,7 +223,7 @@ def storm_config_from_yaml(path: str) -> StormConfig:
 
 
 __all__ = [
-    "HodographConfig", "LESConfig", "SurfaceDragConfig",
+    "HodographConfig", "LESConfig", "SurfaceDragConfig", "MesoForcingConfig",
     "StormDynamicsConfig", "StormConfig",
     "build_storm_config", "storm_config_from_dict", "storm_config_from_yaml",
     "coriolis_f",

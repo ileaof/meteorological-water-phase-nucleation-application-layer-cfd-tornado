@@ -40,6 +40,7 @@ from meteorological_flow.grid import Grid
 from meteorological_flow.pressure_solver import PressureSolver
 from meteorological_flow.state import FlowState
 
+from . import forcing as frc
 from . import momentum as mom
 from . import rotation as rot
 from . import surface_drag as sfc
@@ -291,6 +292,13 @@ class StormSimulation:
             add_coriolis(st, g, dt, self.f, self._u0_face, self._v0_face)
         # (e) surface bulk drag on the lowest level
         sfc.apply_surface_drag(st, g, dt, self.dyn.drag)
+        # (f) sustained low-level mesoscale-ascent forcing (dryline/convergence proxy):
+        #     keeps lifting parcels through a real CIN cap so a supercell can establish
+        #     instead of a one-shot bubble that decays.  Opt-in; off by default.
+        fcfg = getattr(self.dyn, "forcing", None)
+        if fcfg is not None and getattr(fcfg, "enabled", False):
+            frc.apply_meso_forcing(st, g, fcfg, float(self.t), dt,
+                                   center=getattr(fcfg, "center", None), xp=xp)
         # extreme numerical guard ONLY (documented; not a physical cap)
         vg = self.dyn.v_guard
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v)

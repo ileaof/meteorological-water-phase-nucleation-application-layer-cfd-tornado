@@ -281,6 +281,10 @@ real KOUN sounding via IEM complements it.)*
 > this is the honest edge, not a resolved tornado.
 >
 > ![Sim vs radar: observed KTLX velocity couplet (left) vs the simulated low-level vorticity (right), showing the sim is much weaker with no coherent low-level vortex](docs/media/storm/moore_sim_vs_radar.png)
+>
+> The full quantitative reckoning — why the tornado is *the* hard problem, the decay diagnosis
+> (single bubble + real CIN cap → the storm dies), and the sustainment lever — is documented in
+> **[docs/TORNADOGENESIS_FINDINGS.md](docs/TORNADOGENESIS_FINDINGS.md)**.
 
 **Real radar validation (NEXRAD KTLX Level II).** The actual **KTLX Doppler volume of the Moore
 tornado** (2013-05-20 20:20:58 UTC) read via `deploy/wsl2_nexrad_moore.py` (Py‑ART + nexradaws
