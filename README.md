@@ -260,6 +260,20 @@ The shipped case is the **Moore, OK EF5 of 20 May 2013** (general — change dat
 any event). Docs: **[REAL_CASE_DATA](docs/REAL_CASE_DATA.md)** (+ HRRR/ERA5/NEXRAD import,
 Moore 2013).
 
+**Real-data run (Moore 2013 from ERA5).** Downloading the **real ERA5** environment for
+2013-05-20 20 UTC (CAPE 2053 J/kg, CIN −120, 0–6 km shear 27 m/s — real values) as the base
+state, a trigger breaks the cap, and the **3-level AMR cascade (1.25 km → 414 → 137 → 46 m,
+low-memory solver, GPU)** intensifies the rotation ~30× to **ζ ≈ 9.3×10⁻² s⁻¹** at 46 m — the
+funnel scale, from real observed data:
+
+![3-D storm-relative streamlines at 46 m from the real ERA5 Moore environment: a coherent low-level vortex column with updraft threads](docs/media/storm/moore_real_funnel_streamlines.png)
+
+*(HRRR does not exist for 2013 — operational 2014-09-30 — so the gridded source is ERA5; the
+real KOUN sounding via IEM complements it.)* **Honest caveats hold:** a single trigger (a real
+supercell sustains via inflow), 46 m does not resolve the full vortex sub-structure, and the
+tornado **emerges** from the resolved dynamics — it is not imposed. The environment is real; the
+storm is idealised-triggered.
+
 **Operational auto mode — `storm-watch`.** Continuously monitors official **NWS/CAP alerts** and,
 when a severe/tornadic storm is detected, auto-builds the domain from the warning polygon, selects
 the nearest NEXRAD radars + the latest HRRR run, downloads/validates the data and generates the
