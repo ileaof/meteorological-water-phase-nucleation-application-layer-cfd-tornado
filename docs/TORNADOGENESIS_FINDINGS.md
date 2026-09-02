@@ -193,35 +193,70 @@ resolution.** We have built a correctly-structured, surface-connected low-level 
 real data — a real qualitative milestone — but reaching tornado intensity needs a *stronger source
 circulation*, not merely a finer grid.
 
+### Attempt E — the real KOUN sounding (SRH 254 vs 152): the SRH lever, tested and *falsified*
+
+`scratchpad/moore_koun_cascade_gpu.py`. Attempt D's ranking put *real low-level SRH* as the top
+lever. So we replaced the ERA5 environment with the actual **KOUN 2013-05-21 00Z radiosonde**
+(CAPE 1353, CIN −247, shear 32, **SRH 254**) — vs ERA5's (CAPE 1885, CIN −130, shear 27, SRH 152)
+— and re-ran the identical storm-relative cascade to 28 m (the stronger −247 cap handled by a
+slightly stronger forcing).
+
+The KOUN environment did give a **stronger, steadier parent updraft** (w_max held ~13–14 m s⁻¹ vs
+ERA5's ~6). But the **low-level rotation did not increase**. Measured consistently (max low-level
+V_rot over z < 1.5 km, same window for both):
+
+| Env | SRH | parent updraft | low-level **V_rot** (fair) | low-level peak |ζ| |
+|---|---|---|---|---|
+| ERA5 (D) | 152 | w ~6 | **6.7 m s⁻¹** | 1.4×10⁻² |
+| **KOUN (E)** | **254** | **w ~13–14** | **6.0 m s⁻¹** | 2.2×10⁻² (more surface-peaked) |
+
+*(The run's headline "V_rot 2.1" was a single-level (500 m) sampling artifact — 500 m is a local
+dip in KOUN's profile between a surface max and a 1 km peak. Re-measured apples-to-apples, both
+environments give ~6 m s⁻¹.)*
+
+**Result: SRH is NOT the bottleneck.** Raising the real environmental SRH by **+67 % (152 → 254)
+did not raise the low-level rotational velocity** — both sit at ~6 m s⁻¹, ~23 % of the observed 26.
+KOUN's vorticity profile is more surface-concentrated (peak 2.2×10⁻² at 1 km, 1.5×10⁻² at 50 m),
+so the helicity does sharpen the *structure* — but the tornado-relevant *velocity* is unchanged.
+This **falsifies** Attempt D's top-lever hypothesis and points the finger squarely at the two
+things both runs share.
+
 ---
 
 ## 5. Honest bottom line and remaining levers
 
 The package reproduces the storm, the rotating updraft, and the mid-level mesocyclone **from real
 downloaded data**; with the sustained-ascent forcing (§4) a **self-sustaining supercell**; and with
-the storm-relative deep cascade (§4, Attempt D) a **correctly-structured, surface-connected
-low-level mesocyclone** — the right feature in the right place. It does **not** yet reproduce the
-tornado-scale intensity: the best low-level rotation (Attempt D, V_rot ~6.0 m s⁻¹ at 28 m) is
-~23 % of the observed TVS (V_rot 26 m s⁻¹). This is exactly where operational tornadogenesis
-science sits — not a bug, the frontier.
+the storm-relative deep cascade a **correctly-structured, surface-connected low-level mesocyclone**
+— the right feature in the right place. It does **not** yet reproduce the tornado-scale intensity:
+the best low-level rotation (V_rot ~6–7 m s⁻¹ at 28 m) is ~23–26 % of the observed TVS (26 m s⁻¹).
+This is exactly where operational tornadogenesis science sits — not a bug, the frontier.
 
-**What the resolution study taught us:** refining 9× (250 → 28 m) moved V_rot only +22 %, so the
-ceiling is the **source circulation**, not the mesh. The levers, re-ranked by the evidence:
+**Two experiments have now *narrowed* the cause by elimination:**
+- **Resolution is not the limiter** (Attempt D): refining 9× moved V_rot only +22 %.
+- **Environmental SRH is not the limiter** (Attempt E): +67 % real SRH moved V_rot ~0 %.
 
-1. **Real low-level SRH** — use the KOUN radiosonde (SRH ~247) rather than ERA5 (~152), which
-   smooths the very low-level shear that seeds the rotation. *(Now the top lever.)*
-2. **Cold-pool microphysics** — the low-level (baroclinic) vorticity source is set by rain
-   evaporation; the closure has to land in the narrow not-too-cold/not-too-warm window. A stronger,
-   correctly-placed forward-flank baroclinic zone gives the low-level vortex a stronger parent
-   circulation to stretch.
-3. **A stronger, longer-lived updraft** — more vertical stretching of the available vorticity
-   (longer nest window; a stronger/deeper sustained forcing while the storm organises).
-4. **Resolution < 30 m at the storm base** — still needed to *resolve* the ~0.3 km TVS once the
-   source circulation is strong enough, but no longer the first lever.
+The ~6 m s⁻¹ ceiling is remarkably robust to both mesh and environmental helicity — which
+implicates the two things every attempt held fixed:
 
-*Achieved so far:* sustainment (§4), the storm-relative deep cascade, and a surface-connected
-low-level mesocyclone. *Next:* swap the ERA5 environment for the real KOUN hodograph (lever 1) and
-re-run the D cascade.
+1. **Cold-pool baroclinic vorticity — the top suspect now.** In real tornadoes the low-level
+   vortex is fed mostly by *baroclinically-generated* horizontal vorticity along the storm's own
+   forward-flank/cold-pool gradient, tilted and stretched near the surface — a source set by
+   **rain-evaporation microphysics**, not by the ambient hodograph. Our idealised warm/moist
+   forcing builds a rotating updraft but likely an under-developed cold pool, so this dominant
+   source is weak. *Test:* a stronger/tuned evaporative cold pool (microphysics), and diagnosing
+   the low-level vorticity budget (baroclinic vs. barotropic tilting) directly.
+2. **The idealised single-updraft trigger.** A real supercell's low-level mesocyclone organises
+   over 1–2 h from the *whole* evolving storm (occlusion, the rear-flank downdraft, cyclic
+   mesocyclogenesis) — not a single forced thermal matured ~30 min. *Test:* a genuinely sustained,
+   freely-evolving supercell (much longer integration; a rear-flank downdraft), not a held forcing.
+3. **Resolution < 30 m at the storm base** — still needed to *resolve* the 0.3 km TVS once the
+   source circulation is strong, but demoted twice now.
+
+*Achieved:* sustainment, the storm-relative deep cascade, a surface-connected low-level meso, and
+**two clean negative results** (resolution and SRH both ruled out as the bottleneck). *Next:* the
+cold-pool microphysics + a longer, freely-evolving storm with a rear-flank downdraft — the
+low-level vorticity *budget*, not the mesh or the hodograph.
 
 ---
 
