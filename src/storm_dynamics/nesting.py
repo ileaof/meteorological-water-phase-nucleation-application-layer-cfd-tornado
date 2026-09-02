@@ -274,10 +274,13 @@ class NestedStormSimulation:
         else:
             self._transport_rho_c = xp.ones(g.nz); self._transport_rho_wf = xp.ones(g.nz + 1)
             self.rho_ref = self.rho0
-        self.pressure = PressureSolver(g, method=_pressure_method(g))
         from .core import _LOWMEM_N
         self._lowmem_pressure = (self.dynamics == "anelastic"
                                  and g.nx * g.ny * g.nz > _LOWMEM_N)   # ROADMAP §3f
+        # skip the expensive direct PressureSolver when the low-memory path handles
+        # projection -- it is unused there and its host splu/build does not scale
+        # (see core.StormSimulation.__init__).
+        self.pressure = None if self._lowmem_pressure else PressureSolver(g, method=_pressure_method(g))
         from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
         self.coupler = MicrophysicsCoupler()
         self.couple_nucleation = False

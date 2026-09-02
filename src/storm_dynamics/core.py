@@ -175,12 +175,17 @@ class StormSimulation:
             self._transport_rho_c = xp.ones(g.nz)
             self._transport_rho_wf = xp.ones(g.nz + 1)
             self.rho_ref = self.rho0
-        self.pressure = PressureSolver(g, method=_pressure_method(g))
         # large anelastic grids: route the projection through the low-memory solver
         # (ROADMAP §3f) -- the direct LU OOMs past ~48³.  Small grids keep the exact
         # direct solve (unchanged).  Opt-out/force via scfg if ever needed.
         self._lowmem_pressure = (self.dynamics == "anelastic"
                                  and g.nx * g.ny * g.nz > _LOWMEM_N)
+        # When the low-memory FFT/tridiag path handles projection, the direct
+        # PressureSolver (host splu of an NxN Laplacian, assembled in a Python index
+        # loop) is never used -- skip building it: it costs minutes and GBs at ~1e6
+        # cells (a stretched grid forces the direct solve on the GPU).  Small grids
+        # keep the exact direct solve, byte-identical to before.
+        self.pressure = None if self._lowmem_pressure else PressureSolver(g, method=_pressure_method(g))
         # two-way microphysics (cold pool) -- reused unchanged
         from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
         self.coupler = MicrophysicsCoupler()
