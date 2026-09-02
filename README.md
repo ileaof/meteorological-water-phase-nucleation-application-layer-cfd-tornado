@@ -260,12 +260,14 @@ The shipped case is the **Moore, OK EF5 of 20 May 2013** (general — change dat
 any event). Docs: **[REAL_CASE_DATA](docs/REAL_CASE_DATA.md)** (+ HRRR/ERA5/NEXRAD import,
 Moore 2013).
 
-**Real-data run (Moore 2013 from ERA5).** Downloading the **real ERA5** environment for
-2013-05-20 20 UTC (CAPE 2053 J/kg, CIN −120, 0–6 km shear 27 m/s — real values) as the base
-state, a trigger breaks the cap, and the **3-level AMR cascade (1.25 km → 414 → 137 → 46 m,
-low-memory solver, GPU)** develops a rotating storm from the real environment:
+**Real-data run (Moore 2013).** From the **real** Moore environment (downloaded ERA5 / the real
+KOUN radiosonde), a sustained-ascent forcing breaks the cap, the supercell sustains itself, and a
+**storm-relative AMR cascade to ~28 m** builds a **surface-connected low-level mesocyclone** — the
+right feature in the right place, at ~23 % of the observed tornado intensity. The honest journey:
 
-![3-D storm-relative streamlines at 46 m from the real ERA5 Moore environment: a rotating updraft column](docs/media/storm/moore_real_funnel_streamlines.png)
+![Tornadogenesis from real data: (a) low-level rotation growing across four attempts toward the observed tornado, (b) the vorticity reaching the ground, (c) the resolved low-level vortex at 28 m](docs/media/storm/tornadogenesis_journey.png)
+
+![The resolved low-level mesocyclone at 28 m: a closed cyclonic vortex in the vertical-vorticity field with storm-relative streamlines](docs/media/storm/meso_hero_28m.png)
 
 *(HRRR does not exist for 2013 — operational 2014-09-30 — so the gridded source is ERA5; the
 real KOUN sounding via IEM complements it.)*
