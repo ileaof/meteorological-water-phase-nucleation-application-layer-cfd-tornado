@@ -281,6 +281,32 @@ cascade to 28 m with `two_way=True`, then the **vorticity budget** read on the r
   baroclinic diagnostic above, computed from ρ, is the correct source measure —
   `vorticity_budget.baroclinic_horizontal_generation`.)*
 
+### The decisive diagnosis — it is GEOMETRIC (misalignment), not a missing ingredient
+
+Factorising the tilting term (`vorticity_budget.tilting_efficiency`), since
+`tilting = ω_h · ∇_h w = |ω_h| |∇_h w| cos θ`, on the Attempt-H fields:
+
+| z | ω_h (available) | \|∇_h w\| (tilting agent) | **alignment cos θ** | tilting |
+|---|---|---|---|---|
+| 51 m | 1.1×10⁻² | 1.3×10⁻³ | **−0.146** | 6.2×10⁻⁶ |
+| 264 m | 7.8×10⁻³ | 3.3×10⁻³ | **+0.042** | 8.1×10⁻⁶ |
+| 499 m | 5.3×10⁻³ | 2.2×10⁻³ | **+0.086** | 6.7×10⁻⁶ |
+| 1043 m | 5.7×10⁻³ | 2.5×10⁻³ | **+0.275** | 6.3×10⁻⁶ |
+
+**Neither ingredient is missing.** Horizontal vorticity is abundant (fed by the cold pool at
+1.6×10⁻⁴ s⁻²) and a low-level updraft gradient exists — they are **geometrically misaligned**
+(cos θ ≈ 0.04–0.09), and at the surface they are **anti-aligned (−0.146)**, so tilting there
+generates *anticyclonic* vorticity. Alignment **improves with height** (+0.275 at 1 km) — precisely
+why this model produces a mid-level mesocyclone but no surface vortex. The low-level vorticity is
+also only **~49 % streamwise** (0.32 at 1 km), where tornadic supercells need it strongly streamwise.
+
+**This single result explains every earlier negative:** refining the mesh (D) cannot fix an
+alignment; more ambient SRH (E) adds vorticity that is still misaligned; a stronger updraft (F)
+tilts a misaligned field no better; and two-way coupling (G) helped precisely because the upscale
+feedback let the fine vortex *reorganise the local flow*. **The missing ingredient is the storm
+structure — the rear-flank downdraft / occlusion process that reorients baroclinic vortex lines into
+a streamwise, updraft-aligned geometry** — not resolution, not the environment, not microphysics.
+
 ---
 
 ## 5. Honest bottom line and remaining levers
