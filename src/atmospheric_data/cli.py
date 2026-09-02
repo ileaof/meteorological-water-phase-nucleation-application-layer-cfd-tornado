@@ -89,6 +89,11 @@ def cmd_run_case(args):
     cfg, cache = _load(args)
     out = _default_outdir(cfg, args)
     pre = driver.preprocess(cfg, cache, out, max_n=getattr(args, "max_n", 64))
+    if getattr(args, "multilevel", False):
+        sims, rep = driver.run_multilevel_real_case(cfg, pre)
+        print("[run-case] multilevel cascade: finest dx=%.0f m, zeta=%.3e"
+              % (sims[-1].grid.dx, rep["rotation"]["zeta_abs_max"]))
+        return 0
     sim = driver.run_case(cfg, pre, steps=getattr(args, "steps", None))
     print("[run-case] done; backend=%s, steps=%d, t=%.1f s" % (sim.grid.backend.name, sim.step, sim.t))
     return 0
@@ -190,6 +195,8 @@ def main(argv=None):
         sp.add_argument("--max-n", type=int, default=64, dest="max_n",
                         help="cap grid points per axis (test/dev; raise for production)")
         sp.add_argument("--steps", type=int, default=None, help="run-case: number of steps")
+        sp.add_argument("--multilevel", action="store_true",
+                        help="run-case: drive the AMR parent->nest->fine cascade from the real IC")
     args = p.parse_args(argv)
     if hasattr(args, "func"):
         return args.func(args)

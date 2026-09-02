@@ -191,6 +191,24 @@ def test_driver_preprocess_build_run_compare_cpu_offline():
         assert "rmse" in res["metrics"]["radial_velocity"]
 
 
+# ---- real IC -> multi-level AMR nest cascade ------------------------------------
+def test_real_case_multilevel_cascade_offline():
+    from atmospheric_data import driver
+    cfg = ad.CaseConfig(); cfg.offline = True
+    cfg.domain.width_km = 90.0; cfg.domain.height_km = 15.0
+    cfg.model.parent_dx_m = 6000.0; cfg.model.nest_dx_m = 2000.0; cfg.model.fine_dx_m = 1000.0
+    cfg.model.execution_backend = "cpu"
+    cache = ad.Cache(tempfile.mkdtemp(), offline=True); out = tempfile.mkdtemp()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pre = driver.preprocess(cfg, cache, out, logger=lambda *a: None, max_n=16)
+        sims, rep = driver.run_multilevel_real_case(cfg, pre, logger=lambda *a: None)
+    dxs = [s.grid.dx for s in sims]
+    assert dxs[0] > dxs[1] > dxs[2]                        # each level strictly finer
+    assert sims[-1].grid.dx < 1500.0                       # reached the fine level from real IC
+    assert np.isfinite(rep["rotation"]["zeta_abs_max"])
+
+
 # ---- 14 backend auto falls back to CPU when no GPU -----------------------------
 def test_execution_backend_auto_falls_back_to_cpu():
     from atmospheric_data import driver

@@ -116,6 +116,40 @@ def run_case(cfg, pre, sim=None, steps=None, logger=print, lbc_width=8, lbc_rate
     return sim
 
 
+def run_multilevel_real_case(cfg, pre, window=None, mature_steps=0, half_frac=0.28,
+                             sim=None, logger=print):
+    """Drive the AMR **multi-level nest cascade** from the real initial conditions
+    (parent Δx → nest → fine Δx), reusing ``storm_dynamics.run_multilevel_nest``.
+
+    The nests are centred on the domain centre (where the real_case domain places the storm)
+    with refinement factors from the config (``parent_dx_m → nest_dx_m → fine_dx_m``).  Ground
+    frame; the storm-motion vector (``pre['fields']`` / the alert) can drive a Galilean frame
+    later.  Returns ``(sims, rep)`` with ``sims[-1]`` the finest level."""
+    from storm_dynamics import nesting as nst
+    parent = sim or build_simulation(cfg, pre, logger=logger)
+    for _ in range(int(mature_steps)):                             # optional short spin-up
+        parent._step(float(parent._dt()))
+    r1 = max(2, int(round(cfg.model.parent_dx_m / cfg.model.nest_dx_m)))
+    r2 = max(2, int(round(cfg.model.nest_dx_m / cfg.model.fine_dx_m)))
+    mkspec = lambda refine: (lambda g: nst.NestSpec.around(
+        g, 0.5 * g.Lx, 0.5 * g.Ly, half=g.Lx * half_frac, refine=refine, nz=g.nz,
+        z_stretch=getattr(g, "z_stretch", 1.0)))
+    window = window or 20.0 * float(parent._dt())
+    logger("[multilevel] cascade parent dx=%.0f -> nest /%d -> fine /%d over %.0f s"
+           % (parent.grid.dx, r1, r2, window))
+    sims, rep = nst.run_multilevel_nest(parent, [mkspec(r1), mkspec(r2)], window=window,
+                                        les_boost=1.4, cfl=cfg_cfl(cfg))
+    finest = sims[-1]
+    rep.setdefault("nest", {})
+    logger("[multilevel] finest dx=%.0f m, zeta_abs_max=%.3e"
+           % (finest.grid.dx, rep["rotation"]["zeta_abs_max"]))
+    return sims, rep
+
+
+def cfg_cfl(cfg):
+    return 0.2
+
+
 def compare_radar(cfg, pre, cache, sim=None, logger=print):
     """Project the CFD (u,v,w) to synthetic radial velocity and score against NEXRAD."""
     radar = load_radar(cfg, cache, logger=logger)
