@@ -221,6 +221,35 @@ so the helicity does sharpen the *structure* — but the tornado-relevant *veloc
 This **falsifies** Attempt D's top-lever hypothesis and points the finger squarely at the two
 things both runs share.
 
+### Attempt F — resolve the updraft on a fine 250 m parent (Alternative 1)
+
+`scratchpad/moore_fineparent_gpu.py`. Attempts C–E kept the storm-generating **parent** coarse
+(750 m–1.5 km) and only refined the *nest* at the end, so the parent updraft stayed weak (w ~6–14).
+The old idealised model reached w ~25–56 m s⁻¹ by *resolving the updraft* (convergence study M8;
+Bryan 2003: Δx ≲ 250 m). So we matured the real KOUN storm on a **fine 250 m parent**
+(120×120×48, 6.9×10⁵ cells) from the start, then cascaded to 28 m. *(This required a real fix:
+the direct `PressureSolver` — built eagerly, a host `splu` of an N×N Laplacian — hung >300 s at
+this size and is **unused** on low-memory grids; it is now skipped, and the parent builds in 2 s.)*
+
+**Resolving the updraft worked — and it moved the storm-scale rotation.** The parent updraft
+climbed to **w_max 24.7 m s⁻¹** (~2× the coarse runs), and the **parent's own low-level V_rot
+reached 8.1 m s⁻¹** — the strongest low-level rotation in the whole study (+21 % over D's 6.7).
+
+**But the one-way nest cascade lost it.** Put through the 250 → 83 → 28 m cascade, the finest level
+came back down to **V_rot 6.4 m s⁻¹** — the same ~6 ceiling as D (6.7) and E (6.0):
+
+| Level | resolution | low-level V_rot |
+|---|---|---|
+| **Fine parent (one grid)** | 250 m | **8.1 m s⁻¹** |
+| ↓ one-way cascade → finest | 28 m | 6.4 m s⁻¹ |
+
+**The clue.** When the storm is resolved as *one continuous grid* (the 250 m parent) it reaches
+8.1; the moment it is split into parent + nest with **one-way (downscale-only) coupling**, the nest
+**re-equilibrates to its boundary forcing** and resets to ~6.4. So part of the 28 m ceiling is not
+physics — it is a **numerical artifact of the artificial scale separation**: the fine nest does not
+inherit and amplify the parent's vortex, because the fine→coarse (upscale) feedback is severed.
+This is a distinct, testable limiter from resolution and SRH: **two-way scale coupling.**
+
 ---
 
 ## 5. Honest bottom line and remaining levers
@@ -232,14 +261,23 @@ the storm-relative deep cascade a **correctly-structured, surface-connected low-
 the best low-level rotation (V_rot ~6–7 m s⁻¹ at 28 m) is ~23–26 % of the observed TVS (26 m s⁻¹).
 This is exactly where operational tornadogenesis science sits — not a bug, the frontier.
 
-**Two experiments have now *narrowed* the cause by elimination:**
+**Three experiments have now *narrowed* the cause by elimination — at the finest nest:**
 - **Resolution is not the limiter** (Attempt D): refining 9× moved V_rot only +22 %.
 - **Environmental SRH is not the limiter** (Attempt E): +67 % real SRH moved V_rot ~0 %.
+- **Updraft strength is not the limiter** (Attempt F): a resolved 2× updraft (24.7 m s⁻¹) still
+  gave 6.4 at 28 m.
 
-The ~6 m s⁻¹ ceiling is remarkably robust to both mesh and environmental helicity — which
-implicates the two things every attempt held fixed:
+But Attempt F also exposed a **structural** limiter the others hid: the fine **parent as one grid
+reached 8.1** and the **one-way nest cascade reset it to 6.4**. So the remaining suspects are now:
 
-1. **Cold-pool baroclinic vorticity — the top suspect now.** In real tornadoes the low-level
+0. **One-way (downscale-only) AMR coupling — a numerical limiter.** The fine nest re-equilibrates
+   to its parent boundaries instead of inheriting and amplifying the parent vortex; the upscale
+   (fine→coarse) feedback that lets a tornado intensify its own updraft (the vortex pressure-deficit
+   / dynamic-pipe effect) is severed. *Test:* wire the verified two-way momentum **reflux**
+   (`amr.TwoLevelMomentumReflux`) into the live `run_multilevel_nest` loop; or run a single fine
+   grid (no nesting — the fully-coupled limit). *This is the most immediately actionable lever, and
+   the pieces already exist.*
+1. **Cold-pool baroclinic vorticity — the top *physical* suspect.** In real tornadoes the low-level
    vortex is fed mostly by *baroclinically-generated* horizontal vorticity along the storm's own
    forward-flank/cold-pool gradient, tilted and stretched near the surface — a source set by
    **rain-evaporation microphysics**, not by the ambient hodograph. Our idealised warm/moist
