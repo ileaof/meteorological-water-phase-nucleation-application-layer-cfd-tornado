@@ -70,6 +70,24 @@ class SurfaceDragConfig:
 
 
 @dataclass
+class SurfaceFluxConfig:
+    """Bulk surface sensible + latent heat fluxes (opt-in; complements the momentum drag).
+    Relaxes the lowest model level toward a surface potential temperature and humidity via bulk
+    transfer coefficients ``H = rho cp C_h |V| (theta_sfc - theta)``, ``E = rho Lv C_q |V|
+    (q_sfc - q)`` -- the boundary-layer heat/moisture source that deepens the mixed layer and can
+    modulate cold-pool recovery.  Off by default (no behaviour change)."""
+    enabled: bool = False
+    C_h: float = 1.2e-3           # sensible-heat bulk transfer coefficient
+    C_q: float = 1.2e-3           # latent-heat (moisture) bulk transfer coefficient
+    U_min: float = 1.0            # gustiness floor on |V| [m/s]
+    theta_sfc_K: float = None     # surface potential temperature; None -> base surface theta0 + dtheta
+    dtheta_sfc_K: float = 0.0     # warm-ground excess over the environmental surface theta [K]
+    saturate_surface: bool = True # drive q_v toward q_sat at the surface (moist ground)
+    qv_sfc_kgkg: float = None     # explicit surface q_v if not saturating
+    roughness_length_m: float = 0.1
+
+
+@dataclass
 class MesoForcingConfig:
     """Sustained low-level mesoscale-ascent forcing (a dryline/convergence proxy):
     a heating(+moistening) cylinder that keeps lifting parcels through the CIN cap for
@@ -94,6 +112,7 @@ class StormDynamicsConfig:
     momentum_order: int = 2                            # 1 upwind | 2 MUSCL/minmod
     les: LESConfig = field(default_factory=LESConfig)
     drag: SurfaceDragConfig = field(default_factory=SurfaceDragConfig)
+    fluxes: SurfaceFluxConfig = field(default_factory=SurfaceFluxConfig)
     forcing: MesoForcingConfig = field(default_factory=MesoForcingConfig)
     hodograph: HodographConfig = field(default_factory=HodographConfig)
     v_guard: float = 150.0     # extreme numerical guard only (NOT a physical cap);
@@ -223,7 +242,7 @@ def storm_config_from_yaml(path: str) -> StormConfig:
 
 
 __all__ = [
-    "HodographConfig", "LESConfig", "SurfaceDragConfig", "MesoForcingConfig",
+    "HodographConfig", "LESConfig", "SurfaceDragConfig", "SurfaceFluxConfig", "MesoForcingConfig",
     "StormDynamicsConfig", "StormConfig",
     "build_storm_config", "storm_config_from_dict", "storm_config_from_yaml",
     "coriolis_f",

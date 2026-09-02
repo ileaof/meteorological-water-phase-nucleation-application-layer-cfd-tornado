@@ -42,6 +42,7 @@ from meteorological_flow.state import FlowState
 
 from . import forcing as frc
 from . import momentum as mom
+from . import surface_fluxes as sfl
 from . import rotation as rot
 from . import surface_drag as sfc
 from . import turbulence as les
@@ -250,6 +251,15 @@ class StormSimulation:
         Kmax = float(self._Km.max()) if getattr(self, "_Km", None) is not None else self.cfg.flow.nu
         diff_dt = 0.5 / (max(Kmax, 1e-12) * (1.0/g.dx**2 + 1.0/g.dy**2 + 1.0/dzmin**2))
         dt = min(adv_dt, diff_dt, self.cfg.time.dt_max)
+        # sedimentation CFL: cap dt so the fastest hydrometeor fall speed does not cross a cell in
+        # one step (only bites on fine dz with significant precipitation -> stable runs unaffected).
+        vfall = 0.0
+        for nm, vf in (("qr", 9.0), ("qs", 1.5), ("qg", 15.0), ("qh", 25.0)):
+            a = getattr(st, nm, None)
+            if a is not None and a.size and float(xp.max(a)) > 1e-5:
+                vfall = max(vfall, vf)
+        if vfall > 0.0:
+            dt = min(dt, self.cfg.time.cfl * dzmin / vfall)
         return max(dt, 1e-4)
 
     # ---- one anelastic projection step ----
@@ -304,6 +314,11 @@ class StormSimulation:
         if fcfg is not None and getattr(fcfg, "enabled", False):
             frc.apply_meso_forcing(st, g, fcfg, float(self.t), dt,
                                    center=getattr(fcfg, "center", None), xp=xp)
+        # (g) bulk surface sensible + latent heat fluxes (boundary-layer heat/moisture source).
+        #     Opt-in; off by default so existing runs are byte-unchanged.
+        flx = getattr(self.dyn, "fluxes", None)
+        if flx is not None and getattr(flx, "enabled", False):
+            sfl.apply_surface_fluxes(st, g, dt, flx, base=self.base)
         # extreme numerical guard ONLY (documented; not a physical cap)
         vg = self.dyn.v_guard
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v)
