@@ -33,11 +33,15 @@ metrics still run.
 * **mesocyclone displacement** from the `|V_r|` couplet centroids (spatial), and the analysis
   time offset (temporal) when comparing across times.
 
-## Reflectivity caveat
+## Reflectivity forward operator (diagnostic)
 
-If the microphysics does not yet emit a calibrated reflectivity, compute a **diagnostic** `Z`
-from the hydrometeors and document the assumptions — reflectivity comparison is then indicative,
-not a validated forward operator.
+The idealised microphysics does not emit a calibrated reflectivity, so `atmospheric_data.
+reflectivity` computes an **approximate Rayleigh (10 cm)** `Z_e` from the hydrometeor mixing
+ratios (`qr,qs,qg`) — `Z_e = a_x (rho q_x)^{1.75}` summed over species (Marshall–Palmer, fixed
+intercepts, ice dielectric for snow/graupel), giving ~41 dBZ for 1 g m⁻³ of rain. `compare-radar`
+computes it on the model grid, interpolates to the radar gates, and scores CSI/FSS vs the
+observed reflectivity. **Assumptions:** dry snow/graupel (no brightband), no attenuation, no
+melting layer — indicative, not a validated forward operator.
 
 ## Not assimilation
 

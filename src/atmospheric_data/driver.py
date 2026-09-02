@@ -151,19 +151,26 @@ def cfg_cfl(cfg):
 
 
 def compare_radar(cfg, pre, cache, sim=None, logger=print):
-    """Project the CFD (u,v,w) to synthetic radial velocity and score against NEXRAD."""
+    """Project the CFD (u,v,w) to synthetic radial velocity and score against NEXRAD; also
+    score the **diagnostic reflectivity** (from the model hydrometeors) when a sim is given."""
     radar = load_radar(cfg, cache, logger=logger)
     xc, yc, zc = pre["coords"]
     fields = pre["fields"]
+    refl_sim = None
     if sim is not None:                                            # use the simulated velocity
-        xp = sim.grid.xp; to = sim.grid.backend.to_cpu
+        to = sim.grid.backend.to_cpu
         uc = np.asarray(to(sim.state.u)); vc = np.asarray(to(sim.state.v)); wc = np.asarray(to(sim.state.w))
         ucc = 0.5 * (uc[:-1] + uc[1:]); vcc = 0.5 * (vc[:, :-1] + vc[:, 1:]); wcc = 0.5 * (wc[:, :, :-1] + wc[:, :, 1:])
         tr = lambda a: np.transpose(a, (2, 1, 0))[None]           # (x,y,z)->(1,z,y,x)
         fields = {"u": tr(ucc), "v": tr(vcc), "w": tr(wcc)}
+        from . import reflectivity as _refl                       # diagnostic Z from hydrometeors
+        dbz = _refl.cfd_reflectivity_field(sim.state, sim.grid, sim.rho0_c)
+        if np.nanmax(dbz) > -29.0:                                # some hydrometeors present
+            refl_sim = _refl.reflectivity_at_gates(dbz, xc, yc, zc, radar)
     vr = radial.cfd_radial_velocity(fields, xc, yc, zc, radar)
-    metrics = validation.radar_metrics(radar, vr)
-    logger("[radar] Vr RMSE=%.2f corr=%.2f | mesocyclone displ=%s gates"
+    metrics = validation.radar_metrics(radar, vr, refl_sim=refl_sim)
+    logger("[radar] Vr RMSE=%.2f corr=%.2f | reflectivity=%s | mesocyclone displ=%s gates"
            % (metrics["radial_velocity"]["rmse"], metrics["radial_velocity"]["correlation"],
+              ("CSI=%.2f" % metrics["reflectivity"]["csi"]) if "reflectivity" in metrics else "n/a",
               metrics.get("mesocyclone_displacement_gates")))
-    return {"radar": radar, "vr_sim": vr, "metrics": metrics}
+    return {"radar": radar, "vr_sim": vr, "reflectivity_sim": refl_sim, "metrics": metrics}

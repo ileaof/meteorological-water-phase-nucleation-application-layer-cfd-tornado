@@ -146,6 +146,20 @@ def test_radial_velocity_operator_geometry():
     assert abs(vr_n) < 1e-9
 
 
+# ---- reflectivity forward operator ----------------------------------------------
+def test_reflectivity_diagnostic_is_physical():
+    from atmospheric_data import reflectivity as refl
+    # physical dBZ from rain water content (1 g/m^3 ~ 40 dBZ), monotone increasing, floor
+    assert float(refl.reflectivity_dbz(rho=1.2)) == pytest.approx(-30.0)       # no hydrometeors
+    z1 = float(refl.reflectivity_dbz(qr=np.array([1e-3]), rho=1.2)[0])         # ~1.2 g/m^3
+    z0 = float(refl.reflectivity_dbz(qr=np.array([1e-4]), rho=1.2)[0])
+    assert 35.0 < z1 < 50.0 and z0 < z1                                        # realistic + monotone
+    # graupel a stronger reflector than dry snow at the same content
+    dg = float(refl.reflectivity_dbz(qg=np.array([1e-3]), rho=1.0)[0])
+    ds = float(refl.reflectivity_dbz(qs=np.array([1e-3]), rho=1.0)[0])
+    assert dg > ds
+
+
 # ---- 6 validation metrics -------------------------------------------------------
 def test_validation_metrics():
     o = np.array([1.0, 2.0, 3.0, 4.0]); s = o + 1.0
