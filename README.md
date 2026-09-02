@@ -274,6 +274,17 @@ supercell sustains via inflow), 46 m does not resolve the full vortex sub-struct
 tornado **emerges** from the resolved dynamics — it is not imposed. The environment is real; the
 storm is idealised-triggered.
 
+**Real radar validation (NEXRAD KTLX Level II).** The actual **KTLX Doppler volume of the Moore
+tornado** (2013-05-20 20:20:58 UTC) read via `deploy/wsl2_nexrad_moore.py` (Py‑ART + nexradaws
+on WSL2, no credentials): 70 dBZ cores and the classic **velocity couplet** — inbound (green)
+against outbound (red), Δ ≈ 52 m/s — the observed mesocyclone/TVS signature the simulated
+rotation is compared to (in radial space, `V_r = V·r̂`):
+
+![Real KTLX Level II of the Moore 2013 tornado: reflectivity supercell (left) and the radial-velocity couplet = rotation (right)](docs/media/storm/ktlx_moore_2013_radar.png)
+
+The full gridded real-data stack (ERA5 + HRRR/RAP GRIB + NEXRAD) runs on **WSL2** — see
+**[WSL2_REAL_DATA](docs/WSL2_REAL_DATA.md)**.
+
 **Operational auto mode — `storm-watch`.** Continuously monitors official **NWS/CAP alerts** and,
 when a severe/tornadic storm is detected, auto-builds the domain from the warning polygon, selects
 the nearest NEXRAD radars + the latest HRRR run, downloads/validates the data and generates the
