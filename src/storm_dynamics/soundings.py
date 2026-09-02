@@ -175,6 +175,23 @@ def bulk_shear(base: BaseState, z1: float = 0.0, z2: float = 6000.0) -> float:
     return float(np.hypot(u[1] - u[0], v[1] - v[0]))
 
 
+def bulk_richardson_number(base: BaseState, cape: float = None) -> float:
+    """Bulk Richardson number BRN = CAPE / (0.5 * U^2), with the BRN shear
+    U = |mean(0-6 km) wind - mean(0-500 m) wind| [m/s] (Weisman & Klemp 1982).
+    BRN ~ 10-45 favours supercells; large BRN -> multicell, small -> shear-dominated.
+    ``cape`` may be supplied to avoid recomputing it."""
+    z = np.asarray(base.zc); u = np.asarray(base.u0); v = np.asarray(base.v0)
+    lo = z <= 500.0; hi = z <= 6000.0
+    if lo.sum() < 1 or hi.sum() < 2:
+        return float("nan")
+    du = float(np.mean(u[hi]) - np.mean(u[lo])); dv = float(np.mean(v[hi]) - np.mean(v[lo]))
+    shear2 = 0.5 * (du * du + dv * dv)
+    if cape is None:
+        from meteorological_flow.base_state import sounding_diagnostics
+        cape = sounding_diagnostics(base)["CAPE_J_kg"]
+    return float(cape / shear2) if shear2 > 1e-6 else float("inf")
+
+
 def bunkers_storm_motion(base: BaseState, deviation: float = 7.5):
     """Right-moving supercell motion estimate (Bunkers et al. 2000, simplified).
 
@@ -227,4 +244,5 @@ def storm_relative_helicity(base: BaseState, z_top: float = 3000.0,
 __all__ = [
     "build_sounding", "from_observed_sounding", "example_observed_sounding",
     "bulk_shear", "bunkers_storm_motion", "storm_relative_helicity",
+    "bulk_richardson_number",
 ]

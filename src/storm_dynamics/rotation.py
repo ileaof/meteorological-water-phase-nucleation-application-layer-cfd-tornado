@@ -97,7 +97,10 @@ def rotation_report(state: FlowState, grid: Grid, base=None) -> dict:
         "midlevel_mesocyclone": float(xp.max(xp.abs(zmid))) if zmid.size else 0.0,
         "near_surface_zeta_max": float(xp.max(zlow)) if zlow.size else 0.0,
         "near_surface_zeta_abs_max": float(xp.max(xp.abs(zlow))) if zlow.size else 0.0,
-        "updraft_helicity_max": float(xp.max(uh)),
+        "updraft_helicity_max": float(xp.max(uh)),          # 2-5 km (legacy key)
+        "updraft_helicity_2_5km": float(xp.max(uh)),
+        "updraft_helicity_0_1km": float(xp.max(updraft_helicity(state, grid, 0.0, 1000.0))),
+        "updraft_helicity_0_3km": float(xp.max(updraft_helicity(state, grid, 0.0, 3000.0))),
         "w_max": float(xp.max(wc)),
         "w_min": float(xp.min(wc)),
         "horiz_vort_max": float(xp.max(xp.sqrt(xi**2 + eta**2))),
@@ -108,6 +111,7 @@ def rotation_report(state: FlowState, grid: Grid, base=None) -> dict:
         out["env_SRH_0_3km"] = snd.storm_relative_helicity(base, z_top=3000.0)
         out["env_shear_0_1km"] = snd.bulk_shear(base, 0.0, 1000.0)
         out["env_shear_0_6km"] = snd.bulk_shear(base, 0.0, 6000.0)
+        out["env_BRN"] = snd.bulk_richardson_number(base)
     return out
 
 
