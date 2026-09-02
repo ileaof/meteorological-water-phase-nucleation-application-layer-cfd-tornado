@@ -114,15 +114,16 @@ def test_les_viscosity_positive_and_strain_dependent():
 
 def test_les_model_option_is_honest():
     """The advertised LES models behave as documented: 'none' -> background only,
-    'tke15' -> NotImplemented (documented future work), unknown -> error."""
+    'tke15' -> a finite non-negative eddy viscosity (Deardorff TKE-1.5, now implemented),
+    unknown -> error."""
     import pytest
     g = _periodic_grid()
     st = FlowState.zeros(g)
     st.u[:] = np.linspace(0, 20, g.nz).reshape(1, 1, -1)
     none = strain_and_viscosity(st, g, LESConfig(model="none", nu_background=0.7))
     assert float(none.max()) == float(none.min()) == 0.7   # constant background
-    with pytest.raises(NotImplementedError):
-        strain_and_viscosity(st, g, LESConfig(model="tke15"))
+    tke15 = strain_and_viscosity(st, g, LESConfig(model="tke15"))   # implemented this arc
+    assert float(tke15.min()) >= 0.0 and np.isfinite(np.asarray(g.backend.to_cpu(tke15))).all()
     with pytest.raises(ValueError):
         strain_and_viscosity(st, g, LESConfig(model="bogus"))
 

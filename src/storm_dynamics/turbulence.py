@@ -45,7 +45,8 @@ def strain_and_viscosity(state: FlowState, grid: Grid, les: LESConfig,
 
     ``les.model``: ``"smagorinsky"`` (implemented), ``"none"`` (constant
     background viscosity only), or ``"tke15"`` (prognostic Deardorff TKE-1.5 --
-    documented as future work, raises :class:`NotImplementedError`).
+    implemented; called statelessly here it returns the equilibrium ``K_m``, while the
+    time loop evolves the TKE field via :func:`deardorff_tke_step`).
     """
     xp = grid.xp
     if les.model == "none":
