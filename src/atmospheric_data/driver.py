@@ -159,6 +159,9 @@ def compare_radar(cfg, pre, cache, sim=None, logger=print):
     refl_sim = None
     if sim is not None:                                            # use the simulated velocity
         to = sim.grid.backend.to_cpu
+        xc = np.asarray(to(sim.grid.xc), float) - 0.5 * sim.grid.Lx   # this sim's own coords
+        yc = np.asarray(to(sim.grid.yc), float) - 0.5 * sim.grid.Ly   # (parent OR a finer nest)
+        zc = np.asarray(to(sim.grid.zc), float)
         uc = np.asarray(to(sim.state.u)); vc = np.asarray(to(sim.state.v)); wc = np.asarray(to(sim.state.w))
         ucc = 0.5 * (uc[:-1] + uc[1:]); vcc = 0.5 * (vc[:, :-1] + vc[:, 1:]); wcc = 0.5 * (wc[:, :, :-1] + wc[:, :, 1:])
         tr = lambda a: np.transpose(a, (2, 1, 0))[None]           # (x,y,z)->(1,z,y,x)
