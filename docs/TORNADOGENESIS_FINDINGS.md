@@ -250,6 +250,37 @@ physics — it is a **numerical artifact of the artificial scale separation**: t
 inherit and amplify the parent's vortex, because the fine→coarse (upscale) feedback is severed.
 This is a distinct, testable limiter from resolution and SRH: **two-way scale coupling.**
 
+### Attempt G — two-way coupling A/B (the lever, confirmed)
+
+`scratchpad/moore_twoway_ab.py`. From one matured fine (250 m) parent, the **same** single-level
+nest (refine 3 → 83 m) run **one-way vs two-way** (`run_concurrent_nest` `two_way=True`, the
+fine→coarse injection). Two-way raised the nest low-level **V_rot 8.1 → 11.6 m s⁻¹** (and closer to
+the surface, 122 m vs 208 m) and more than **doubled the parent's, 6.1 → 15.0** — the vortex↔updraft
+loop intensifying the whole storm, breaking the ~6 m s⁻¹ ceiling. **Confirms** the Attempt-F
+hypothesis: one-way nesting was a numerical cap. (Two-way is now wired into `run_multilevel_nest`.)
+
+### Attempt H — KOUN two-way *deep* cascade + the vorticity budget (the measured verdict)
+
+`scratchpad/moore_twoway_deep_gpu.py`. Real KOUN env → forced supercell → storm-relative deep
+cascade to 28 m with `two_way=True`, then the **vorticity budget** read on the result. Two findings:
+
+- **Two-way in the *deep* multi-level cascade did not reproduce G's boost** (low-level V_rot 4.9,
+  class LOW_LEVEL_MESOCYCLONE; the run was also ~4× faster). Applying the aggressive rate-0.5
+  injection at *every* level pair of a 4-level cascade appears to over-smooth the fine vortex,
+  unlike the single coarse–fine pair in G — a controlled deep A/B (matched one-way vs two-way, or a
+  gentler rate / top-interface-only) is the clean next test.
+- **The budget names the real bottleneck.** The cold pool is strong (θv′ −3.5 K, C 14.6 m s⁻¹, 38 %
+  area), and the **hydrostatic baroclinic generation of *horizontal* vorticity is 1.47×10⁻⁴ s⁻² —
+  22× the tilting rate (6.7×10⁻⁶) and stretching (6.4×10⁻⁶)** at low levels. So the cold-pool
+  source is **abundant**; only ~4.5 % of it is **tilted** into the vertical. **The limiter is the
+  tilting efficiency — the geometric alignment of the baroclinic horizontal vorticity with the
+  low-level updraft gradient — not the cold-pool source.** This implicates *storm structure*
+  (rear-flank downdraft / occlusion, the idealised single-updraft trigger) over microphysics.
+  *(Caveat: the direct vertical-vorticity baroclinic term B_z reads ~0 — it vanishes under
+  hydrostatic balance and the low-memory solver does not persist `state.p` on nests; the horizontal
+  baroclinic diagnostic above, computed from ρ, is the correct source measure —
+  `vorticity_budget.baroclinic_horizontal_generation`.)*
+
 ---
 
 ## 5. Honest bottom line and remaining levers
