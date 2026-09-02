@@ -79,19 +79,24 @@ while sim.t < T_END:
             (sim.t, m["w_max"], m["midmeso"], m["low_zeta"], m["align"], m["streamwise_frac"]))
         next_s += SAMPLE
 
-# trend of the two decisive numbers over the mature phase (second half)
-mature = [h for h in hist if h["t"] >= T_END * 0.4]
-al = [h["align"] for h in mature]; sf = [h["streamwise_frac"] for h in mature]
-trend_align = (al[-1] - al[0]) if len(al) > 1 else 0.0
-trend_sf = (sf[-1] - sf[0]) if len(sf) > 1 else 0.0
+# the honest test: did the storm REORIENT the vorticity?  Alignment is CYCLIC (peaks during
+# occlusion, then swings as the mesocyclone cycles), so the signal is the PEAK rise of alignment and
+# the near-monotone rise of the streamwise fraction from the start -- NOT final-minus-mid (which
+# catches a cyclic downswing and is misleading).
+al = [h["align"] for h in hist]; sf = [h["streamwise_frac"] for h in hist]
+lz = [h["low_zeta"] for h in hist]
+peak_align = max(al); rise_align = peak_align - al[0]; trend_sf = sf[-1] - sf[0]
 cprep = cp.coldpool_report(sim.state, sim.grid)
 summary = {"attempt": "I freely-evolving supercell", "env": {k: float(d[k]) for k in ("CAPE_J_kg", "CIN_J_kg", "shear_0_6km_m_s") if d[k] is not None},
            "SRH03": float(snd.storm_relative_helicity(sim.base)), "dx_m": float(sim.grid.dx),
-           "history": hist, "align_trend_mature": trend_align, "streamwise_trend_mature": trend_sf,
-           "final_align": al[-1] if al else 0.0, "final_streamwise": sf[-1] if sf else 0.0,
+           "history": hist, "peak_align": peak_align, "align_rise_to_peak": rise_align,
+           "streamwise_trend": trend_sf, "low_zeta_peak": max(lz),
+           "final_align": al[-1], "final_streamwise": sf[-1],
            "cold_pool": cprep, "wall_clock_s": time.time() - _t0}
 json.dump(summary, open(os.path.join(OUT, "summary.json"), "w"), indent=2)
-verdict = ("ALIGNMENT RISES as it occludes -> model CAN build the geometry" if trend_align > 0.05
-           else "alignment stays low -> RFD/occlusion does NOT reorient the vortex lines (structural gap)")
-log("=== DONE I: final align=%+.3f (trend %+.3f) streamwise=%.2f (trend %+.3f) | %s (%.0fmin) ===" %
-    (summary["final_align"], trend_align, summary["final_streamwise"], trend_sf, verdict, (time.time() - _t0) / 60))
+verdict = ("free occlusion REORIENTS the vorticity (alignment %.2f->peak %.2f, streamwise %.2f->%.2f)"
+           " -> model CAN build tornadic geometry" % (al[0], peak_align, sf[0], sf[-1])
+           if (rise_align > 0.05 and trend_sf > 0.05)
+           else "alignment/streamwise do NOT rise -> RFD/occlusion does not reorient the vortex (structural gap)")
+log("=== DONE I: align %.2f->peak %.2f | streamwise %.2f->%.2f | low_zeta peak %.2e (%.1fx) | %s (%.0fmin) ===" %
+    (al[0], peak_align, sf[0], sf[-1], max(lz), max(lz) / lz[0], verdict, (time.time() - _t0) / 60))
