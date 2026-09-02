@@ -120,7 +120,7 @@ def cmd_storm_watch(args):
     rest = list(args.rest or [])
     # interpret positionals per action: replay/retry take a target first, then optional config
     target, config = None, "config/storm_watch.yaml"
-    if action in ("replay", "retry"):
+    if action in ("replay", "retry", "map"):
         target = rest[0] if rest else None
         config = rest[1] if len(rest) > 1 else config
     else:
@@ -170,6 +170,13 @@ def cmd_storm_watch(args):
         print("[storm-watch] retry", args.target, "->", "not found" if not c else "re-enqueued")
         if c:
             db.set_state(args.target, "DETECTED", "manual retry")
+    elif action == "map":
+        from .storm_watch import viz
+        if not args.target:
+            print("[storm-watch] map needs an alert file: storm-watch map ALERT.json [config.yaml]")
+            db.close(); return 2
+        out = viz.map_alert_file(args.target, cfg=sw)
+        print("[storm-watch] map ->", out)
     db.close(); return 0
 
 
@@ -178,7 +185,7 @@ def main(argv=None):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command", required=True)
     swp = sub.add_parser("storm-watch", help="operational auto mode")
-    swp.add_argument("action", choices=["start", "status", "stop", "alerts", "cases", "retry", "replay"])
+    swp.add_argument("action", choices=["start", "status", "stop", "alerts", "cases", "retry", "replay", "map"])
     swp.add_argument("rest", nargs="*", help="[FILE|CASE_ID] and/or config.yaml (see docs)")
     swp.add_argument("--offline", action="store_true")
     swp.add_argument("--max-iterations", type=int, default=None, dest="max_iterations")

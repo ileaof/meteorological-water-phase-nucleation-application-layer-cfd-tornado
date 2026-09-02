@@ -16,7 +16,18 @@ simulates) the data, validates it, and generates the internal NetCDF — leaving
 python -m atmospheric_data storm-watch replay tests/data/sample_tornado_alert.json config/storm_watch.yaml
 python -m atmospheric_data storm-watch cases  config/storm_watch.yaml
 python -m atmospheric_data storm-watch alerts config/storm_watch.yaml
+python -m atmospheric_data storm-watch map    tests/data/sample_tornado_alert.json config/storm_watch.yaml
 ```
+
+## Situational map
+
+`storm-watch map ALERT.json [config.yaml]` draws the **real NWS alert + the auto-built simulation
+domain** to a PNG in the workdir (`outputs/storm_watch/map_<id>.png`): the alert polygon, the
+auto-domain box (centred downstream along the storm motion), the storm-motion vector, and the
+nearest NEXRAD radars + METAR stations the domain builder picked. Matplotlib-only, no network —
+it visualises the automation's *inputs*, not a simulation (`auto_simulate` stays off by default).
+
+![storm-watch situational map: the Moore tornado warning polygon, the auto-built 600 km simulation domain centred downstream along the storm motion, and the nearest NEXRAD (KOUN 57 km, KTLX 39 km) + METAR stations](media/storm/storm_watch_map_moore.png)
 
 ## Realtime
 
