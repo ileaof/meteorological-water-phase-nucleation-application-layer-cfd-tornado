@@ -28,7 +28,8 @@ def download(cfg, cache):
     if cache.has("era5", key, ".nc"):
         return path
     dom = cfg.domain
-    dlat = dom.height_km / 111.0; dlon = dom.width_km / (111.0 * np.cos(np.radians(dom.center_lat)))
+    half = 0.5 * dom.width_km                                # horizontal half-width [km] (both lat/lon)
+    dlat = half / 111.0; dlon = half / (111.0 * np.cos(np.radians(dom.center_lat)))
     c = cdsapi.Client()
     c.retrieve("reanalysis-era5-pressure-levels", {
         "product_type": "reanalysis", "format": "netcdf",

@@ -69,30 +69,37 @@ def preprocess(cfg, cache, outdir, logger=print, max_n=64):
             "coords": (xc, yc, zc)}
 
 
-def build_simulation(cfg, pre, logger=print):
+def build_simulation(cfg, pre, logger=print, **kw):
     """Build a StormSimulation initialised from the real base + initial fields (staggered)."""
     from storm_dynamics.config import build_storm_config
     from storm_dynamics.core import StormSimulation
     grid = pre["grid"]; base = pre["base"]; fields = pre["fields"]
     dev = {"auto": "auto", "cpu": "cpu", "gpu": "gpu"}[cfg.model.execution_backend]
+    use_fields = kw.get("use_fields", False)               # inject the raw gridded 3-D field?
+    trigger_dtheta = kw.get("trigger_dtheta", 3.0)
     scfg = build_storm_config(preset="storm", nx=grid.nx, ny=grid.ny, nz=grid.nz,
                               Lx=grid.Lx, Ly=grid.Ly, Lz=grid.Lz, duration=1.0, dt_max=3.0,
                               drag=True, z_stretch=1.03, device=dev)
-    scfg.sim.physics.bubble_dtheta = 0.0                            # real IC, not a warm bubble
+    # Default (environment mode): the analysis sets the real BASE STATE (environment); convection
+    # is triggered by a warm bubble -- the physically-sound, stable way to use a coarse analysis
+    # (ERA5 ~31 km / HRRR ~3 km resolve the environment, NOT the storm vortex; limitation 2/5).
+    # use_fields=True injects the raw 3-D analysis as the perturbation (only sound for a fine,
+    # well-balanced field; a coarse ERA5 snapshot destabilises the anelastic core).
+    scfg.sim.physics.bubble_dtheta = 0.0 if use_fields else float(trigger_dtheta)
     sim = StormSimulation(scfg, base=base)
-    xp = sim.grid.xp
-    tr = lambda a: np.transpose(np.asarray(a, float), (2, 1, 0))    # (z,y,x)->(x,y,z)
-    th = tr(fields["theta"][0]); qv = tr(fields["qv"][0]) if "qv" in fields else None
-    uc = tr(fields["u"][0]); vc = tr(fields["v"][0]); wc = tr(fields["w"][0])
-    sim.state.theta = xp.asarray(th)
-    if qv is not None:
-        sim.state.qv = xp.asarray(np.clip(qv, 0.0, None))
-    # cell-centred -> staggered faces (average neighbours; walls/edges clamped)
-    u = np.zeros(sim.grid.u_shape); u[1:-1] = 0.5 * (uc[:-1] + uc[1:]); u[0] = uc[0]; u[-1] = uc[-1]
-    v = np.zeros(sim.grid.v_shape); v[:, 1:-1] = 0.5 * (vc[:, :-1] + vc[:, 1:]); v[:, 0] = vc[:, 0]; v[:, -1] = vc[:, -1]
-    w = np.zeros(sim.grid.w_shape); w[:, :, 1:-1] = 0.5 * (wc[:, :, :-1] + wc[:, :, 1:])
-    sim.state.u = xp.asarray(u); sim.state.v = xp.asarray(v); sim.state.w = xp.asarray(w)
-    sim.state.diagnose(sim.cfg)
+    if use_fields:
+        xp = sim.grid.xp
+        tr = lambda a: np.transpose(np.asarray(a, float), (2, 1, 0))
+        th = tr(fields["theta"][0]); qv = tr(fields["qv"][0]) if "qv" in fields else None
+        uc = tr(fields["u"][0]); vc = tr(fields["v"][0]); wc = tr(fields["w"][0])
+        sim.state.theta = xp.asarray(th)
+        if qv is not None:
+            sim.state.qv = xp.asarray(np.clip(qv, 0.0, None))
+        u = np.zeros(sim.grid.u_shape); u[1:-1] = 0.5 * (uc[:-1] + uc[1:]); u[0] = uc[0]; u[-1] = uc[-1]
+        v = np.zeros(sim.grid.v_shape); v[:, 1:-1] = 0.5 * (vc[:, :-1] + vc[:, 1:]); v[:, 0] = vc[:, 0]; v[:, -1] = vc[:, -1]
+        w = np.zeros(sim.grid.w_shape); w[:, :, 1:-1] = 0.5 * (wc[:, :, :-1] + wc[:, :, 1:])
+        sim.state.u = xp.asarray(u); sim.state.v = xp.asarray(v); sim.state.w = xp.asarray(w)
+        sim.state.diagnose(sim.cfg)
     # lateral relaxation target = the environment (Davies zone; time-dependent driving optional)
     from storm_dynamics.limited_area import environment_target
     sim._lbc_target = environment_target(sim.grid, base)
