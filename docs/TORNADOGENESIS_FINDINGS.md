@@ -132,12 +132,13 @@ organising low-level mesocyclone rather than a decaying pulse or a boundary arti
 |---|---|---|---|---|---|
 | A | single bubble | 46 m | 3.2 m s⁻¹ | 0.026 s⁻¹ | pulses |
 | B | single bubble | 521 m | 2.3 m s⁻¹ | 9.5×10⁻⁴ s⁻¹ | **decays** (w 9.5→1.1) |
-| **C** | **sustained forcing** | 250 m | **4.9 m s⁻¹** | 6.6×10⁻³ s⁻¹ | **sustains** (self-holds after forcing off) |
+| C | sustained forcing | 250 m | 4.9 m s⁻¹ | 6.6×10⁻³ s⁻¹ | **sustains** (self-holds after forcing off) |
+| **D** | **forcing + cascade** | **28 m** | **6.0 m s⁻¹** | 1.17×10⁻² s⁻¹ | sustains; surface-connected meso |
 | *observed* | *real* | ~250 m (0.5° beam) | **26 m s⁻¹** | 0.205 s⁻¹ | *tornado* |
 
-*(ζ is Δx-dependent — A's 0.026 at 46 m is not comparable to C's at 250 m; **V_rot**, a velocity,
-is the resolution-fair metric. C is the strongest and, uniquely, comes from a storm that **lives
-without the crutch**.)*
+*(ζ is Δx-dependent — A's 0.026 at 46 m is not comparable across rows; **V_rot**, a velocity, is
+the resolution-fair metric. C and D come from a storm that **lives without the crutch**; D (below)
+is the strongest and is surface-connected.)*
 
 **Honest read:** V_rot ~4.9 m s⁻¹ is the best low-level rotation we have obtained from real data,
 but it is still only **~19 % of the observed 26 m s⁻¹** — *not* a tornado. The lever is validated
@@ -147,29 +148,80 @@ short for full stretching intensification, and ERA5's SRH (152) is well below th
 The path forward is to **cascade the sustained 250 m nest down to < 50 m at the storm base with a
 longer window** — now that we finally have a living parent to nest into.
 
+### Attempt D — deep cascade to 28 m, storm-relative (the refinement study)
+
+`scratchpad/moore_cascade_gpu.py`. The sustained forced supercell, run **storm-relative**
+(Bunkers motion C = (14.2, 3.8) m s⁻¹ subtracted from the base wind — a Galilean shift that leaves
+tilting/stretching invariant but holds the storm quasi-stationary so the fine nests keep it), then
+refined **750 → 251 → 84 → 28 m** (three ×3 refinements) with the concurrent multi-level driver
+(`run_multilevel_nest`: time-sub-cycled coarse→fine boundaries + conservative restriction back up,
+`restrict_momentum=True`), centred on the low-level mesocyclone, 180 s window. ~86 min on the GPU.
+
+**Correct structure, at last.** The finest level shows a **deep, surface-connected column** of
+rotation — peak |ζ| at ~500 m–1 km and still ~half that at 50 m — i.e. a genuine *low-level*
+mesocyclone reaching the ground, not the anvil-top artifact of Attempt A:
+
+```
+ z ≈ 50 m   ζ = 6.0e-3   ####################
+ z ≈ 490 m  ζ = 1.17e-2  ########################################   <- low-level meso peak
+ z ≈ 1020 m ζ = 1.09e-2  #####################################
+ z ≈ 1670 m ζ = 9.3e-3   ###############################
+ z ≈ 2460 m ζ = 1.0e-2   ##################################
+ z ≈ 3410 m ζ = 7.0e-3   ########################
+ z ≳ 4.5 km              (drops off — the column is a low/mid-level feature)
+```
+
+**Low-level V_rot = 6.0 m s⁻¹** (ζ 1.17×10⁻² at 28 m) — the best yet, but still **~23 % of the
+observed 26 m s⁻¹**.
+
+**The key numerical finding — resolution is *not* the dominant limiter.** Refining the nest 9×
+(250 m → 28 m) raised V_rot only **4.9 → 6.0 m s⁻¹ (+22 %)**. If grid resolution were the main gap
+to the observed tornado, a 9× refinement would have moved it far more. The diminishing return says
+the ceiling is the **source circulation** the stretching has to work on, which is set by the
+*environment and the storm's own low-level vorticity budget*, not the mesh:
+
+- **ERA5 SRH ≈ 152 vs the real KOUN ≈ 247** — less streamwise horizontal vorticity available to
+  tilt into the vertical.
+- **Modest sustained updraft** (w ~ 6 m s⁻¹, peaking ~21) — less vertical stretching of that
+  vorticity.
+- **The baroclinic (cold-pool) low-level vorticity source** — governed by rain-evaporation
+  microphysics — is likely under-represented; without a strong forward-flank baroclinic zone the
+  low-level vortex has a weak parent circulation regardless of Δx.
+
+So the honest ranking of levers flips: **environment SRH + cold-pool microphysics now rank above
+resolution.** We have built a correctly-structured, surface-connected low-level mesocyclone from
+real data — a real qualitative milestone — but reaching tornado intensity needs a *stronger source
+circulation*, not merely a finer grid.
+
 ---
 
 ## 5. Honest bottom line and remaining levers
 
 The package reproduces the storm, the rotating updraft, and the mid-level mesocyclone **from real
-downloaded data**, and — with the sustained-ascent forcing (§4) — a **self-sustaining supercell
-with a monotonically organising low-level mesocyclone**. It does **not** yet reproduce the
-tornado-scale low-level vortex: the best low-level rotation so far (Attempt C, V_rot ~4.9 m s⁻¹) is
-~19 % of the observed TVS (V_rot 26 m s⁻¹). This is exactly where operational tornadogenesis
+downloaded data**; with the sustained-ascent forcing (§4) a **self-sustaining supercell**; and with
+the storm-relative deep cascade (§4, Attempt D) a **correctly-structured, surface-connected
+low-level mesocyclone** — the right feature in the right place. It does **not** yet reproduce the
+tornado-scale intensity: the best low-level rotation (Attempt D, V_rot ~6.0 m s⁻¹ at 28 m) is
+~23 % of the observed TVS (V_rot 26 m s⁻¹). This is exactly where operational tornadogenesis
 science sits — not a bug, the frontier.
 
-Levers, in order of expected impact:
+**What the resolution study taught us:** refining 9× (250 → 28 m) moved V_rot only +22 %, so the
+ceiling is the **source circulation**, not the mesh. The levers, re-ranked by the evidence:
 
-1. **Sustainment** — sustained ascent forcing (§4) so the parent supercell lives long enough for a
-   low-level mesocyclone to organise. *(Being tested.)*
-2. **Resolution < 30 m at the storm base**, not just aloft, to resolve the ~0.3 km TVS — a finer,
-   storm-base-centred nest in the cascade.
-3. **Cold-pool microphysics** — the low-level (baroclinic) vorticity source is set by rain
-   evaporation; the closure has to land in the narrow not-too-cold/not-too-warm window.
-4. **Real low-level SRH** — use the KOUN radiosonde (SRH ~247) rather than ERA5 (~146), which
-   smooths the very low-level shear that seeds the rotation.
-5. **Storm-following cascade + time-dependent lateral BCs** so the developing low-level meso is
-   tracked and fed, not advected out.
+1. **Real low-level SRH** — use the KOUN radiosonde (SRH ~247) rather than ERA5 (~152), which
+   smooths the very low-level shear that seeds the rotation. *(Now the top lever.)*
+2. **Cold-pool microphysics** — the low-level (baroclinic) vorticity source is set by rain
+   evaporation; the closure has to land in the narrow not-too-cold/not-too-warm window. A stronger,
+   correctly-placed forward-flank baroclinic zone gives the low-level vortex a stronger parent
+   circulation to stretch.
+3. **A stronger, longer-lived updraft** — more vertical stretching of the available vorticity
+   (longer nest window; a stronger/deeper sustained forcing while the storm organises).
+4. **Resolution < 30 m at the storm base** — still needed to *resolve* the ~0.3 km TVS once the
+   source circulation is strong enough, but no longer the first lever.
+
+*Achieved so far:* sustainment (§4), the storm-relative deep cascade, and a surface-connected
+low-level mesocyclone. *Next:* swap the ERA5 environment for the real KOUN hodograph (lever 1) and
+re-run the D cascade.
 
 ---
 
@@ -184,6 +236,7 @@ python3 deploy/wsl2_extract_velocity.py    # extract the observed V_rot / Δv
 python scratchpad/moore_real_funnel_gpu.py # Attempt A: 3-level AMR to 46 m
 python scratchpad/moore_sustained_gpu.py   # Attempt B: sustained maturation + follow nest
 python scratchpad/moore_forced_gpu.py      # Attempt C: + sustained ascent forcing (§4)
+python scratchpad/moore_cascade_gpu.py     # Attempt D: storm-relative deep cascade to 28 m
 
 # feature tests
 python -m pytest tests/test_forcing.py -q
