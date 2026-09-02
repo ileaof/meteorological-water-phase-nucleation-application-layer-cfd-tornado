@@ -269,6 +269,8 @@ right feature in the right place, at ~23 % of the observed tornado intensity. Th
 
 ![The resolved low-level mesocyclone at 28 m: a closed cyclonic vortex in the vertical-vorticity field with storm-relative streamlines](docs/media/storm/meso_hero_28m.png)
 
+![3-D of the same mesocyclone: low-level inflow spirals into a rotating updraft (red, ascending) with a downdraft (blue), threading the vorticity tube — the supercell's tornado-parent circulation](docs/media/storm/meso_3d_28m.png)
+
 *(HRRR does not exist for 2013 — operational 2014-09-30 — so the gridded source is ERA5; the
 real KOUN sounding via IEM complements it.)*
 
