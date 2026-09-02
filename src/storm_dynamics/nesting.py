@@ -873,6 +873,7 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
 
 def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         record_interval=None, restrict_up=True, restrict_momentum=False,
+                        two_way=False, two_way_rate=0.5, storm_motion=(0.0, 0.0),
                         progress=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
@@ -906,6 +907,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
     for k in range(len(specs)):
         sims[k + 1].set_target(tgt_prev[k])
     finest.tracker.update(finest.t, finest.state, finest.grid); SS._record(finest, initial)
+    mcx, mcy = storm_motion
 
     def drive(level, dtc):
         """Advance sims[level] under sims[level-1] over the coarse step dtc, recursing
@@ -923,7 +925,17 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
             if nest is finest and nest.step % interval == 0:
                 nest.tracker.update(nest.t, nest.state, nest.grid); SS._record(nest, initial)
         tgt_prev[level - 1] = tgt_next
-        if restrict_up:
+        if two_way:
+            # M3 phase-3a two-way feedback: inject the finer level's velocity+scalars back onto
+            # the coarse overlap (restrict_nest_to_parent), restoring the fine->coarse
+            # (vortex<->updraft) coupling.  Attempt G showed this raises the low-level rotation
+            # ~40-150% over one-way.  Opt-in; the default path below is byte-unchanged.
+            try:
+                restrict_nest_to_parent(nest, coarse, sp, mcx, mcy, float(coarse.t),
+                                        rate=two_way_rate)
+            except Exception:
+                pass
+        elif restrict_up:
             try:
                 conservative_restrict(nest, coarse, sp)       # scalar average-down (feedback up)
                 if restrict_momentum:
@@ -945,7 +957,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
     rep = SS._finalise(finest, initial)
     rep["nest"] = {"levels": len(specs), "dx_m": finest.grid.dx, "nz": finest.grid.nz,
                    "nx": finest.grid.nx, "ny": finest.grid.ny,
-                   "refine_per_level": [s.refine for s in specs],
+                   "refine_per_level": [s.refine for s in specs], "two_way": bool(two_way),
                    "total_refine": int(round(parent.grid.dx / finest.grid.dx))}
     return sims, rep
 
