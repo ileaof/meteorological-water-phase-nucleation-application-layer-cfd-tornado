@@ -263,16 +263,24 @@ Moore 2013).
 **Real-data run (Moore 2013 from ERA5).** Downloading the **real ERA5** environment for
 2013-05-20 20 UTC (CAPE 2053 J/kg, CIN −120, 0–6 km shear 27 m/s — real values) as the base
 state, a trigger breaks the cap, and the **3-level AMR cascade (1.25 km → 414 → 137 → 46 m,
-low-memory solver, GPU)** intensifies the rotation ~30× to **ζ ≈ 9.3×10⁻² s⁻¹** at 46 m — the
-funnel scale, from real observed data:
+low-memory solver, GPU)** develops a rotating storm from the real environment:
 
-![3-D storm-relative streamlines at 46 m from the real ERA5 Moore environment: a coherent low-level vortex column with updraft threads](docs/media/storm/moore_real_funnel_streamlines.png)
+![3-D storm-relative streamlines at 46 m from the real ERA5 Moore environment: a rotating updraft column](docs/media/storm/moore_real_funnel_streamlines.png)
 
 *(HRRR does not exist for 2013 — operational 2014-09-30 — so the gridded source is ERA5; the
-real KOUN sounding via IEM complements it.)* **Honest caveats hold:** a single trigger (a real
-supercell sustains via inflow), 46 m does not resolve the full vortex sub-structure, and the
-tornado **emerges** from the resolved dynamics — it is not imposed. The environment is real; the
-storm is idealised-triggered.
+real KOUN sounding via IEM complements it.)*
+
+> ⚠️ **Honest quantitative result (does NOT reproduce the tornado).** Compared to the real KTLX
+> radar below, the simulated storm is far weaker at low levels: the observed tornado‑vortex
+> signature is a tight 0.3 km couplet, **V_rot ≈ 26 m/s, Δv ≈ 52 m/s, vorticity ≈ 0.21 s⁻¹**,
+> whereas the sim's low‑level (460 m) rotation is **V_rot ≈ 3 m/s, ζ ≈ 0.026 s⁻¹** with **no
+> coherent low‑level vortex** (its peak ζ ≈ 0.09 s⁻¹ is at the ~14 km anvil, not a surface
+> funnel). Same *regime*, but the idealised **single‑bubble** trigger, the short integration,
+> and 46 m under‑resolving the 0.3 km TVS mean the low‑level tornado does **not** form here. The
+> tornado must **emerge** from sustained supercell dynamics + resolution — it is never imposed;
+> this is the honest edge, not a resolved tornado.
+>
+> ![Sim vs radar: observed KTLX velocity couplet (left) vs the simulated low-level vorticity (right), showing the sim is much weaker with no coherent low-level vortex](docs/media/storm/moore_sim_vs_radar.png)
 
 **Real radar validation (NEXRAD KTLX Level II).** The actual **KTLX Doppler volume of the Moore
 tornado** (2013-05-20 20:20:58 UTC) read via `deploy/wsl2_nexrad_moore.py` (Py‑ART + nexradaws
