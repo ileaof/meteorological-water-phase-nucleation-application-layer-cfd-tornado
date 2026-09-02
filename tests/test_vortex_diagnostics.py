@@ -79,10 +79,11 @@ def test_cpu_gpu_parity():
     for backend in (None, get_backend("gpu")):
         g = _grid(backend=backend)
         uc2, vc2, zeta2, xc, yc = _lamb_oseen(g)
+        ic, jc, cx, cy = vd.find_vortex_center(zeta2, g)      # exercises the GPU argmax path
         gam = vd.circulation(zeta2, g, (0, 0, xc, yc), radius_m=1600.0)
         vth, _, r = vd.tangential_radial(uc2, vc2, g, (0, 0, xc, yc))
         _, _, vmax, core = vd.tangential_profile(vth, r, g, r_max_m=1200.0, nbins=40)
-        res.append((gam, vmax, core))
+        res.append((cx, cy, gam, vmax, core))
     assert np.allclose(res[0], res[1], rtol=1e-4)
 
 

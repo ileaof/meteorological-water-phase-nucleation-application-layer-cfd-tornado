@@ -29,15 +29,16 @@ def find_vortex_center(zeta2d, grid, p2d=None, border_frac=1.0 / 6.0, sign=1):
     nx, ny = zeta2d.shape
     b = max(1, int(border_frac * nx))
     sub = (sign * zeta2d)[b:-b, b:-b]
-    ii, jj = np.unravel_index(int(np.asarray(xp.argmax(sub))), sub.shape)
+    ii, jj = np.unravel_index(int(grid.backend.to_cpu(xp.argmax(sub))), sub.shape)
     ic, jc = ii + b, jj + b
     if p2d is not None:                      # refine to the local p'-min within a small window
         w = max(2, nx // 12)
         i0, j0 = max(0, ic - w), max(0, jc - w)
         win = p2d[i0:ic + w + 1, j0:jc + w + 1]
-        di, dj = np.unravel_index(int(np.asarray(xp.argmin(win))), win.shape)
+        di, dj = np.unravel_index(int(grid.backend.to_cpu(xp.argmin(win))), win.shape)
         ic, jc = i0 + di, j0 + dj
-    xc = float(np.asarray(grid.xc)[ic]); yc = float(np.asarray(grid.yc)[jc])
+    xc = float(np.asarray(grid.backend.to_cpu(grid.xc))[ic])
+    yc = float(np.asarray(grid.backend.to_cpu(grid.yc))[jc])
     return ic, jc, xc, yc
 
 
