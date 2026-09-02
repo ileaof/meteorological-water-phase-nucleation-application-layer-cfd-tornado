@@ -84,6 +84,21 @@ def test_synthetic_sources_and_csv_readers():
     assert storm_events.read_storm_events(ep)[0]["ef_rating"] == "EF5"
 
 
+# ---- real radiosonde (IEM RAOB) parsing, offline --------------------------------
+def test_iem_raob_parser_handles_real_format_and_missing_winds():
+    import json
+    from atmospheric_data.sources import iem_raob
+    with open(os.path.join(os.path.dirname(__file__), "data", "sample_raob.json")) as f:
+        prof = iem_raob._to_si(json.load(f)["profiles"][0])
+    assert prof["station"] == "KOUN"
+    assert prof["height_m"][0] == pytest.approx(0.0)                # AGL, surface first
+    assert np.all(np.diff(prof["height_m"]) > 0)                   # ascending
+    assert np.all(np.isfinite(prof["u_ms"])) and np.all(np.isfinite(prof["v_ms"]))  # gaps filled
+    assert prof["pressure_Pa"][0] > prof["pressure_Pa"][-1]        # pressure decreases upward
+    # a westerly-veering profile -> the surface SE wind gives u<0 initially, u>0 aloft
+    assert prof["u_ms"][-1] > 0.0
+
+
 # ---- 7,8 interpolation (+ no silent extrapolation) ------------------------------
 def test_interpolation_horizontal_vertical_and_clamp():
     x = np.linspace(-1, 1, 5); y = np.linspace(-1, 1, 5)

@@ -1,0 +1,66 @@
+{
+ "profiles": [
+  {
+   "station": "KOUN",
+   "valid": "2013-05-21T00:00:00Z",
+   "profile": [
+    {
+     "pres": 964.0,
+     "hght": 362,
+     "tmpc": 22.4,
+     "dwpc": 18.6,
+     "drct": 160,
+     "sknt": 20
+    },
+    {
+     "pres": 850.0,
+     "hght": 1520,
+     "tmpc": 16.0,
+     "dwpc": 12.0,
+     "drct": 200,
+     "sknt": 35
+    },
+    {
+     "pres": 700.0,
+     "hght": 3160,
+     "tmpc": 6.0,
+     "dwpc": -4.0,
+     "drct": 240,
+     "sknt": 45
+    },
+    {
+     "pres": 500.0,
+     "hght": 5880,
+     "tmpc": -9.0,
+     "dwpc": -22.0,
+     "drct": 255,
+     "sknt": 60
+    },
+    {
+     "pres": 300.0,
+     "hght": 9640,
+     "tmpc": -38.0,
+     "dwpc": null,
+     "drct": 260,
+     "sknt": 75
+    },
+    {
+     "pres": 200.0,
+     "hght": 12400,
+     "tmpc": -54.0,
+     "dwpc": -70.0,
+     "drct": null,
+     "sknt": null
+    },
+    {
+     "pres": 100.0,
+     "hght": 16600,
+     "tmpc": -62.0,
+     "dwpc": -82.0,
+     "drct": 270,
+     "sknt": 40
+    }
+   ]
+  }
+ ]
+}
