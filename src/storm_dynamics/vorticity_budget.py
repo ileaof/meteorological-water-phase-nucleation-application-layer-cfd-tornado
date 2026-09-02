@@ -71,6 +71,23 @@ def tilting_Tzeta(uc, vc, wc, grid):
     return dwdx * dvdz - dwdy * dudz
 
 
+def baroclinic_horizontal_generation(rho, grid, g0=9.81):
+    """Hydrostatic baroclinic generation of **horizontal** vorticity from the density (cold-pool)
+    field: with the solenoidal term (1/rho^2) grad rho x grad p and hydrostatic
+    ``grad p ~ (0,0,-rho g)`` this is ``(-g/rho drho/dy, g/rho drho/dx)`` [1/s^2].
+
+    This is the cold pool's vorticity SOURCE -- the horizontal vorticity generated along the
+    buoyancy (density) gradient, which the updraft then TILTS into the vertical.  It is the
+    physically-meaningful baroclinic diagnostic for tornadogenesis: the *direct* vertical-vorticity
+    baroclinic term (:func:`budget_from_velocity`'s ``baroclinic``) vanishes under hydrostatic
+    balance, and needs the dynamic pressure which the low-memory anelastic solver does not persist
+    in ``state.p`` on large (nest) grids.  Computable from ``rho`` alone.  Returns (Gx, Gy, |G|)."""
+    xp = grid.xp
+    rx = grid._central_x(rho); ry = grid._central_y(rho)
+    Gx = -g0 * ry / rho; Gy = g0 * rx / rho
+    return Gx, Gy, xp.sqrt(Gx * Gx + Gy * Gy)
+
+
 def budget_from_velocity(uc, vc, wc, grid, *, rho=None, p=None, Km=None, f=0.0,
                          friction_force=None):
     """Vertical-vorticity budget term FIELDS from centred velocity (+ optional rho, p, Km).
@@ -165,5 +182,6 @@ def dominant_mechanism(terms, grid, z_lo=0.0, z_hi=1000.0):
 
 __all__ = [
     "horizontal_vorticity", "streamwise_crosswise", "tilting_Tzeta",
+    "baroclinic_horizontal_generation",
     "budget_from_velocity", "zeta_budget", "budget_layer_summary", "dominant_mechanism",
 ]

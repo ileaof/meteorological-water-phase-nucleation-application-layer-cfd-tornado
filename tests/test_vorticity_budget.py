@@ -113,6 +113,18 @@ def test_tendency_is_sum_of_terms():
     assert np.allclose(np.asarray(t["tendency"]), np.asarray(s), rtol=1e-10, atol=1e-14)
 
 
+def test_baroclinic_horizontal_generation():
+    g = _grid()
+    X, Y, Z = _mesh(g); xp = g.xp
+    rho0, drho, L = 1.1, 0.05, 3200.0
+    rho = rho0 + drho * (X - 1600.0) / L                 # drho/dx = drho/L, drho/dy = 0
+    Gx, Gy, Gmag = vb.baroclinic_horizontal_generation(rho, g)
+    # Gx = -g/rho drho/dy = 0 ; Gy = g/rho drho/dx = 9.81/rho * drho/L
+    assert np.allclose(_interior(Gx), 0.0, atol=1e-9)
+    expected = 9.81 / _interior(rho) * (drho / L)
+    assert np.allclose(_interior(Gy), expected, rtol=1e-3)
+
+
 def test_dominant_mechanism_picks_baroclinic():
     g = _grid()
     X, Y, Z = _mesh(g); xp = g.xp
