@@ -1,0 +1,46 @@
+# Moore 2013 -- REAL gridded data (ROADMAP §3a).  HRRR does NOT exist for 2013 (operational
+# 2014-09-30), so the atmospheric source is ERA5 (covers 1940-present).  Needs a CDS API key in
+# ~/.cdsapirc (see docs/ERA5_IMPORT.md / docs/WSL2_REAL_DATA.md).  NEXRAD KTLX validation needs
+# nexradaws + Py-ART (WSL2).  Run:
+#   python -m atmospheric_data preprocess    config/moore_2013_real.yaml   # downloads real ERA5
+#   python -m atmospheric_data run-case      config/moore_2013_real.yaml --multilevel
+#   python -m atmospheric_data compare-radar config/moore_2013_real.yaml   # real KTLX (WSL2)
+case:
+  name: moore_2013_real
+  date: "2013-05-20"
+  start_time_utc: "20:00"        # ~15:00 CDT, near the tornado (19:56-20:35 UTC)
+  end_time_utc: "21:00"
+
+domain:
+  center_lat: 35.34
+  center_lon: -97.49
+  width_km: 300
+  height_km: 20
+  projection: lambert_conformal
+
+data:
+  atmospheric_source: era5       # ERA5 -- the real source that covers 2013 (not HRRR)
+  fallback_source: synthetic     # only if no CDS key / offline
+  radar_station: KTLX
+  use_sounding: true             # real KOUN sounding via IEM (no credentials) complements it
+  use_metar: true
+  cache_directory: data/cache
+
+model:
+  execution_backend: auto
+  input_mode: real_case
+  parent_dx_m: 3000
+  nest_dx_m: 1000
+  fine_dx_m: 300
+  moving_nest: true
+
+processing:
+  output_format: netcdf4
+  interpolation: conservative
+  hydrostatic_adjustment: true
+  temporal_interpolation: linear
+
+validation:
+  radar: true
+  surface_stations: true
+  tornado_track: true

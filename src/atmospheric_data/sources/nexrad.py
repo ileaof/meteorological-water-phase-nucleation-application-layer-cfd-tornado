@@ -11,14 +11,20 @@ is in :mod:`atmospheric_data.radial`.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
-from .base import require, SourceUnavailable
+from .base import require, SourceUnavailable, optional_import
 
 
 def download(cfg, cache, when=None):
-    """Fetch the nearest Level II volume for the station/time from AWS (no creds)."""
-    import requests
+    """Fetch the nearest Level II volume for the station/time from the AWS archive.
+
+    The ``noaa-nexrad-level2`` bucket does NOT allow anonymous listing, so we use **nexradaws**
+    (``pip install nexradaws``) to query the archive and pick the scan nearest the case time --
+    the standard tool.  ``requests`` is the fallback only when the exact object key is known.
+    No credentials needed either way."""
     st = cfg.data.radar_station
     date = cfg.case.date.replace("-", "")
     hh = cfg.case.start_time_utc.split(":")[0].zfill(2)
@@ -27,20 +33,26 @@ def download(cfg, cache, when=None):
     cache.require_offline_ok("nexrad", key, ".ar2v")
     if cache.has("nexrad", key, ".ar2v"):
         return path
-    prefix = "%s/%s/%s/%s/%s" % (date[:4], date[4:6], date[6:8], st, st)  # list bucket
-    idx = ("https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=%s"
-           % ("/".join([date[:4], date[4:6], date[6:8], st, "%s%s_%s" % (st, date, hh)])))
-    r = requests.get(idx, timeout=60); r.raise_for_status()
-    import re
-    keys = re.findall(r"<Key>([^<]+)</Key>", r.text)
-    if not keys:
-        raise SourceUnavailable("no NEXRAD volume found for %s at %sZ" % (st, hh))
-    url = "https://noaa-nexrad-level2.s3.amazonaws.com/" + keys[0]
-    rr = requests.get(url, stream=True, timeout=180); rr.raise_for_status()
-    with open(path, "wb") as f:
-        for chunk in rr.iter_content(1 << 20):
-            f.write(chunk)
-    cache.record("nexrad", key, path, {"url": url})
+    nexradaws = optional_import("nexradaws")
+    if nexradaws is None:
+        raise SourceUnavailable(
+            "listing the NEXRAD archive needs 'nexradaws' (pip install nexradaws); the bucket "
+            "does not allow anonymous listing. Install it (works on WSL2) or place the .ar2v "
+            "file in the cache and run --offline.")
+    import datetime as dt
+    conn = nexradaws.NexradAwsInterface()
+    y, mo, d = int(date[:4]), int(date[4:6]), int(date[6:8])
+    start = dt.datetime(y, mo, d, int(hh), 0)
+    scans = conn.get_avail_scans(y, mo, d, st)
+    if not scans:
+        raise SourceUnavailable("no NEXRAD scans for %s on %s" % (st, cfg.case.date))
+    pick = min(scans, key=lambda s: abs((s.scan_time.replace(tzinfo=None) - start).total_seconds())
+               if s.scan_time else 1e18)
+    res = conn.download(pick, os.path.dirname(path))
+    got = res.success[0].filepath if getattr(res, "success", None) else pick.filename
+    if os.path.abspath(got) != os.path.abspath(path):
+        import shutil; shutil.copy(got, path)
+    cache.record("nexrad", key, path, {"scan": pick.filename})
     return path
 
 
