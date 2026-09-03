@@ -464,6 +464,37 @@ are short runs on a modest horizontal mesh and V_sfc ≈ 3 m s⁻¹, far from th
 and persistence criteria in `classification.py`. What is now established is that the model *can*
 carry rotation to the lowest resolved level with physical drag — the mechanism that was blocked.
 
+### Attempt K — everything combined: the profile INVERTS (surface-intensified)
+
+`scratchpad/tornado_intensity_gpu.py`. All the arc's results in one run: the **freely-evolving**
+supercell (correct geometry, I) + **stress-divergence + log-law** drag (the closure fix) + a nest
+that resolves the **surface layer vertically** (dz₁ = 5.1 m, vs 40 m on the parent) + the **moving
+nest** (30 re-centrings, so the vortex cannot drift out). The vertical CFL forbids a fine
+near-surface parent for a 45-min maturation (dz₁ ≈ 4 m ⇒ dt ≈ 0.05 s), so the surface layer is
+refined only inside the nest — verified to work across the interface.
+
+| z | 5.1 m | 52.8 m | 203 m | 522 m | 968 m | 1462 m |
+|---|---|---|---|---|---|---|
+| **V_rot** | **7.76** | 7.54 | 6.94 | 6.40 | 5.56 | 6.71 |
+| \|ζ\| (10⁻²) | 3.60 | 3.66 | 3.89 | 4.28 | 4.34 | 4.95 |
+
+**The profile has inverted.** V_rot is now **maximum at the lowest resolved level and decreases
+upward** — against Attempt J's elevated profile (2.7 at 40 m rising to 7.7 at 1.5 km). Surface V_rot
+is **2.9× Attempt J's** and the largest near-surface value in the study; the criterion reports
+surface-connected. The structural chain — free evolution → aligned streamwise geometry → physical
+surface closure → resolved corner-flow layer → rotation carried to the ground — is now complete.
+
+**Still not a tornado, and two honest caveats:**
+- **Intensity**: V_sfc ≈ 7.8 m s⁻¹ is ~30 % of the observed 26; the classifier still returns
+  `LOW_LEVEL_MESOCYCLONE` (the intensity/pressure-deficit/persistence criteria are unmet), on a
+  67 m horizontal mesh over a 200 s window.
+- **A diagnostic bug was caught and fixed here.** The run first reported V_rot = 37.9 at the surface
+  (ratio 1.00) — an artifact: `surface_connection_report` used a `nx//6` interior margin that reaches
+  into the nest's boundary-relaxation zone. Independent checks contradicted it (|ζ| barely changed
+  with height, Δp = 0, `vortex_report` gave V_θ = 12). The margin is now `border_frac = 0.2` and the
+  honest value is **7.76**. *(Δp remains unusable on nests: the low-memory solver does not persist
+  `state.p` — the pressure field's horizontal spread is exactly 0, as first noted in Attempt H.)*
+
 *(Caveat: comparisons **across** the coarse/fine groups are indicative — `z_stretch` redistributes
 all levels, so V_aloft differs (2.4–3.7 vs ~10). Comparisons **within** the fine group are clean.)*
 

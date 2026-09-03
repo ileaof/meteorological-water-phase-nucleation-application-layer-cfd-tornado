@@ -133,17 +133,22 @@ def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500
 
 
 def surface_connection_report(state, grid, storm_motion=(0.0, 0.0),
-                              z_levels=(50.0, 200.0, 500.0, 1000.0, 1500.0), radius_m=1000.0):
+                              z_levels=(50.0, 200.0, 500.0, 1000.0, 1500.0), radius_m=1000.0,
+                              border_frac=0.2):
     """Is the vortex SURFACE-CONNECTED or ELEVATED?  Returns V_rot and peak |zeta| on a height
     ladder (interior only), the **surface-to-aloft ratio** (>1 ⇒ surface-intensified/descending,
     <1 ⇒ elevated), the near-surface convergence at the vortex, and — as the spec requires — the
     **first cell-centre height**, so ground contact is never claimed at a height the mesh cannot
-    resolve."""
+    resolve.
+
+    ``border_frac`` sets the interior margin excluded from the search.  It must be generous enough to
+    stay outside a nest's boundary-relaxation zone: a too-narrow margin picks up boundary-contaminated
+    cells and reports a spuriously huge near-surface V_rot (observed: 37.9 vs the true ~9.0)."""
     xp = grid.xp
     zc = np.asarray(grid.backend.to_cpu(grid.zc))
     uc, vc, wc = _centered_velocity(state, grid)
     zeta3 = vertical_vorticity(state, grid)
-    nb = max(2, grid.nx // 6)
+    nb = max(2, int(border_frac * grid.nx))
     prof = []
     for zt in z_levels:
         k = int(np.argmin(np.abs(zc - zt)))
