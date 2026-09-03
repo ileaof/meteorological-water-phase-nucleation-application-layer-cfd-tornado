@@ -875,7 +875,8 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         record_interval=None, restrict_up=True, restrict_momentum=False,
                         two_way=False, two_way_rate=0.5, storm_motion=(0.0, 0.0),
                         follow_interval=None, follow_field="uh", follow_frac=0.5,
-                        follow_filter=0.5, progress=None, sample=None):
+                        follow_filter=0.5, follow_z_lo=0.0, follow_z_hi=6000.0,
+                        progress=None, sample=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
     ``specs`` is the nest hierarchy: ``specs[0]`` a sub-region of the parent, ``specs[1]``
@@ -962,7 +963,8 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
         if follow_interval and nstep % follow_interval == 0:
             for k in range(1, len(sims)):
                 ns = follow_spec(specs[k - 1], sims[k - 1], field=follow_field,
-                                 frac=follow_frac, alpha=follow_filter)
+                                 frac=follow_frac, alpha=follow_filter,
+                                 z_lo=follow_z_lo, z_hi=follow_z_hi)
                 if ns is None:
                     continue
                 try:
@@ -1056,7 +1058,7 @@ def regrid_spec(parent, refine: int = 3, field: str = "uh", frac: float = 0.5,
 
 
 def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5,
-                alpha: float = 0.5, min_move: int = 1):
+                alpha: float = 0.5, min_move: int = 1, z_lo: float = 0.0, z_hi: float = 6000.0):
     """**Moving-nest footprint**: the same-size nest box re-centred on the tracked rotation, with
     an exponentially **FILTERED trajectory** so the mesh does not oscillate (ROADMAP §2a / the
     moving-domain requirement).
@@ -1068,7 +1070,13 @@ def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5
     filtered move is below ``min_move`` coarse cells (avoids churn).
     """
     pg = coarse.grid
-    box = cluster_to_box(tag_cells(coarse.state, pg, field=field, frac=frac), margin=0)
+    # ``z_lo``/``z_hi`` bound the layer the tracker looks at.  The default column-max is
+    # dominated by the MID-LEVEL mesocyclone, which sits offset from the surface circulation --
+    # so a nest chasing it can leave the near-surface vortex outside a small fine domain
+    # entirely (measured: |zeta| 0.002 on a 2 km / 22 m nest against 0.238 on its 67 m parent).
+    # For a surface-vortex study, restrict the tracker to the low levels.
+    box = cluster_to_box(tag_cells(coarse.state, pg, field=field, frac=frac,
+                                   z_lo=z_lo, z_hi=z_hi), margin=0)
     if box is None:
         return None
     ti0, tj0, tncx, tncy = box

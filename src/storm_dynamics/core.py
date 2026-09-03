@@ -102,11 +102,19 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
     entirely on the device (cuFFT / cupyx DCT + batched Thomas) with **no host round-trip**;
     the non-separable Jacobi-CG fallback is scipy/host-only, so it round-trips.
 
-    When ``dt`` is given the perturbation pressure is **persisted to ``st.p``** (as ``phi/dt``,
-    the direct solver's convention), so pressure-based diagnostics -- the vortex pressure
-    deficit and the classifier tiers that depend on it -- work on a low-memory nest exactly as
-    they do on a directly-solved parent.  Without it ``st.p`` would keep its stale value and
-    every deficit would read as identically zero."""
+    When ``dt`` is given the projection pressure is persisted to **``st.p_dyn``** (as ``phi/dt``,
+    the direct solver's convention for ``p``), so pressure-based diagnostics -- the vortex
+    pressure deficit above all -- work on a low-memory nest, where ``st.p`` would otherwise keep
+    a stale value and every deficit would read identically zero.
+
+    It is deliberately **NOT** written to ``st.p``: ``FlowState.diagnose`` forms
+    ``P_total = P_base + p``, which sets T, the vapour pressure and the whole saturation /
+    microphysics path -- ``st.p`` is prognostic in effect, not diagnostic.  On a NEST the
+    projection must also absorb the imbalance of the imposed lateral inflow, so ``phi`` carries a
+    large boundary-driven component (measured: nest ``p`` spread ~2.2e3 Pa against a parent's
+    ~5 Pa).  Feeding that into the thermodynamics destabilises the microphysics -- it produced a
+    NaN blow-up on the first step of a 22 m cascade.  Keeping it in a separate field leaves the
+    nest's evolution byte-identical while still exposing the pressure to diagnostics."""
     to_cpu = grid.backend.to_cpu
     xp = grid.xp
     zc = np.asarray(to_cpu(grid.zc), float); zf = np.asarray(to_cpu(grid.zf), float)
@@ -122,7 +130,7 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
                     periodic_h=periodic_h, return_phi=keep_p) # modifies st.{u,v,w} in place
         if keep_p:
             res, phi = out
-            st.p = phi / float(dt)                            # stays on the device
+            st.p_dyn = phi / float(dt)                        # stays on the device
             return float(res)
         return float(out)
     u = np.ascontiguousarray(to_cpu(st.u), float)             # host path (CPU, or the
@@ -136,7 +144,7 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
     out = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h, return_phi=keep_p)
     if keep_p:
         res, phi = out
-        st.p = xp.asarray(phi / float(dt))
+        st.p_dyn = xp.asarray(phi / float(dt))
     else:
         res = out
     st.u = xp.asarray(u); st.v = xp.asarray(v); st.w = xp.asarray(w)

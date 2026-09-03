@@ -129,8 +129,21 @@ def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500
     uc, vc, wc = _centered_velocity(state, grid)
     uc2 = uc[:, :, k]; vc2 = vc[:, :, k]
     zeta2 = vertical_vorticity(state, grid)[:, :, k]
-    p2 = getattr(state, "p", None)
+    # Prefer the projection pressure stored by the low-memory solver (``p_dyn``, present on
+    # nests); fall back to ``state.p``, which the direct solver sets on a parent.  ``p_dyn`` is
+    # kept out of ``state.p`` on purpose -- see _project_anelastic_lowmem: ``p`` feeds P_total
+    # and hence the thermodynamics, so writing a nest's boundary-influenced projection pressure
+    # there changes the run instead of merely reporting on it.
+    p2 = getattr(state, "p_dyn", None)
+    if p2 is None:
+        p2 = getattr(state, "p", None)
     p2 = p2[:, :, k] if p2 is not None else None
+    # A CONSTANT pressure field carries no information -- it means the solver never wrote one
+    # (a nest's stale zeros, or a level freshly rebuilt by regrid_nest that has not stepped yet).
+    # Report that as "unmeasured" (NaN), never as a deficit of 0.0, which would read as a real
+    # measurement and quietly pass through into the classification.
+    if p2 is not None and float(xp.max(p2) - xp.min(p2)) == 0.0:
+        p2 = None
     center = find_vortex_center(zeta2, grid, p2d=p2, border_frac=border_frac)
     gamma = circulation(zeta2, grid, center, radius_m)
     vth, vrad, r = tangential_radial(uc2, vc2, grid, center, storm_motion)

@@ -1,9 +1,13 @@
 """The low-memory anelastic projection must PERSIST the perturbation pressure.
 
 The FFT/tridiag and Jacobi-CG solvers computed the pressure potential ``phi`` and threw it away,
-so on any grid large enough to route through them (every fine nest) ``state.p`` kept a stale value.
-Every pressure-based diagnostic then read a deficit of exactly zero -- which silently disables the
-vortex pressure deficit and the classifier tiers that depend on it.
+so on any grid large enough to route through them (every fine nest) the pressure was unavailable
+and every deficit read exactly zero -- silently disabling the vortex pressure deficit.
+
+It is stored as ``state.p_dyn``, NOT ``state.p``: ``diagnose`` forms ``P_total = P_base + p``, so
+``p`` drives T, the vapour pressure and the microphysics.  A nest's projection also absorbs the
+imposed lateral inflow's imbalance, making phi large there; writing that into ``p`` blew a 22 m
+cascade up with NaNs on its first step.  ``p_dyn`` reports the pressure without touching the run.
 
 The two paths use different conventions (direct corrects ``u -= (dt/rho0) grad(p)``, low-memory
 ``u -= grad(phi)/rho0``), so the stored pressure is ``p = phi/dt``.  Poisson with these BCs fixes
@@ -55,7 +59,7 @@ def test_lowmem_projection_persists_a_nonuniform_pressure():
     st.p = np.zeros(g.center_shape)
     res = _project_anelastic_lowmem(st, g, rc, rw, dt=2.0)
     assert res < 1e-8                                    # still a valid projection
-    p = np.asarray(g.backend.to_cpu(st.p))
+    p = np.asarray(g.backend.to_cpu(st.p_dyn))
     assert p.shape == tuple(g.center_shape)
     assert np.isfinite(p).all()
     assert float(p.std()) > 1e-6                         # the bug: this was exactly 0
@@ -68,6 +72,18 @@ def test_dt_omitted_leaves_pressure_untouched():
     res = _project_anelastic_lowmem(st, g, rc, rw)
     assert isinstance(res, float) and res < 1e-8
     assert np.array_equal(np.asarray(g.backend.to_cpu(st.p)), np.full(g.center_shape, 7.0))
+    assert getattr(st, "p_dyn", None) is None
+
+
+def test_prognostic_pressure_is_never_touched():
+    """THE regression guard.  state.p feeds P_total -> T -> saturation -> microphysics, so the
+    projection pressure must land in p_dyn and leave the run's evolution byte-identical.  Writing
+    it into state.p NaN-ed a 22 m cascade on its first step."""
+    g, st, rc, rw = _setup()
+    st.p = np.full(g.center_shape, 7.0)
+    _project_anelastic_lowmem(st, g, rc, rw, dt=2.0)
+    assert np.array_equal(np.asarray(g.backend.to_cpu(st.p)), np.full(g.center_shape, 7.0))
+    assert float(np.asarray(g.backend.to_cpu(st.p_dyn)).std()) > 1e-6
 
 
 def test_lowmem_pressure_matches_the_direct_solver():
@@ -79,7 +95,7 @@ def test_lowmem_pressure_matches_the_direct_solver():
     _project_anelastic_lowmem(st_a, g, rc, rw, dt=dt)
     solver = PressureSolver(g, method=_pressure_method(g))
     solver.project_anelastic(st_b, dt, np.asarray(rc), np.asarray(rw))
-    pa = np.asarray(g.backend.to_cpu(st_a.p)); pb = np.asarray(g.backend.to_cpu(st_b.p))
+    pa = np.asarray(g.backend.to_cpu(st_a.p_dyn)); pb = np.asarray(g.backend.to_cpu(st_b.p))
     pa -= pa.mean(); pb -= pb.mean()                     # remove the gauge
     scale = max(float(np.abs(pb).max()), 1e-30)
     assert np.abs(pa - pb).max() / scale < 1e-6
@@ -97,7 +113,7 @@ def test_pressure_scales_inversely_with_dt():
     for dt in (1.0, 2.0):
         g, st, rc, rw = _setup()
         _project_anelastic_lowmem(st, g, rc, rw, dt=dt)
-        p = np.asarray(g.backend.to_cpu(st.p)); out[dt] = p - p.mean()
+        p = np.asarray(g.backend.to_cpu(st.p_dyn)); out[dt] = p - p.mean()
     assert np.abs(out[1.0] - 2.0 * out[2.0]).max() < 1e-8 * max(1.0, np.abs(out[1.0]).max())
 
 
@@ -108,7 +124,7 @@ def test_nonseparable_iterative_path_also_persists_pressure():
     assert core.separable(g) or True                     # path chosen by the grid, either is fine
     st.p = np.zeros(g.center_shape)
     _project_anelastic_lowmem(st, g, rc, rw, dt=2.0)
-    p = np.asarray(g.backend.to_cpu(st.p))
+    p = np.asarray(g.backend.to_cpu(st.p_dyn))
     assert np.isfinite(p).all() and float(p.std()) > 1e-6
 
 
@@ -117,7 +133,7 @@ def test_pressure_deficit_is_measurable_after_a_lowmem_projection():
     g, st, rc, rw = _setup()
     st.p = np.zeros(g.center_shape)
     _project_anelastic_lowmem(st, g, rc, rw, dt=2.0)
-    p2 = np.asarray(g.backend.to_cpu(st.p))[:, :, 0]
+    p2 = np.asarray(g.backend.to_cpu(st.p_dyn))[:, :, 0]
     ddef = vd.pressure_deficit(p2, g)
     assert np.isfinite(ddef) and ddef < 0.0              # a minimum is below the edge ambient
 

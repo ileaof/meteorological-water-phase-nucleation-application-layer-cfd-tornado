@@ -68,35 +68,71 @@ base_sr = BaseState(zc=b.zc, theta0=b.theta0, qv0=b.qv0, p0=b.p0, T0=b.T0, rho0=
 sim = StormSimulation(scfg, base=base_sr); sim.state.diagnose(sim.cfg)
 
 T_MAT = 2800.0
-log("maturing the freely-evolving supercell to its low-level-meso peak ...")
-while sim.t < T_MAT:
-    dt = float(sim._dt()); sim._step(dt); sim.step += 1; sim.t = float(sim.state.t)
-    if sim.step % 400 == 0:
-        w = np.asarray(sim.grid.backend.to_cpu(sim.state.w))
-        if not np.isfinite(w).all():
-            log("  instability at t=%.0f -> stop" % sim.t); break
-        sim.state.diagnose(sim.cfg)
-        log("  parent t=%4.0f w_max=%5.1f align=%+.3f" % (sim.t, w.max(), low_align(sim)))
+# The maturation is 13 minutes of identical work on every attempt, and the cascade is what is
+# actually being varied -- cache the matured parent so a failed cascade can be retried cheaply.
+CACHE = os.path.join(REPO, "outputs", "parent_matured_%d_%d_%d.npz" % (nx, nz, int(T_MAT)))
+
+def _state_arrays(st):
+    return {k: v for k, v in vars(st).items() if isinstance(v, (np.ndarray,))
+            or type(v).__module__.split(".", 1)[0] == "cupy"}
+
+if os.path.exists(CACHE):
+    z = np.load(CACHE)
+    xpn = sim.grid.xp
+    for k in z.files:
+        if k == "_t":
+            continue
+        setattr(sim.state, k, xpn.asarray(z[k]))
+    sim.t = float(z["_t"][0]); sim.state.t = sim.t
+    sim.state.diagnose(sim.cfg)
+    log("loaded cached matured parent t=%.0f from %s" % (sim.t, os.path.basename(CACHE)))
+else:
+    log("maturing the freely-evolving supercell to its low-level-meso peak ...")
+    while sim.t < T_MAT:
+        dt = float(sim._dt()); sim._step(dt); sim.step += 1; sim.t = float(sim.state.t)
+        if sim.step % 400 == 0:
+            w = np.asarray(sim.grid.backend.to_cpu(sim.state.w))
+            if not np.isfinite(w).all():
+                log("  instability at t=%.0f -> stop" % sim.t); break
+            sim.state.diagnose(sim.cfg)
+            log("  parent t=%4.0f w_max=%5.1f align=%+.3f" % (sim.t, w.max(), low_align(sim)))
+    tc = sim.grid.backend.to_cpu
+    np.savez_compressed(CACHE, _t=np.array([sim.t]),
+                        **{k: np.asarray(tc(v)) for k, v in _state_arrays(sim.state).items()})
+    log("cached matured parent -> %s" % os.path.basename(CACHE))
 
 to = sim.grid.backend.to_cpu; uc, vc, _ = rot._centered_velocity(sim.state, sim.grid)
 uc = np.asarray(to(uc)); vc = np.asarray(to(vc)); zcp = np.asarray(to(sim.grid.zc))
-kk = int(np.argmin(np.abs(zcp - 500))); nbp = nx // 6
-zl = np.abs(np.gradient(vc[:, :, kk], sim.grid.dx, axis=0) - np.gradient(uc[:, :, kk], sim.grid.dy, axis=1))
-im, jm = np.unravel_index(np.argmax(zl[nbp:-nbp, nbp:-nbp]), zl[nbp:-nbp, nbp:-nbp].shape); im += nbp; jm += nbp
-mx, my = float(sim.grid.xc[im]), float(sim.grid.yc[jm])
-log("PARENT matured: w_max=%.1f align=%+.3f meso@(%.1f,%.1f)km" %
-    (float(np.abs(np.asarray(to(sim.state.w))).max()), low_align(sim), mx / 1e3, my / 1e3))
+nbp = nx // 6
+def _zeta_peak_xy(z_target):
+    """(x, y) of the interior |zeta| maximum at the level nearest z_target, on the parent."""
+    k = int(np.argmin(np.abs(zcp - z_target)))
+    zl = np.abs(np.gradient(vc[:, :, k], sim.grid.dx, axis=0)
+                - np.gradient(uc[:, :, k], sim.grid.dy, axis=1))
+    a, bq = np.unravel_index(np.argmax(zl[nbp:-nbp, nbp:-nbp]), zl[nbp:-nbp, nbp:-nbp].shape)
+    a += nbp; bq += nbp
+    return float(sim.grid.xc[a]), float(sim.grid.yc[bq]), float(zl[a, bq])
+
+mx, my, zmid = _zeta_peak_xy(500.0)          # mid-level mesocyclone (what J and K centred on)
+sx, sy, zsfc = _zeta_peak_xy(100.0)          # the LOW-LEVEL circulation -- the target here
+sep_km = float(np.hypot(sx - mx, sy - my)) / 1e3
+log("PARENT matured: w_max=%.1f align=%+.3f | meso(500m)@(%.1f,%.1f)km zeta=%.3f | "
+    "low-level(100m)@(%.1f,%.1f)km zeta=%.3f | SEPARATION %.2f km" %
+    (float(np.abs(np.asarray(to(sim.state.w))).max()), low_align(sim), mx / 1e3, my / 1e3, zmid,
+     sx / 1e3, sy / 1e3, zsfc, sep_km))
+# Centre EVERY level on the low-level circulation.  Centring the finer levels on their parent
+# grid's geometric centre (i.e. on the mid-level meso) left the 2 km / 22 m nest looking at quiet
+# air -- |zeta| 0.002 against 0.238 on its own 67 m parent.  The surface vortex is the subject of
+# this run, so it is what the mesh must be placed on.
 
 # ---- 3-level MOVING cascade 600 -> 200 -> 67 -> 22 m, surface layer resolved on every nest ----
-NCX = [22, 22, 30]              # parent cells covered per level; the finest is WIDER (2.0 km) so a
+LEVELS = int(os.environ.get("LEVELS", 3))   # 3 -> 22 m finest; 2 reproduces Attempt K's 67 m
+NCX = [22, 22, 30][:LEVELS]     # parent cells covered per level; the finest is WIDER (2.0 km) so a
 NEST_NZ = 64; NEST_ZS = 1.077   # 0.3 km core plus its inflow fits inside the 0.2 interior margin
 def mkspec(i):
     def build(gg):
-        if i == 0:
-            ic = int(np.argmin(np.abs(np.asarray(gg.backend.to_cpu(gg.xc)) - mx)))
-            jc = int(np.argmin(np.abs(np.asarray(gg.backend.to_cpu(gg.yc)) - my)))
-        else:
-            ic, jc = gg.nx // 2, gg.ny // 2
+        ic = int(np.argmin(np.abs(np.asarray(gg.backend.to_cpu(gg.xc)) - sx)))
+        jc = int(np.argmin(np.abs(np.asarray(gg.backend.to_cpu(gg.yc)) - sy)))
         n = NCX[i]
         i0 = int(np.clip(ic - n // 2, 1, gg.nx - n - 1)); j0 = int(np.clip(jc - n // 2, 1, gg.ny - n - 1))
         return nst.NestSpec.aligned(gg, i0=i0, j0=j0, ncx=n, ncy=n, refine=3,
@@ -105,39 +141,64 @@ def mkspec(i):
 
 WIN = float(os.environ.get("WIN", 240.0))
 SAMPLE_EVERY = 4                              # parent steps between diagnostic samples
+# ONE physical radius for every level: the finest domain is 2.0 km and the 0.2 interior margin
+# leaves ~1.2 km, so 400 m fits inside every level's trusted interior.  Keeping it fixed is what
+# makes "same storm, same instant, only dx differs" true.
+CMP_RADIUS_M = 400.0
 series = []
 _state = {"n": 0}
 
+def _diag_level(sim_l, t):
+    """Diagnose ONE nest level.  The measurement radius is the SAME PHYSICAL LENGTH on every
+    level -- that is what makes the cross-level comparison a controlled experiment.
+
+    (First version scaled the radius to each level's own domain, which silently broke the
+    comparison: V_rot is the peak deviation within the radius, so a larger radius sweeps in more
+    of the broad flow and reports a larger "rotation" for purely geometric reasons.)"""
+    g = sim_l.grid
+    z1 = float(np.asarray(g.backend.to_cpu(g.zc))[0])
+    width = float(g.dx) * g.nx
+    rad = CMP_RADIUS_M
+    sc = vd.surface_connection_report(sim_l.state, g, border_frac=BORDER, radius_m=rad)
+    vr = vd.vortex_report(sim_l.state, g, z_m=max(20.0, z1), border_frac=BORDER, radius_m=rad)
+    return {"t": float(t), "dx_m": float(g.dx), "z1_m": z1, "width_km": width / 1e3,
+            "radius_m": rad,
+            "v_rot_sfc": sc["profile"][0]["v_rot_m_s"],
+            "zeta_sfc": sc["profile"][0]["zeta_max_s"],
+            "ratio": sc["surface_aloft_ratio"], "connected": bool(sc["surface_connected"]),
+            "conv": sc["near_surface_convergence_s"],
+            "v_theta": vr.get("v_theta_max_m_s"), "dP": vr.get("pressure_deficit_Pa"),
+            "circ": vr.get("circulation_m2_s"), "core_m": vr.get("core_radius_m")}
+
+
 def sample(sims, t):
-    """Persistence tracking: measure the live finest level as it evolves (new `sample` hook)."""
+    """Persistence tracking on EVERY nest level (new `sample` hook).
+
+    Diagnosing all levels at the same instant turns the run into a controlled resolution
+    experiment: identical storm, identical time, only dx differs.  That is the direct test of
+    whether a finer horizontal mesh intensifies the surface vortex -- the open question left by
+    Attempt K, which could only compare across separate runs."""
     _state["n"] += 1
     if _state["n"] % SAMPLE_EVERY:
         return
-    f = sims[-1]; g = f.grid
     try:
-        z1 = float(np.asarray(g.backend.to_cpu(g.zc))[0])
-        sc = vd.surface_connection_report(f.state, g, border_frac=BORDER)
-        vr = vd.vortex_report(f.state, g, z_m=max(20.0, z1), border_frac=BORDER)
-        rec = {"t": float(t), "dx_m": float(g.dx), "z1_m": z1,
-               "v_rot_sfc": sc["profile"][0]["v_rot_m_s"],
-               "zeta_sfc": sc["profile"][0]["zeta_max_s"],
-               "ratio": sc["surface_aloft_ratio"], "connected": bool(sc["surface_connected"]),
-               "v_theta": vr.get("v_theta_max_m_s"), "dP": vr.get("pressure_deficit_Pa"),
-               "circ": vr.get("circulation_m2_s"), "core_m": vr.get("core_radius_m")}
-        series.append(rec)
-        log("  t=%5.1f dx=%4.0fm V_sfc=%5.2f zeta=%.3f ratio=%.2f Vth=%5.2f dP=%7.1f core=%5.0fm" %
-            (t, g.dx, rec["v_rot_sfc"], rec["zeta_sfc"], rec["ratio"], rec["v_theta"] or 0,
-             rec["dP"] if rec["dP"] == rec["dP"] else 0.0, rec["core_m"] or 0))
+        recs = [_diag_level(s, t) for s in sims[1:]]
+        series.append(recs)
+        log("  t=%5.1f | " % t + " | ".join(
+            "dx=%4.0fm V_sfc=%5.2f z=%.3f r=%.2f dP=%7.1f core=%4.0fm" %
+            (r["dx_m"], r["v_rot_sfc"], r["zeta_sfc"], r["ratio"],
+             r["dP"] if r["dP"] == r["dP"] else float("nan"), r["core_m"] or 0) for r in recs))
         json.dump(series, open(os.path.join(OUT, "series.json"), "w"), indent=1)
     except Exception as e:
         log("  sample error t=%.1f: %r" % (t, e))
 
-log("MOVING cascade 600->200->67->22 m (NCX=%s), nests nz=%d z_stretch=%.3f, window %.0fs"
-    % (NCX, NEST_NZ, NEST_ZS, WIN))
-sims, rep = nst.run_multilevel_nest(sim, [mkspec(0), mkspec(1), mkspec(2)], window=WIN,
+log("MOVING cascade %d levels (NCX=%s), nests nz=%d z_stretch=%.3f, window %.0fs"
+    % (LEVELS, NCX, NEST_NZ, NEST_ZS, WIN))
+sims, rep = nst.run_multilevel_nest(sim, [mkspec(i) for i in range(LEVELS)], window=WIN,
                                     restrict_up=True, restrict_momentum=True,
                                     follow_interval=8, follow_field="zeta", follow_frac=0.4,
-                                    follow_filter=0.5, les_boost=1.5, cfl=0.2, sample=sample,
+                                    follow_filter=0.5, follow_z_lo=0.0, follow_z_hi=1500.0,
+                                    les_boost=1.5, cfl=0.2, sample=sample,
                                     progress=lambda t, w, s: log("  finest t=%5.1f/%.0f step=%d" % (t, w, s))
                                     if s % 400 == 0 else None)
 finest = sims[-1]; ng = finest.grid; to = ng.backend.to_cpu
@@ -154,11 +215,12 @@ log("fields saved; finest dx=%.1fm dz1=%.2fm nest_moves=%d" %
 scon, vrep, crep, category, align_f = {}, {}, {}, "n/a", 0.0
 try:
     z1 = max(20.0, float(zcn[0]))
-    scon = vd.surface_connection_report(finest.state, ng, border_frac=BORDER)
+    _rad = CMP_RADIUS_M
+    scon = vd.surface_connection_report(finest.state, ng, border_frac=BORDER, radius_m=_rad)
     for p in scon["profile"]:
         log("  z=%7.2fm  V_rot=%5.2f  |zeta|=%.2e  [%d cells from edge]" %
             (p["z_m"], p["v_rot_m_s"], p["zeta_max_s"], p["edge_cells"]))
-    vrep = vd.vortex_report(finest.state, ng, z_m=z1, border_frac=BORDER)
+    vrep = vd.vortex_report(finest.state, ng, z_m=z1, border_frac=BORDER, radius_m=_rad)
     crep = cp.coldpool_report(finest.state, ng, z_m=z1)
     category = cl.classify_simulation(finest, z_surface_m=z1)["category"]
     align_f = low_align(finest)
@@ -169,20 +231,42 @@ try:
 except Exception as e:
     log("diagnostics error (fields saved): %r" % e)
 
-# persistence: how long the surface vortex held, and its peak
+# persistence + the resolution comparison, per level (series entries are one list per sample)
 pers = {}
 if series:
-    con = [s for s in series if s["connected"]]
-    pers = {"samples": len(series), "connected_samples": len(con),
-            "connected_fraction": len(con) / len(series),
-            "peak_v_rot_sfc": max(s["v_rot_sfc"] for s in series),
-            "mean_v_rot_sfc": float(np.mean([s["v_rot_sfc"] for s in series])),
-            "peak_zeta_sfc": max(s["zeta_sfc"] for s in series),
-            "min_dP_Pa": min((s["dP"] for s in series if s["dP"] == s["dP"]), default=float("nan")),
-            "span_s": series[-1]["t"] - series[0]["t"]}
-    log("PERSISTENCE: %d samples over %.0fs | connected %.0f%% | peak V_sfc=%.2f peak zeta=%.3f "
-        "min dP=%.1f Pa" % (pers["samples"], pers["span_s"], 100 * pers["connected_fraction"],
-                            pers["peak_v_rot_sfc"], pers["peak_zeta_sfc"], pers["min_dP_Pa"]))
+    nlev = len(series[0])
+    for li in range(nlev):
+        col = [s[li] for s in series if len(s) > li]
+        con = [c for c in col if c["connected"]]
+        dxl = col[0]["dx_m"]
+        # longest CONSECUTIVE connected run -> the honest persistence time
+        best = cur = 0.0
+        for a, c in zip(col, col[1:]):
+            cur = cur + (c["t"] - a["t"]) if c["connected"] else 0.0
+            best = max(best, cur)
+        pers["dx_%.0fm" % dxl] = {
+            "dx_m": dxl, "width_km": col[0]["width_km"], "samples": len(col),
+            "connected_fraction": len(con) / max(1, len(col)),
+            "longest_connected_s": best,
+            "peak_v_rot_sfc": max(c["v_rot_sfc"] for c in col),
+            "mean_v_rot_sfc": float(np.mean([c["v_rot_sfc"] for c in col])),
+            "peak_zeta_sfc": max(c["zeta_sfc"] for c in col),
+            "peak_v_theta": max((c["v_theta"] or 0) for c in col),
+            "min_dP_Pa": min((c["dP"] for c in col if c["dP"] == c["dP"]), default=float("nan")),
+            "span_s": col[-1]["t"] - col[0]["t"]}
+        p = pers["dx_%.0fm" % dxl]
+        log("PERSISTENCE dx=%4.0fm (%.1fkm dom): %d samples/%.0fs | connected %.0f%% "
+            "(longest run %.0fs) | peak V_sfc=%.2f Vth=%.2f zeta=%.3f | min dP=%.1f Pa"
+            % (dxl, p["width_km"], p["samples"], p["span_s"], 100 * p["connected_fraction"],
+               p["longest_connected_s"], p["peak_v_rot_sfc"], p["peak_v_theta"],
+               p["peak_zeta_sfc"], p["min_dP_Pa"]))
+    fine = pers.get("dx_%.0fm" % series[0][-1]["dx_m"], {})
+    coarse = pers.get("dx_%.0fm" % series[0][0]["dx_m"], {})
+    if fine and coarse and coarse.get("peak_v_rot_sfc"):
+        log("RESOLUTION EFFECT (same storm, same instants): peak V_sfc %.2f at dx=%.0fm vs "
+            "%.2f at dx=%.0fm -> x%.2f"
+            % (fine["peak_v_rot_sfc"], fine["dx_m"], coarse["peak_v_rot_sfc"], coarse["dx_m"],
+               fine["peak_v_rot_sfc"] / coarse["peak_v_rot_sfc"]))
 
 summary = {"attempt": "L intensity (3-level, 22 m, persistence, real dP)",
            "env": {k: float(d[k]) for k in ("CAPE_J_kg", "shear_0_6km_m_s") if d[k] is not None},
@@ -193,10 +277,13 @@ summary = {"attempt": "L intensity (3-level, 22 m, persistence, real dP)",
            "fine_align": align_f, "persistence": pers, "series": series,
            "observed_KTLX": OBS,
            "reference": {"K_dx_m": 67.0, "K_v_rot_sfc": 7.76, "K_ratio": 0.82},
+           "note": "series entries are one list per sample, one record per nest level -- the "
+                   "levels are diagnosed at the SAME instant, so dx is the only variable",
            "wall_clock_s": time.time() - _t0}
 json.dump(summary, open(os.path.join(OUT, "summary.json"), "w"), indent=2)
+_fin = pers.get("dx_%.0fm" % float(ng.dx), {})
 log("=== DONE L: dx=%.1fm | sfc/aloft=%.2f connected=%s | V_sfc peak=%.2f (K:7.76, obs:26) | "
     "dP=%.1f Pa | class=%s (%.0f min) ===" %
     (ng.dx, scon.get("surface_aloft_ratio", 0), scon.get("surface_connected", False),
-     pers.get("peak_v_rot_sfc", 0), vrep.get("pressure_deficit_Pa", float("nan")), category,
-     (time.time() - _t0) / 60))
+     _fin.get("peak_v_rot_sfc", float("nan")), vrep.get("pressure_deficit_Pa", float("nan")),
+     category, (time.time() - _t0) / 60))
