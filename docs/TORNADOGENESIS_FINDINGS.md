@@ -509,12 +509,19 @@ and discarded it**, returning only the velocity correction and the divergence re
 above `_LOWMEM_N = 64 000` cells routes through that solver, which is *every fine nest in the entire
 study*. `state.p` simply kept whatever stale value it had.
 
-This matters beyond one missing column: the classifier's `TORNADO_LIKE_VORTEX` and
-`SURFACE_CONNECTED_TORNADO_LIKE_VORTEX` tiers **require a pressure deficit**, so on a nest those
-tiers were structurally unreachable — a run could not have been classified as a tornado no matter
-what it did. Every "still `LOW_LEVEL_MESOCYCLONE`" verdict in Attempts A–K was made with that
-criterion dead. (This does not overturn those verdicts — the velocity criteria failed on their own,
-by wide margins — but it means the classification was never a complete test.)
+What this cost, stated precisely (an earlier draft of this section overstated it, and the code
+disagrees). The tornado-like test is a *disjunction*:
+
+```python
+tlv = (v_theta_max >= 15.0) or (circulation >= 4.0e4 and pressure_deficit <= -200.0)
+```
+
+So the tier was **not** unreachable — the `V_θ` branch never depended on pressure, and that is the
+branch Attempts A–K failed on its own merits (V_θ ≈ 7.8 against a 15 m s⁻¹ threshold). What was dead
+is the **second** branch: a vortex that was broad and deep — large circulation, a real pressure
+deficit — but whose peak tangential wind fell below 15 m s⁻¹ could not be recognised on a nest. That
+is a plausible signature for an under-resolved tornado, which is exactly the regime these runs are
+in, so the loss was not academic; but it does *not* overturn any A–K verdict.
 
 The fix (`5c3c022`) returns φ on request and stores `p = φ/dt`; the factor follows from the two
 paths' conventions (direct corrects `u -= (dt/ρ₀)∇p`, low-memory `u -= ∇φ/ρ₀`). Verified against
