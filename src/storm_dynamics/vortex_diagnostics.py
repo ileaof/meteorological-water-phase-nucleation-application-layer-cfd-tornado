@@ -86,12 +86,23 @@ def tangential_profile(vth2d, r2d, grid, r_max_m=None, nbins=24):
     return rc, prof, float(prof[kmax]), float(rc[kmax])
 
 
-def pressure_deficit(p2d, grid, center=None, window=2):
-    """Perturbation-pressure deficit = p'_core_min - p'_ambient (domain-edge mean) [Pa] (negative
-    for a low-pressure vortex core)."""
+def pressure_deficit(p2d, grid, center=None, window=2, ambient_frac=None):
+    """Perturbation-pressure deficit = p'_core_min - p'_ambient [Pa] (negative for a low-pressure
+    vortex core).
+
+    ``ambient_frac`` chooses the reference ring: ``None`` (default) uses the domain-edge mean.  On a
+    NEST that edge IS the boundary-relaxation zone, where the imposed inflow leaves a large
+    projection pressure -- referencing against it corrupts the deficit.  Passing a fraction (0.2,
+    matching the search margin) instead averages an INTERIOR ring at that inset."""
     xp = grid.xp
-    ambient = 0.25 * (float(xp.mean(p2d[0, :])) + float(xp.mean(p2d[-1, :]))
-                      + float(xp.mean(p2d[:, 0])) + float(xp.mean(p2d[:, -1])))
+    if ambient_frac:
+        nb = max(1, int(ambient_frac * p2d.shape[0]))
+        q = p2d[nb:-nb, nb:-nb]
+        ambient = 0.25 * (float(xp.mean(q[0, :])) + float(xp.mean(q[-1, :]))
+                          + float(xp.mean(q[:, 0])) + float(xp.mean(q[:, -1])))
+    else:
+        ambient = 0.25 * (float(xp.mean(p2d[0, :])) + float(xp.mean(p2d[-1, :]))
+                          + float(xp.mean(p2d[:, 0])) + float(xp.mean(p2d[:, -1])))
     if center is not None:
         ic, jc = center[0], center[1]
         w = window
@@ -102,11 +113,17 @@ def pressure_deficit(p2d, grid, center=None, window=2):
     return pmin - ambient
 
 
-def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500.0):
+def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500.0,
+                  border_frac=1.0 / 6.0):
     """Full vortex diagnosis at level ``z_m`` from a live :class:`FlowState` (never imposed).
 
     Returns centre (x,y), circulation, peak tangential velocity, core radius, pressure deficit,
-    peak vertical vorticity, radial-inflow magnitude and an (approximate) swirl ratio."""
+    peak vertical vorticity, radial-inflow magnitude and an (approximate) swirl ratio.
+
+    ``border_frac`` is the interior margin of the centre search: on a NEST it must be wide enough
+    to exclude the boundary-relaxation zone (0.2 works), or the centre latches onto a
+    boundary artifact and every quantity derived from it is meaningless -- see the same note on
+    :func:`surface_connection_report`."""
     xp = grid.xp
     k = _level_index(grid, z_m)
     uc, vc, wc = _centered_velocity(state, grid)
@@ -114,12 +131,14 @@ def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500
     zeta2 = vertical_vorticity(state, grid)[:, :, k]
     p2 = getattr(state, "p", None)
     p2 = p2[:, :, k] if p2 is not None else None
-    center = find_vortex_center(zeta2, grid, p2d=p2)
+    center = find_vortex_center(zeta2, grid, p2d=p2, border_frac=border_frac)
     gamma = circulation(zeta2, grid, center, radius_m)
     vth, vrad, r = tangential_radial(uc2, vc2, grid, center, storm_motion)
     rc, prof, vth_max, core = tangential_profile(vth, r, grid, r_max_m=radius_m)
     inflow = float(xp.max(-vrad * xp.asarray((np.asarray(grid.backend.to_cpu(r)) <= max(core, grid.dx)))))
-    ddef = pressure_deficit(p2, grid, center) if p2 is not None else float("nan")
+    # reference the deficit against the same interior region the centre search trusts
+    ddef = (pressure_deficit(p2, grid, center, ambient_frac=border_frac)
+            if p2 is not None else float("nan"))
     swirl = (vth_max / inflow) if inflow > 1e-6 else float("inf")
     return {
         "level_m": float(np.asarray(grid.backend.to_cpu(grid.zc))[k]),

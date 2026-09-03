@@ -146,12 +146,18 @@ def anelastic_divergence(u, v, w, rho0_c, rho0_wface, dx, dy, dzc):
             + (rw[:, :, 1:] * w[:, :, 1:] - rw[:, :, :-1] * w[:, :, :-1]) / xp.asarray(dzc)[None, None, :])
 
 
-def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodic_h=True):
+def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodic_h=True,
+                          return_phi=False):
     """Make the staggered velocity anelastically divergence-free, ``div(rho0 u)=0``, with the
     **low-memory** FFT/DCT + tridiagonal solve.  ``u`` (nx+1,ny,nz), ``v`` (nx,ny+1,nz),
     ``w`` (nx,ny,nz+1) (host NumPy, modified in place); ``rho0_c`` (nz,), ``rho0_wface``
     (nz+1,); ``dzc`` (nz,), ``dzf`` (nz-1,).  ``periodic_h`` wraps x,y (parent) else solid
-    walls (nest).  Returns ``max|div(rho0 u)|`` after projection (should be ~round-off).
+    walls (nest).  Returns ``max|div(rho0 u)|`` after projection (should be ~round-off), or
+    ``(residual, phi)`` when ``return_phi`` -- ``phi`` is this solve's pressure potential, related
+    to the perturbation pressure the direct solver stores by ``p = phi/dt`` (direct corrects
+    ``u -= (dt/rho0) grad(p)``, this one ``u -= grad(phi)/rho0``).  Its additive gauge constant is
+    arbitrary (Neumann / pinned mode), so only DIFFERENCES of ``phi`` are meaningful -- which is
+    exactly what a core-minus-ambient pressure deficit uses.
 
     Device-agnostic: if ``u,v,w`` are CuPy arrays the whole solve runs on the GPU (cuFFT /
     cupyx DCT + batched Thomas), no host round-trip; NumPy arrays keep the CPU path."""
@@ -180,4 +186,5 @@ def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodi
         v[:, 1:-1, :] -= gy / rc[None, None, :]
     # interior z-faces (k = 1..nz-1): w -= (dphi/dz)/rho0_wface  (walls at k=0,nz stay 0)
     w[:, :, 1:-1] -= gz / rw[None, None, 1:-1]
-    return float(xp.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())
+    res = float(xp.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())
+    return (res, phi) if return_phi else res

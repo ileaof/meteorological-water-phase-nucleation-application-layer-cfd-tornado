@@ -367,7 +367,7 @@ class NestedStormSimulation:
         st = self.state
         if self.dynamics == "anelastic" and getattr(self, "_lowmem_pressure", False):
             from .core import _project_anelastic_lowmem
-            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface), 0
+            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface, dt), 0
         elif self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:
@@ -875,7 +875,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         record_interval=None, restrict_up=True, restrict_momentum=False,
                         two_way=False, two_way_rate=0.5, storm_motion=(0.0, 0.0),
                         follow_interval=None, follow_field="uh", follow_frac=0.5,
-                        follow_filter=0.5, progress=None):
+                        follow_filter=0.5, progress=None, sample=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
     ``specs`` is the nest hierarchy: ``specs[0]`` a sub-region of the parent, ``specs[1]``
@@ -892,7 +892,11 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
     interface-momentum **reflux** (nonlinear u²/2 flux register) is verified as the reference
     :class:`amr.TwoLevelBurgersReflux`; wiring it onto the storm's staggered advection is the
     remaining step.  Returns ``(sims, rep)`` with ``sims[0]=parent`` …
-    ``sims[-1]=finest``; ``rep`` is the finest level's report + a ``rep['nest']`` summary."""
+    ``sims[-1]=finest``; ``rep`` is the finest level's report + a ``rep['nest']`` summary.
+
+    ``progress(t, window, step)`` reports progress; ``sample(sims, t)`` (opt-in, default off) is
+    called each parent step with the live level chain, for diagnostics that must be taken while
+    the storm evolves -- vortex persistence above all."""
     from .core import StormSimulation as SS
     sims = [parent]; rspecs = []
     for sp in specs:                                    # each spec may be a NestSpec or a
@@ -972,6 +976,13 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
             finest = sims[-1]
         if progress:
             progress(t, window, finest.step)
+        if sample:
+            # Opt-in diagnostic hook: the live level chain at this instant, so a caller can
+            # measure a vortex WHILE it evolves (persistence is a criterion, and a run scored
+            # only on its final state cannot distinguish a lasting vortex from a transient).
+            # `sims[-1]` is re-bound above whenever a level is regridded, so this always sees
+            # the current finest level.
+            sample(sims, t)
     finest.tracker.update(finest.t, finest.state, finest.grid); SS._record(finest, initial)
     rep = SS._finalise(finest, initial)
     rep["nest"] = {"levels": len(specs), "dx_m": finest.grid.dx, "nz": finest.grid.nz,

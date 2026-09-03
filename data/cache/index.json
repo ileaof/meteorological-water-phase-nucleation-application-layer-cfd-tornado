@@ -1,0 +1,18 @@
+{
+  "C:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\iem_raob\\iem_raob__KOUN_20130521T000000Z": {
+    "source": "iem_raob",
+    "key": "KOUN_20130521T000000Z",
+    "path": "C:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\iem_raob\\iem_raob__KOUN_20130521T000000Z.json",
+    "fetched_utc": "2026-09-02T00:22:46Z",
+    "meta": {
+      "url": "https://mesonet.agron.iastate.edu/json/raob.py?ts=2013-05-21T00:00:00Z&station=KOUN"
+    }
+  },
+  "C:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\era5\\era5__2013-05-20_2000": {
+    "source": "era5",
+    "key": "2013-05-20_2000",
+    "path": "C:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\era5\\era5__2013-05-20_2000.nc",
+    "fetched_utc": "2026-09-02T01:11:47Z",
+    "meta": {}
+  }
+}

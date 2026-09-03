@@ -90,7 +90,7 @@ def separable(grid: Grid) -> bool:
     return True
 
 
-def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface):
+def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
     """Low-memory anelastic projection routed by grid structure: **FFT+tridiag** when the grid
     is :func:`separable` (the fast path — the case today), else the general **Jacobi-CG**
     fallback.  Operates on host arrays (device round-trip on GPU) and writes the
@@ -100,7 +100,13 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface):
     projection is unique for the given BCs), but with no stored LU factorisation, so a fine
     nest that OOMs the direct solve fits.  On a **GPU** backend the separable FFT path runs
     entirely on the device (cuFFT / cupyx DCT + batched Thomas) with **no host round-trip**;
-    the non-separable Jacobi-CG fallback is scipy/host-only, so it round-trips."""
+    the non-separable Jacobi-CG fallback is scipy/host-only, so it round-trips.
+
+    When ``dt`` is given the perturbation pressure is **persisted to ``st.p``** (as ``phi/dt``,
+    the direct solver's convention), so pressure-based diagnostics -- the vortex pressure
+    deficit and the classifier tiers that depend on it -- work on a low-memory nest exactly as
+    they do on a directly-solved parent.  Without it ``st.p`` would keep its stale value and
+    every deficit would read as identically zero."""
     to_cpu = grid.backend.to_cpu
     xp = grid.xp
     zc = np.asarray(to_cpu(grid.zc), float); zf = np.asarray(to_cpu(grid.zf), float)
@@ -109,20 +115,30 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface):
     periodic_h = bool(getattr(grid, "periodic", True))
     sep = separable(grid)
     is_gpu = type(st.u).__module__.split(".", 1)[0] == "cupy"
+    keep_p = dt is not None and float(dt) > 0.0
     if sep and is_gpu:                                        # GPU fast path: solve on-device
         from .pressure_fft import project_anelastic_fft as _proj
-        return float(_proj(st.u, st.v, st.w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
-                           periodic_h=periodic_h))            # modifies st.{u,v,w} in place
+        out = _proj(st.u, st.v, st.w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
+                    periodic_h=periodic_h, return_phi=keep_p) # modifies st.{u,v,w} in place
+        if keep_p:
+            res, phi = out
+            st.p = phi / float(dt)                            # stays on the device
+            return float(res)
+        return float(out)
     u = np.ascontiguousarray(to_cpu(st.u), float)             # host path (CPU, or the
     v = np.ascontiguousarray(to_cpu(st.v), float)             # scipy Jacobi-CG fallback)
     w = np.ascontiguousarray(to_cpu(st.w), float)
     rc = np.asarray(to_cpu(rho0_c), float); rw = np.asarray(to_cpu(rho0_wface), float)
     if sep:
         from .pressure_fft import project_anelastic_fft as _proj
-        res = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
     else:
         from .pressure_iterative import project_anelastic_iterative as _proj
-        res = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h)
+    out = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h, return_phi=keep_p)
+    if keep_p:
+        res, phi = out
+        st.p = xp.asarray(phi / float(dt))
+    else:
+        res = out
     st.u = xp.asarray(u); st.v = xp.asarray(v); st.w = xp.asarray(w)
     return float(res)
 
@@ -330,7 +346,7 @@ class StormSimulation:
         "Step 3: this level's own anelastic projection (skipped in composite mode)."
         st = self.state
         if self.dynamics == "anelastic" and getattr(self, "_lowmem_pressure", False):
-            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface), 0
+            res, it = _project_anelastic_lowmem(st, self.grid, self.rho0_c, self.rho0_wface, dt), 0
         elif self.dynamics == "anelastic":
             res, it = self.pressure.project_anelastic(st, dt, self.rho0_c, self.rho0_wface)
         else:

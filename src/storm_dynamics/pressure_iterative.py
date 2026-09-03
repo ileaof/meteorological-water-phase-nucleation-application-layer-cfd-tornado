@@ -80,11 +80,12 @@ def build_anelastic_matrix(nx, ny, nz, dx, dy, dzc, dzf, periodic_h):
 
 
 def project_anelastic_iterative(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
-                                periodic_h=True, tol=1e-10, maxiter=20000):
+                                periodic_h=True, tol=1e-10, maxiter=20000, return_phi=False):
     """Make the staggered velocity anelastically divergence-free with a Jacobi-preconditioned
     CG solve of the SPD operator ``-L`` (general, low-memory).  Same signature/semantics as
     :func:`pressure_fft.project_anelastic_fft`; modifies ``u,v,w`` in place, returns
-    ``max|div(rho0 u)|`` (should reach the CG tolerance)."""
+    ``max|div(rho0 u)|`` (should reach the CG tolerance), or ``(residual, phi)`` when
+    ``return_phi`` -- the same pressure potential (``p = phi/dt``, gauge constant arbitrary)."""
     rc, rw = np.asarray(rho0_c), np.asarray(rho0_wface)
     nx, ny, nz = u.shape[0] - 1, v.shape[1] - 1, len(dzc)
     w[:, :, 0] = 0.0; w[:, :, -1] = 0.0
@@ -111,4 +112,5 @@ def project_anelastic_iterative(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
         u[1:-1] -= (phi[1:] - phi[:-1]) / dx / rc[None, None, :]
         v[:, 1:-1] -= (phi[:, 1:] - phi[:, :-1]) / dy / rc[None, None, :]
     w[:, :, 1:-1] -= gz / rw[None, None, 1:-1]
-    return float(np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())
+    res = float(np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)).max())
+    return (res, phi) if return_phi else res
