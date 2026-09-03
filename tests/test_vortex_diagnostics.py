@@ -87,6 +87,42 @@ def test_cpu_gpu_parity():
     assert np.allclose(res[0], res[1], rtol=1e-4)
 
 
+
+
+def test_surface_connection_report_elevated_vs_connected():
+    """The surface-connection metric must distinguish an ELEVATED vortex from a surface-connected
+    one, and must report the first cell-centre height (the honesty requirement)."""
+    from meteorological_flow.state import FlowState
+    g = Grid(nx=40, ny=40, nz=30, Lx=4000.0, Ly=4000.0, Lz=3000.0, z_stretch=1.05, periodic=True)
+    xp = g.xp
+    zc = np.asarray(g.backend.to_cpu(g.zc))
+    X = xp.asarray(g.xc)[:, None, None] + g.zeros_c()
+    Y = xp.asarray(g.yc)[None, :, None] + g.zeros_c()
+    Z = xp.asarray(g.zc)[None, None, :] + g.zeros_c()
+    rc = 300.0
+    r = xp.sqrt((X - 2000.0) ** 2 + (Y - 2000.0) ** 2) + 1e-9
+    phi = xp.arctan2(Y - 2000.0, X - 2000.0)
+
+    def _state(amp_profile):
+        st = FlowState.zeros(g)
+        vth = amp_profile * (r / rc) * xp.exp(-(r * r) / (2 * rc * rc))
+        st.u[:-1, :, :] = 0.0
+        uc = -vth * xp.sin(phi); vc = vth * xp.cos(phi)
+        st.u[1:-1, :, :] = 0.5 * (uc[:-1] + uc[1:]); st.v[:, 1:-1, :] = 0.5 * (vc[:, :-1] + vc[:, 1:])
+        return st
+
+    # ELEVATED: amplitude grows with height
+    st_el = _state(1.0 + 4.0 * Z / 3000.0)
+    rep_el = vd.surface_connection_report(st_el, g)
+    assert rep_el["first_cell_height_m"] == float(zc[0]) > 0.0
+    assert rep_el["surface_aloft_ratio"] < 0.8 and rep_el["surface_connected"] is False
+
+    # SURFACE-CONNECTED: amplitude roughly uniform with height
+    st_sc = _state(3.0 + 0.0 * Z)
+    rep_sc = vd.surface_connection_report(st_sc, g)
+    assert rep_sc["surface_aloft_ratio"] > 0.8 and rep_sc["surface_connected"] is True
+
+
 if __name__ == "__main__":
     for nm, fn in sorted(globals().items()):
         if nm.startswith("test_") and callable(fn) and "gpu" not in nm:

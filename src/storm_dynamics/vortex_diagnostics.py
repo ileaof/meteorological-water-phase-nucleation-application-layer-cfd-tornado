@@ -132,7 +132,44 @@ def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500
     }
 
 
+def surface_connection_report(state, grid, storm_motion=(0.0, 0.0),
+                              z_levels=(50.0, 200.0, 500.0, 1000.0, 1500.0), radius_m=1000.0):
+    """Is the vortex SURFACE-CONNECTED or ELEVATED?  Returns V_rot and peak |zeta| on a height
+    ladder (interior only), the **surface-to-aloft ratio** (>1 ⇒ surface-intensified/descending,
+    <1 ⇒ elevated), the near-surface convergence at the vortex, and — as the spec requires — the
+    **first cell-centre height**, so ground contact is never claimed at a height the mesh cannot
+    resolve."""
+    xp = grid.xp
+    zc = np.asarray(grid.backend.to_cpu(grid.zc))
+    uc, vc, wc = _centered_velocity(state, grid)
+    zeta3 = vertical_vorticity(state, grid)
+    nb = max(2, grid.nx // 6)
+    prof = []
+    for zt in z_levels:
+        k = int(np.argmin(np.abs(zc - zt)))
+        Zi = np.abs(np.asarray(grid.backend.to_cpu(zeta3))[nb:-nb, nb:-nb, k])
+        ii, jj = np.unravel_index(int(np.argmax(Zi)), Zi.shape); ii += nb; jj += nb
+        u2 = np.asarray(grid.backend.to_cpu(uc))[:, :, k]; v2 = np.asarray(grid.backend.to_cpu(vc))[:, :, k]
+        R = max(3, int(radius_m / grid.dx))
+        us = u2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
+        vs = v2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
+        vr = float(np.sqrt((us - us.mean()) ** 2 + (vs - vs.mean()) ** 2).max())
+        prof.append({"z_m": float(zc[k]), "v_rot_m_s": vr, "zeta_max_s": float(Zi.max()),
+                     "edge_cells": int(min(ii, jj, grid.nx - 1 - ii, grid.ny - 1 - jj))})
+    v_sfc = prof[0]["v_rot_m_s"]; v_aloft = max(p["v_rot_m_s"] for p in prof)
+    # near-surface convergence at the lowest sampled level
+    k0 = int(np.argmin(np.abs(zc - z_levels[0])))
+    conv = -(grid._central_x(uc[:, :, k0:k0 + 1])[:, :, 0] + grid._central_y(vc[:, :, k0:k0 + 1])[:, :, 0])
+    return {
+        "first_cell_height_m": float(zc[0]),
+        "profile": prof,
+        "surface_aloft_ratio": float(v_sfc / v_aloft) if v_aloft > 1e-9 else 0.0,
+        "surface_connected": bool(v_sfc >= 0.8 * v_aloft),
+        "near_surface_convergence_s": float(xp.max(conv)),
+    }
+
+
 __all__ = [
     "find_vortex_center", "circulation", "tangential_radial", "tangential_profile",
-    "pressure_deficit", "vortex_report",
+    "pressure_deficit", "vortex_report", "surface_connection_report",
 ]

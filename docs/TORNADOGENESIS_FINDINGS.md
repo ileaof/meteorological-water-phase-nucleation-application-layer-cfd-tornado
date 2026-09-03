@@ -386,12 +386,43 @@ is a sub-100 m, near-surface process; at these grid spacings and integration tim
 spin up. This is exactly where the science frontier sits, and the diagnosis is now specific and
 measured rather than a guess.
 
-**Remaining levers, evidence-ranked:** (1) the **surface / corner-flow layer** — much finer
-near-surface resolution and a tuned surface-drag / occlusion-downdraft coupling, tracked with the
-vortex diagnostics at the lowest cells; (2) a **storm-following (not fixed) fine nest** at the
-occlusion so the vortex cannot drift out; (3) longer freely-evolving integration to catch a stronger
-occlusion cycle. Resolution-of-the-mesh alone, environmental SRH, updraft strength, and the
-cold-pool *source* have each been **ruled out by measurement.**
+**Remaining levers, evidence-ranked:** (1) the **surface / corner-flow layer** (measured below);
+(2) a **storm-following fine nest** at the occlusion — now implemented
+(`nesting.follow_spec` + `run_multilevel_nest(follow_interval=…)`, same-size box re-centred on the
+tracked rotation along a filtered trajectory); (3) longer freely-evolving integration for a stronger
+occlusion cycle. Horizontal mesh resolution, environmental SRH, updraft strength, and the cold-pool
+*source* have each been **ruled out by measurement.**
+
+### Surface sensitivity — near-surface RESOLUTION dominates, drag does not
+
+`examples/surface_sensitivity.py` (freely-evolving supercell; `surface_connection_report`'s
+surface/aloft V_rot ratio; > 0.8 ⇒ surface-connected):
+
+| case | C_d | first cell dz₁ | V_sfc | **sfc/aloft** |
+|---|---|---|---|---|
+| baseline | 0.012 | 49.6 m | 0.81 | 0.08 |
+| no drag | 0.000 | 49.6 m | **2.75** | **0.28** |
+| rough (2× C_d) | 0.024 | 49.6 m | 0.82 | 0.08 |
+| smooth (⅓ C_d) | 0.004 | 49.6 m | 0.91 | 0.09 |
+| **fine near-surface** | 0.012 | **6.2 m** | 1.25 | **0.53** |
+| drag + heat/moisture fluxes | 0.012 | 49.6 m | 0.81 | 0.08 |
+
+Two results, one of them counterintuitive:
+
+- **Near-surface vertical resolution is the dominant control.** Taking the first cell centre from
+  ~50 m to ~6 m raises the surface/aloft ratio **6.6× (0.08 → 0.53)** — far more than any surface
+  parameter. The corner-flow layer simply is not represented by a 50 m first cell.
+- **Drag magnitude is nearly irrelevant here, and removing drag *helps*** (0.08 → 0.28). At a 50 m
+  first cell the *bulk* drag law damps the lowest level's tangential wind more than it generates the
+  convergent corner flow it is supposed to drive. Surface heat/moisture fluxes change nothing.
+
+*(Honest caveat: changing `z_stretch` redistributes **all** vertical levels, so the fine-near-surface
+row is not a perfectly controlled experiment — the storm aloft also differs, V_aloft 2.4 vs 10.1.
+The ratio is the intended metric and the jump is large, but this is indicative rather than a clean
+one-variable control.)*
+
+**Implication:** the surface connection is gated by **resolving the corner-flow layer** (first cell
+≲ 10 m plus a drag formulation valid at that height), not by tuning roughness at a 50 m first cell.
 
 ---
 
