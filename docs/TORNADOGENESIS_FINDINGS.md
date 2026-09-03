@@ -431,10 +431,38 @@ a net *sink* of near-surface rotation rather than the source of the corner flow.
 height-consistent (log-law) does not fix this, because the defect is the *form* of the closure, not
 its coefficient.
 
-**The final gap is now specific:** a surface-layer closure that applies the stress as a *divergence
-through a resolved surface layer* (so the frictionally-induced radial inflow appears), rather than a
-bulk damping of the lowest cell — combined with dz₁ ≲ 10 m. That is a concrete, implementable next
-step, and the diagnostics to score it (`surface_connection_report`) are in place.
+### The fix: a surface-layer STRESS-DIVERGENCE closure — surface connection with drag ON
+
+The defect above is the closure's *form*: the bulk sink rate is ``C_d|V|/dz₁``, which **diverges as
+the mesh is refined** (measured: the lowest cell retains 0.994 at dz₁ = 19.6 m but only 0.936 at
+dz₁ = 1.8 m — 10× more momentum stripped, mostly *tangential*). The physical form spreads the stress
+over a **physical** depth: ``tau(z) = tau_s(1 - z/h)`` ⇒ ``du/dt = -tau_s/h``, uniform through the
+layer and **mesh-independent** (measured: 0.9984 at both resolutions).
+Implemented as `surface_drag.apply_surface_stress_divergence`
+(`SurfaceDragConfig.stress_divergence`, `surface_layer_depth_m`; opt-in, default byte-identical).
+
+At the refined mesh (all dz₁ = 6.2 m — a clean one-variable comparison of the **closure**):
+
+| closure | C_d applied | V_sfc | **sfc/aloft** | connected |
+|---|---|---|---|---|
+| bulk (lowest-cell damping) | 0.0120 | 1.25 | 0.53 | ✗ |
+| log-law C_d, bulk form | 0.0094 | 1.28 | 0.51 | ✗ |
+| **stress-divergence** | 0.0120 | 3.02 | 0.69 | ✗ |
+| **stress-divergence + log-law** | 0.0094 | **3.07** | **0.82** | **✓** |
+| *(drag off — reference)* | 0 | 3.25 | 0.88 | ✓ |
+
+**Fixing the form — not removing the drag — restores the surface connection.** V_sfc rises
+1.25 → 3.07 (2.4×, essentially the drag-free reference) with the drag still physically active, and
+the near-surface convergence rises 3.4×10⁻³ → 5.3×10⁻³. The remaining ingredient beyond the form is
+the height-consistent C_d: `stress-divergence + log-law` (0.82) clears the criterion while
+`stress-divergence` with the too-large fixed C_d (0.69) does not.
+
+**Honest scope.** This closes the *structural* gap — the vortex is no longer elevated, and the
+surface-connection criterion is met with realistic surface friction. It is **not** a tornado: these
+are short runs on a modest horizontal mesh and V_sfc ≈ 3 m s⁻¹, far from the observed 26. The
+`SURFACE_CONNECTED_TORNADO_LIKE_VORTEX` tier additionally requires the intensity, pressure-deficit
+and persistence criteria in `classification.py`. What is now established is that the model *can*
+carry rotation to the lowest resolved level with physical drag — the mechanism that was blocked.
 
 *(Caveat: comparisons **across** the coarse/fine groups are indicative — `z_stretch` redistributes
 all levels, so V_aloft differs (2.4–3.7 vs ~10). Comparisons **within** the fine group are clean.)*

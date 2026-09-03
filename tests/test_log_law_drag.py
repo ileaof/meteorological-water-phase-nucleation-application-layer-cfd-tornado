@@ -72,6 +72,45 @@ def test_log_law_retards_more_on_a_refined_mesh():
     assert frac[1.20] < frac[1.05]           # the refined mesh feels the (larger) log-law C_d
 
 
+def test_stress_divergence_is_mesh_independent():
+    """The defect the surface study found: the bulk sink rate C_d|V|/dz1 blows up as the mesh is
+    refined (stripping the tangential wind).  The stress-divergence form spreads the stress over a
+    PHYSICAL depth h, so the lowest cell's retention is independent of dz1."""
+    ret_bulk, ret_div = {}, {}
+    for zs in (1.05, 1.20):
+        g = Grid(nx=8, ny=8, nz=26, Lx=800.0, Ly=800.0, Lz=2000.0, z_stretch=zs, periodic=True)
+        for name, cfg, store in (
+            ("bulk", SurfaceDragConfig(enabled=True, C_d=0.012), ret_bulk),
+            ("div", SurfaceDragConfig(enabled=True, C_d=0.012, stress_divergence=True,
+                                      surface_layer_depth_m=150.0), ret_div)):
+            st = FlowState.zeros(g); st.u[:] = 10.0
+            sd.apply_surface_drag(st, g, 2.0, cfg)
+            store[zs] = float(np.asarray(st.u[:, :, 0]).max()) / 10.0
+    # bulk: refining the mesh damps the lowest cell much harder
+    assert ret_bulk[1.20] < ret_bulk[1.05] - 0.02
+    # stress-divergence: essentially unchanged by the mesh
+    assert abs(ret_div[1.20] - ret_div[1.05]) < 1e-3
+
+
+def test_stress_divergence_spreads_through_the_layer():
+    """The bulk law touches only k=0; the divergence form retards every level inside h."""
+    g = Grid(nx=8, ny=8, nz=30, Lx=800.0, Ly=800.0, Lz=3000.0, z_stretch=1.05, periodic=True)
+    zc = np.asarray(g.backend.to_cpu(g.zc))
+    h = 150.0
+    st_b = FlowState.zeros(g); st_b.u[:] = 10.0
+    sd.apply_surface_drag(st_b, g, 5.0, SurfaceDragConfig(enabled=True, C_d=0.012))
+    st_d = FlowState.zeros(g); st_d.u[:] = 10.0
+    sd.apply_surface_drag(st_d, g, 5.0, SurfaceDragConfig(enabled=True, C_d=0.012,
+                                                          stress_divergence=True,
+                                                          surface_layer_depth_m=h))
+    k_in = int(np.where(zc < h)[0][-1])            # a level inside the layer, above k=0
+    assert k_in >= 1
+    assert np.isclose(float(np.asarray(st_b.u[:, :, k_in]).max()), 10.0)      # bulk: untouched
+    assert float(np.asarray(st_d.u[:, :, k_in]).max()) < 10.0                 # divergence: retarded
+    k_out = int(np.where(zc >= h)[0][0])
+    assert np.isclose(float(np.asarray(st_d.u[:, :, k_out]).max()), 10.0)     # nothing above h
+
+
 if __name__ == "__main__":
     for nm, fn in sorted(globals().items()):
         if nm.startswith("test_") and callable(fn):

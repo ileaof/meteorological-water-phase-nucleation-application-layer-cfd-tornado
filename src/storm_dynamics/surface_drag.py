@@ -44,6 +44,48 @@ def effective_drag_coefficient(grid: Grid, drag: SurfaceDragConfig) -> float:
     return log_law_drag_coefficient(z1, drag.roughness_length_m, getattr(drag, "kappa", 0.4))
 
 
+def _face_speed(state: FlowState, grid: Grid, k: int, U_min: float):
+    """Lowest-common helper: |V| at level ``k`` interpolated onto the u- and v-faces."""
+    xp = grid.xp
+    uc = 0.5 * (state.u[:-1, :, k] + state.u[1:, :, k])
+    vc = 0.5 * (state.v[:, :-1, k] + state.v[:, 1:, k])
+    sc = xp.maximum(xp.sqrt(uc ** 2 + vc ** 2), U_min)
+    su = xp.zeros_like(state.u[:, :, k]); sv = xp.zeros_like(state.v[:, :, k])
+    su[1:-1, :] = 0.5 * (sc[:-1, :] + sc[1:, :])
+    sv[:, 1:-1] = 0.5 * (sc[:, :-1] + sc[:, 1:])
+    if getattr(grid, "periodic", False):
+        w = 0.5 * (sc[-1, :] + sc[0, :]); su[0, :] = w; su[-1, :] = w
+        w = 0.5 * (sc[:, -1] + sc[:, 0]); sv[:, 0] = w; sv[:, -1] = w
+    else:
+        su[0, :] = sc[0, :]; su[-1, :] = sc[-1, :]
+        sv[:, 0] = sc[:, 0]; sv[:, -1] = sc[:, -1]
+    return su, sv
+
+
+def apply_surface_stress_divergence(state: FlowState, grid: Grid, dt: float,
+                                    drag: SurfaceDragConfig, C_d: float) -> None:
+    """Surface stress as a **flux divergence through a resolved surface layer** (in place).
+
+    The bulk form puts the whole stress into the lowest cell, so the sink rate ``C_d|V|/dz1``
+    diverges as the near-surface mesh is refined and strips the *tangential* wind — measured as the
+    blocker of surface connection.  Here the stress decays linearly over a **physical** depth ``h``,
+    ``tau(z) = tau_s (1 - z/h)``, so the tendency ``-(1/rho) dtau/dz = -tau_s/h`` is uniform through
+    the layer and **independent of the mesh**.  Applied implicitly per level for stability."""
+    xp = grid.xp
+    h = max(float(drag.surface_layer_depth_m), 1.0)
+    zc = grid.zc if not hasattr(grid.zc, "get") else grid.backend.to_cpu(grid.zc)
+    import numpy as _np
+    zc = _np.asarray(zc)
+    for k in range(grid.nz):
+        z = float(zc[k])
+        if z >= h:
+            break
+        su, sv = _face_speed(state, grid, k, drag.U_min)
+        r = C_d / h                                   # tau_s/h with tau_s = C_d |V| V
+        state.u[:, :, k] /= (1.0 + r * su * dt)
+        state.v[:, :, k] /= (1.0 + r * sv * dt)
+
+
 def apply_surface_drag(state: FlowState, grid: Grid, dt: float,
                        drag: SurfaceDragConfig) -> None:
     """Retard the lowest model level by the bulk drag law (implicit, in place).
@@ -54,6 +96,9 @@ def apply_surface_drag(state: FlowState, grid: Grid, dt: float,
         return
     C_d = effective_drag_coefficient(grid, drag)
     if C_d <= 0.0:
+        return
+    if getattr(drag, "stress_divergence", False):
+        apply_surface_stress_divergence(state, grid, dt, drag, C_d)
         return
     xp = grid.xp
     dz0 = grid.dz if not getattr(grid, "stretched", False) else float(grid.dz_c[0])
@@ -82,4 +127,5 @@ def apply_surface_drag(state: FlowState, grid: Grid, dt: float,
     state.v[:, :, 0] /= (1.0 + rv * dt)
 
 
-__all__ = ["apply_surface_drag", "log_law_drag_coefficient", "effective_drag_coefficient"]
+__all__ = ["apply_surface_drag", "log_law_drag_coefficient", "effective_drag_coefficient",
+           "apply_surface_stress_divergence"]

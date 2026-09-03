@@ -34,12 +34,14 @@ CASES = [
     ("fine_near_sfc",   dict(C_d=0.012, z_stretch=1.12)),   # much finer first cells, bulk C_d
     ("fine+loglaw",     dict(C_d=0.012, z_stretch=1.12, log_law=True)),   # the physical combination
     ("fine+no_drag",    dict(C_d=0.0,   z_stretch=1.12)),
+    ("fine+stressdiv",  dict(C_d=0.012, z_stretch=1.12, stress_div=True)),   # the physical closure
+    ("fine+sdiv+loglaw",dict(C_d=0.012, z_stretch=1.12, stress_div=True, log_law=True)),
     ("drag+fluxes",     dict(C_d=0.012, z_stretch=1.05, fluxes=True)),
 ]
 
 
 def _run(name, ov, nx, nz, steps, device):
-    ov = dict(ov); fluxes = ov.pop("fluxes", False); log_law = ov.pop("log_law", False)
+    ov = dict(ov); fluxes = ov.pop("fluxes", False); log_law = ov.pop("log_law", False); sdiv = ov.pop("stress_div", False)
     scfg = build_storm_config(preset="storm", nx=nx, ny=nx, nz=nz, Lx=nx * 600.0, Ly=nx * 600.0,
                               Lz=15000.0, duration=1.0, dt_max=3.0, drag=(ov["C_d"] > 0),
                               z_stretch=ov["z_stretch"], C_s=0.20,
@@ -50,6 +52,9 @@ def _run(name, ov, nx, nz, steps, device):
     if log_law:
         scfg.dyn.drag.use_log_law = True
         scfg.dyn.drag.roughness_length_m = 0.1
+    if sdiv:
+        scfg.dyn.drag.stress_divergence = True
+        scfg.dyn.drag.surface_layer_depth_m = 150.0
     if fluxes:
         scfg.dyn.fluxes = SurfaceFluxConfig(enabled=True, C_h=1.2e-3, C_q=1.2e-3,
                                             dtheta_sfc_K=2.0, saturate_surface=True)

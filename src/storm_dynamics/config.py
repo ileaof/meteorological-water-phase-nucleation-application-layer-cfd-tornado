@@ -74,6 +74,14 @@ class SurfaceDragConfig:
     use_log_law: bool = False
     roughness_length_m: float = 0.1   # aerodynamic roughness z0 [m] (~0.1 over open land)
     kappa: float = 0.4                # von Karman constant
+    # Surface-layer STRESS-DIVERGENCE form: instead of damping only the lowest cell (sink rate
+    # C_d|V|/dz1, which BLOWS UP as the mesh is refined and strips the tangential wind), apply the
+    # stress as a flux divergence spread over a PHYSICAL surface-layer depth: tau(z)=tau_s(1-z/h)
+    # => du/dt = -tau_s/h, uniform through the layer and resolution-independent.  This retains the
+    # near-surface tangential wind while still producing the drag-induced imbalance that drives the
+    # convergent corner flow.  Off by default (lowest-cell damping, byte-identical).
+    stress_divergence: bool = False
+    surface_layer_depth_m: float = 150.0
 
 
 @dataclass
