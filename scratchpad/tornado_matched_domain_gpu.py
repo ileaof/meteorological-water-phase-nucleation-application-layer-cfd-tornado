@@ -6,10 +6,16 @@ were confounded, and "finer mesh, weaker surface rotation" could not be conclude
 0.2 border margin the 22 m level had only ~1.2 km of trusted interior, so the vortex's feeding
 inflow was boundary-controlled.
 
-Here the FINEST domain is the SAME 2.0 km in both runs and only dx differs:
+Here the FINEST domain is the SAME 4.0 km in both runs and only dx differs:
 
-    MODE=coarse : 600 -> 200 -> 67 m , finest = 30 cells over 2.0 km
-    MODE=fine   : 600 -> 200 -> 67 -> 22 m , finest = 90 cells over 2.0 km
+    MODE=coarse : 600 -> 200 -> 67 m , finest =  60 cells over 4.0 km
+    MODE=fine   : 600 -> 200 -> 67 -> 22 m , finest = 180 cells over 4.0 km
+
+A first attempt matched the domains at 2.0 km and the coarse branch NaN-ed on its first step: that
+made the 67 m level only 30 cells wide, so with a 0.2 relaxation zone on each side the boundary
+regions effectively meet and there is no interior left to evolve.  Every nest that has run stably
+in this study is 60+ cells across.  4.0 km is the smallest domain that keeps BOTH branches in that
+range, which is what makes the comparison possible at all.
 
 Both branch from the same cached matured parent at the same instant, are centred on the same
 low-level circulation, and are scored with the same fixed 400 m comparison radius and the same 0.2
@@ -38,7 +44,7 @@ from storm_dynamics import vortex_diagnostics as vd, classification as cl
 
 BORDER = 0.2
 CMP_RADIUS_M = 400.0          # identical measurement radius in both runs
-TARGET_KM = 2.0               # identical finest-domain width in both runs
+TARGET_KM = 4.0               # identical finest-domain width in both runs
 
 nx = 120; nz = 48; Lx = 72000.0; T_MAT = 2800.0
 DEV = os.environ.get("DEV", "gpu")
@@ -81,10 +87,10 @@ sx, sy = float(sim.grid.xc[a]), float(sim.grid.yc[bq])
 log("low-level circulation @(%.1f,%.1f)km zeta=%.4f" % (sx / 1e3, sy / 1e3, float(zl[a, bq])))
 
 # NCX per level chosen so the FINEST level is TARGET_KM wide in both modes.
-#   coarse: 200 m level 13.2 km, then 67 m level over 10 x 200 m = 2.0 km  (30 cells)
-#   fine  : 200 m level 13.2 km, 67 m level over 22 x 200 m = 4.4 km, then 22 m over
-#           30 x 67 m = 2.0 km                                             (90 cells)
-NCX = [22, 10] if MODE == "coarse" else [22, 22, 30]
+#   coarse: 200 m level 18 km, then 67 m level over 20 x 200 m = 4.0 km   (60 cells)
+#   fine  : 200 m level 18 km, 67 m level over 30 x 200 m = 6.0 km, then 22 m over
+#           60 x 67 m = 4.0 km                                            (180 cells)
+NCX = [30, 20] if MODE == "coarse" else [30, 30, 60]
 NEST_NZ = 64; NEST_ZS = 1.077
 def mkspec(i):
     def build(gg):

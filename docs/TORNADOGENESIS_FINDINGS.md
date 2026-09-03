@@ -542,6 +542,57 @@ BC-consistent up front.
 
 ---
 
+### Attempt L — cascade to 22 m: two findings, and a confounded experiment (stopped early)
+
+`scratchpad/tornado_intensity_L_gpu.py`. A third cascade level (600 → 200 → 67 → **22 m**), a longer
+window with persistence tracking through the new `sample(sims, t)` hook, and — for the first time —
+a measurable pressure deficit on a nest. Every level was diagnosed at the *same instants*, intended
+as a controlled resolution experiment. **It is not one, and the run was stopped at t = 40 s of its
+180 s window once that was clear.** Two solid findings came out of it anyway.
+
+**Finding 1 — the low-level circulation sits 3.84 km from the mid-level mesocyclone.** Attempts J
+and K centred their nests on the mid-level meso (|ζ| peak at z ≈ 500 m). At z ≈ 100 m the peak is
+almost 4 km away. A 2.0 km fine nest centred on the meso therefore sat over *quiet air*: |ζ| = 0.002
+against 0.238 on its own 67 m parent. Centring every level on the **low-level** peak instead
+immediately gave |ζ| = 0.196 s⁻¹ (observed: 0.205) with a 25 m core. The same reasoning applies to
+the nest tracker, whose column-max |ζ| follows the mid-level meso — hence the new
+`follow_z_lo`/`follow_z_hi`. *Any* small fine nest in this problem must be placed and steered on the
+low levels, or it resolves the wrong feature at great expense.
+
+**Finding 2 — the nest pressure deficit is not trustworthy, and now says so.** A nest's projection
+must also absorb the imbalance of its *imposed* lateral inflow, and that artifact scales like 1/dt,
+so it worsens exactly as the mesh refines. Measured: Δp = −2860 Pa where the cyclostrophic scale
+−ρv_θ² for the same vortex is ≈ −120 Pa — a factor of 24. Every Δp is now reported alongside that
+scale rather than at face value. (Related: a *constant* pressure field now reports NaN instead of a
+deficit of 0.0, which had been passing through as though it were a measurement.)
+
+**Why the experiment is confounded.** A nest must sit inside its parent, so each finer level was
+also a *smaller box*: 13.2 → 4.4 → 2.0 km. `dx` and domain size vary together, and the two metrics
+disagree in a way that proves the point — peak |ζ| *rises* with refinement while mean V_rot *falls*:
+
+| dx | domain | mean V_rot | peak V_rot | peak \|ζ\| | final ratio |
+|---|---|---|---|---|---|
+| 200 m | 13.2 km | 10.93 | 11.66 | 0.075 | 0.83 |
+| 67 m | 4.4 km | 8.54 | 10.93 | 0.127 | 1.00 |
+| 22 m | 2.0 km | 4.62 | 7.75 | **0.196** | 0.59 |
+
+V_rot is the peak deviation within a fixed radius, so it depends on how much of the circulation fits
+inside the box; |ζ| is local and does not. With a 0.2 border margin the 22 m level had only ~1.2 km
+of trusted interior, so its vortex was boundary-controlled — its surface/aloft ratio decayed 1.00 →
+0.59 (elevated again) while the 67 m level held 1.00. **No resolution conclusion can be drawn from
+this table**, which is why the matched-domain test below exists.
+
+### The matched-domain resolution test — `dx` alone, at a fixed 2.0 km domain
+
+`scratchpad/tornado_matched_domain_gpu.py`, verdict via `scratchpad/compare_matched_domain.py`.
+Two cascades from the same cached parent at the same instant, centred identically, scored with the
+same 400 m radius and 0.2 margin, whose **finest domain is 2.0 km in both**: `coarse` =
+600/200/**67 m** (30 cells), `fine` = 600/200/67/**22 m** (90 cells). Only `dx` differs.
+
+*(Results below once the pair completes.)*
+
+---
+
 ## 6. Reproduce
 
 ```
