@@ -133,3 +133,25 @@ def test_tag_cells_border_is_ignored_when_it_would_blank_the_grid():
     tags = nst.tag_cells(sim.state, sim.grid, field="zeta", frac=0.5, border=50)
     assert tags.shape == (sim.grid.nx, sim.grid.ny)       # no crash, falls back to no exclusion
     assert tags.any()
+
+
+def test_follow_spec_carries_the_sponge_across_a_move():
+    """A moving nest must KEEP its sponge configuration.
+
+    Rebuilding the spec with only (refine, nz, z_stretch) silently reverted
+    relax_width/relax_rate/relax_width_m to their defaults on the FIRST re-centring, so a
+    moving nest's 267 m physical band dropped back to 4 cells (89 m at dx=22 m) after one
+    move -- i.e. the sponge fix was inactive for all but the first seconds of a run.
+    """
+    sim = _two_vortex_sim()
+    old = nst.NestSpec.aligned(sim.grid, i0=10, j0=10, ncx=12, ncy=12, refine=3,
+                               relax_width_m=267.0, relax_rate=0.05, relax_width=6)
+    moved = nst.follow_spec(old, sim, field="zeta", frac=0.5, alpha=1.0, border=6)
+    assert moved is not None and (moved.x0, moved.y0) != (old.x0, old.y0)   # it really moved
+    assert moved.relax_width_m == old.relax_width_m == 267.0
+    assert moved.relax_rate == old.relax_rate == 0.05
+    assert moved.relax_width == old.relax_width == 6
+    # and the band the moved nest actually builds is still the PHYSICAL one
+    g_old = nst.build_nest_grid(old, sim.grid)
+    g_new = nst.build_nest_grid(moved, sim.grid)
+    assert nst.effective_relax_width(moved, g_new) == nst.effective_relax_width(old, g_old)

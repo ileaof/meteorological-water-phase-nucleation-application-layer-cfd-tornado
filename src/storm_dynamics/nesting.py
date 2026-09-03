@@ -1131,8 +1131,14 @@ def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5
     i_n = int(np.clip(i_n, 0, pg.nx - ncx)); j_n = int(np.clip(j_n, 0, pg.ny - ncy))
     if abs(i_n - i_o) < min_move and abs(j_n - j_o) < min_move:
         return None
+    # Carry the ENTIRE sponge configuration across the move.  Rebuilding the spec with only
+    # (refine, nz, z_stretch) silently reverted relax_width/relax_rate/relax_width_m to their
+    # defaults on the FIRST re-centring -- measured: a 267 m physical band on the 22 m level
+    # dropped back to 4 cells = 89 m after one move, so a moving nest never kept its sponge.
     return NestSpec.aligned(pg, i0=i_n, j0=j_n, ncx=ncx, ncy=ncy, refine=old_spec.refine,
-                            nz=old_spec.nz, z_stretch=old_spec.z_stretch)
+                            nz=old_spec.nz, z_stretch=old_spec.z_stretch,
+                            relax_width=old_spec.relax_width, relax_rate=old_spec.relax_rate,
+                            relax_width_m=old_spec.relax_width_m)
 
 
 def _shift_copy(A_old, A_new, d0, d1):
