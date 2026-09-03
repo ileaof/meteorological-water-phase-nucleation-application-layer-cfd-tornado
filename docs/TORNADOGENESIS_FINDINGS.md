@@ -682,6 +682,66 @@ Re-test: `scratchpad/tornado_matched_domain_v2_gpu.py` (`sponge=267 m`, `follow_
 coarse branch re-run isolates the tracker fix alone — and it does change that branch, so the
 previously reported coarse numbers (peak V_sfc 12.28) are themselves provisional.
 
+#### The re-test came back: the fixes were NOT sufficient
+
+Both v2 branches completed (67 m in 33 min, 22 m in 317 min). The two fixes are real and the
+67 m branch is now demonstrably healthier, but **they did not make the 22 m branch measurable,
+and they cost the headline number.**
+
+**v2 at 67 m (only the tracker fix bites here -- 267 m *is* 4 cells at this mesh):**
+
+| | v1 | v2 |
+|---|---|---|
+| peak V_sfc | **12.28** | **8.47** |
+| peak \|zeta\| | 0.134 | 0.067 |
+| peak v_theta | 8.29 | 5.21 |
+| final ratio / connected | 0.94 / True | **1.00** / True |
+| final v_theta | 0.18 | **2.25** |
+| mean \|zeta\| edge / 4-12 / interior | 0.0083 / 0.0084 / 0.0095 | **0.0051 / 0.0060 / 0.0066** |
+| edge/interior | 0.87 | **0.77** |
+
+The field is healthier by every independent structural measure -- edge vorticity now *below* the
+interior and rising monotonically inward, final v_theta 2.25 against v1's near-zero 0.18 -- while
+peak V_sfc falls 31 % and peak |zeta| halves. **So 12.28 m/s is retracted**: it came from a run
+whose tracker was steered by sponge vorticity, and the t = 29-33 s intensification event that
+produced it does not survive tracking the true low-level vortex. The defensible best surface
+rotation is now **8.47 m/s (33 % of the observed 26)**, and Attempt K's surface-intensified
+profile becomes the more robust of the two headline claims.
+
+**v2 at 22 m -- still not a valid measurement:**
+
+| | v1 fine | v2 fine |
+|---|---|---|
+| mean \|zeta\| edge 0-4 | 0.0343 | **0.0148** |
+| mean \|zeta\| 4-12 | 0.0218 | 0.0161 |
+| mean \|zeta\| 12-centre | 0.0069 | **0.0026** |
+| **edge/interior** | 4.98 | **5.61 (WORSE)** |
+| strongest coherent vortex | 111 m from edge | **178 m from edge** |
+
+Absolute edge vorticity did drop by more than half (the wider sponge damps better, as designed),
+but the **interior emptied faster**, so contamination got worse in ratio; and the one coherent
+vortex moved from 111 m to 178 m from the wall -- i.e. *deeper inside the now-267 m sponge*.
+Widening the sponge to the physically correct width buried the vortex in it. The 67 m branch by
+the same measure stays healthy (edge/interior 0.77, vortex 933 m in).
+
+**Conclusion: the dominant defect is neither the sponge width nor the tracker.** The 3-level fine
+cascade cannot keep the low-level vortex in trusted interior, and no fix so far addresses that.
+The resolution question stays OPEN; mesh resolution stays OFF the eliminated list.
+
+**A diagnostic caveat on the section above.** The "coherent vortex" test used here keys on a local
+`p_dyn` depression. On the v2 *coarse* field those local values run -1418, -3250, -5161 and
+**+7412 Pa** -- the known nest-projection artifact (`p_dyn ~ 1/dt`), not physics. A -20 Pa
+threshold is meaningless against that noise, so the "6 coherent vortices" figure quoted for v2
+coarse is NOT trustworthy. The v1 values were in a sane range (-99, -39, -73, -21 Pa), which is
+why the test looked reliable when it was built. Trust the edge/interior |zeta| ratios (which use
+no pressure at all) over the vortex counts.
+
+**Next, before another full window** (`scratchpad/nest_tracking_diagnosis_gpu.py`): a SHORT (12 s)
+instrumented run that reports, for *every* cascade level each sample, where the low-level |zeta|
+peak sits inside that level's own box, whether it has entered that level's sponge, and the level's
+edge/interior ratio. The first level whose peak crosses into its sponge is the one to fix. A full
+fine window costs 317 min; this costs ~1 h and says what to change.
+
 ---
 
 ## 6. Reproduce
