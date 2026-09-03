@@ -582,14 +582,57 @@ of trusted interior, so its vortex was boundary-controlled — its surface/aloft
 0.59 (elevated again) while the 67 m level held 1.00. **No resolution conclusion can be drawn from
 this table**, which is why the matched-domain test below exists.
 
-### The matched-domain resolution test — `dx` alone, at a fixed 2.0 km domain
+### The matched-domain resolution test — `dx` alone, at a fixed 4.0 km domain — VERDICT: refinement does NOT intensify
 
-`scratchpad/tornado_matched_domain_gpu.py`, verdict via `scratchpad/compare_matched_domain.py`.
-Two cascades from the same cached parent at the same instant, centred identically, scored with the
-same 400 m radius and 0.2 margin, whose **finest domain is 2.0 km in both**: `coarse` =
-600/200/**67 m** (30 cells), `fine` = 600/200/67/**22 m** (90 cells). Only `dx` differs.
+`scratchpad/tornado_matched_domain_gpu.py`. Two cascades from the same cached parent at the same
+instant, centred identically on the low-level circulation, scored with the same fixed 400 m radius
+and 0.2 interior margin, whose **finest domain is 4.0 km in both**: `coarse` = 600/200/**67 m**
+(60 cells), `fine` = 600/200/67/**22 m** (180 cells). Only `dx` differs; both use the moving nest
+(`follow_interval=8`, low-level window 0–1500 m), stress-divergence + log-law drag, `z1 = 5.1 m`.
+4.0 km is the smallest box that keeps both branches ≥ 60 cells across. Coarse completed in 15 min,
+fine in 174 min; 45 matched samples each. *A first attempt at 2.0 km NaN-ed the coarse branch on
+its first step (30 cells wide = no interior), which is what forced the retarget.*
 
-*(Results below once the pair completes.)*
+**The answer to the narrow question is NO.** At a fixed physical domain, refining 67 → 22 m does
+not intensify the surface vortex — it is equal-to-weaker:
+
+| | peak V_sfc | mean V_sfc | peak \|ζ\| | mean \|ζ\| | mean ratio | peak v_θ |
+|---|---|---|---|---|---|---|
+| coarse 67 m | **12.28** | **6.35** | 0.134 | **0.075** | 0.78 | **8.29** |
+| fine 22 m | 9.05 | 5.65 | **0.158** | 0.043 | **0.89** | 3.47 |
+
+The coarse branch's intensification event (t ≈ 29–33 s → V_sfc 12.28, holding ~9 to t = 60) is the
+whole result; the fine branch *passed through that window* showing only a bump (5.6 at t = 31.6)
+and peaked later, at t = 42.2 (9.05, ζ 0.158, core 125 m — a genuine interior tight-core event),
+then decayed monotonically to 6.65. The field snapshot at t = 60 confirms it: interior |ζ| 0.140
+(coarse) vs 0.065 (fine), max wind in a fixed 400 m disc 10.6 vs 9.4 m s⁻¹.
+
+So the tentative reading that the coarse *domain* alone had made Attempt L's 22 m level weak is
+incomplete — at the same 4.0 km box the 22 m level is still not stronger than 67 m. **Horizontal
+mesh resolution joins the measured-and-eliminated list** (mesh D, environment E, updraft F,
+cold-pool source H): ~67 m is already sufficient to carry the rotation the storm supplies, and the
+remaining limiter is the storm-scale angular-momentum supply feeding the corner flow — the one
+lever not yet measured. Marginal upsides of 22 m worth noting: better connection (ratio 0.89 vs
+0.78) and one brief finer-core event (peak ζ 0.158, the largest of either run); if a tornado-grade
+core (Δv ≫ 50 m s⁻¹) ever forms, 22 m-class mesh will be needed to *resolve* it — it just does not
+*produce* one here.
+
+**Three new measurement traps found while closing this out** (all reproducible from
+`outputs/matched_domain/`):
+
+1. **The relaxation zone manufactures tornado-grade vorticity.** With the border *unmasked*, both
+   final fields peak at the box corners/edges: |ζ| = 0.176 with 16 m s⁻¹ winds (67 m), **0.271 with
+   23 m s⁻¹ (22 m)** — larger on the finer mesh, and 2–4× the interior maxima (0.140 / 0.065).
+   Boundary-blending shear, not the vortex. `border_frac = 0.2` interior-only scoring is not
+   cosmetic; an unmasked report here would have announced a violent tornado sitting in a nest corner.
+2. **`dP` is NaN on every nest-move step** (period ~10.5 s = `follow_interval` in both runs): the
+   first diagnostic instant after a regrid has no valid projection pressure. Skip move-step samples
+   rather than averaging around them.
+3. **The two reports can disagree violently on the same state** — at the fine peak (t = 42.2):
+   V_sfc 9.05, ζ 0.158, core 125 m, but `vortex_report` v_θ = 0.94 m s⁻¹. The center-finders hop
+   between neighbouring interior maxima (the series alternates two regimes, ζ ≈ 0.01 / r = 1.00 vs
+   ζ ≈ 0.045 / r ≈ 0.85, at the re-centring period). Cross-check any single-instant claim against
+   the saved fields (`fields_{coarse,fine}.npz`) before believing it.
 
 ---
 
