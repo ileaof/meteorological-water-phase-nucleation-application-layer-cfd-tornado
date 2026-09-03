@@ -492,11 +492,46 @@ surface closure → resolved corner-flow layer → rotation carried to the groun
   (ratio 1.00) — an artifact: `surface_connection_report` used a `nx//6` interior margin that reaches
   into the nest's boundary-relaxation zone. Independent checks contradicted it (|ζ| barely changed
   with height, Δp = 0, `vortex_report` gave V_θ = 12). The margin is now `border_frac = 0.2` and the
-  honest value is **7.76**. *(Δp remains unusable on nests: the low-memory solver does not persist
-  `state.p` — the pressure field's horizontal spread is exactly 0, as first noted in Attempt H.)*
+  honest value is **7.76**. *(Δp was unusable on nests at the time — see the next section, which
+  fixes it.)*
 
 *(Caveat: comparisons **across** the coarse/fine groups are indicative — `z_stretch` redistributes
 all levels, so V_aloft differs (2.4–3.7 vs ~10). Comparisons **within** the fine group are clean.)*
+
+---
+
+### The pressure defect — a diagnostic that silently read zero on every nest
+
+Noted in Attempt H and carried as a caveat through K: on a nest, `state.p` had a horizontal spread of
+**exactly 0**, so every pressure-based number — the vortex pressure deficit above all — read zero.
+The cause was not physics. The **low-memory anelastic projection computed the pressure potential φ
+and discarded it**, returning only the velocity correction and the divergence residual. Any grid
+above `_LOWMEM_N = 64 000` cells routes through that solver, which is *every fine nest in the entire
+study*. `state.p` simply kept whatever stale value it had.
+
+This matters beyond one missing column: the classifier's `TORNADO_LIKE_VORTEX` and
+`SURFACE_CONNECTED_TORNADO_LIKE_VORTEX` tiers **require a pressure deficit**, so on a nest those
+tiers were structurally unreachable — a run could not have been classified as a tornado no matter
+what it did. Every "still `LOW_LEVEL_MESOCYCLONE`" verdict in Attempts A–K was made with that
+criterion dead. (This does not overturn those verdicts — the velocity criteria failed on their own,
+by wide margins — but it means the classification was never a complete test.)
+
+The fix (`5c3c022`) returns φ on request and stores `p = φ/dt`; the factor follows from the two
+paths' conventions (direct corrects `u -= (dt/ρ₀)∇p`, low-memory `u -= ∇φ/ρ₀`). Verified against
+the direct solver: pressure and velocity agree to **2.5 × 10⁻⁷** relative, and the low-memory solve
+is in fact the *more* exact of the two (divergence residual 10⁻¹⁷ against the direct solver's CG
+tolerance 8 × 10⁻¹⁰). Two related traps were closed at the same time, both instances of the same
+mistake as the `V_rot 37.9` artifact — **referencing a nest diagnostic against its own boundary**:
+`vortex_report` still used the default `1/6` search margin (now settable), and `pressure_deficit`
+measured "ambient" at the domain *edge*, which on a nest is the relaxation zone (an interior
+reference ring is now available via `ambient_frac`).
+
+Method note worth keeping: building the direct-vs-low-memory comparison surfaced a trap that looks
+exactly like a solver bug and is not. The low-memory path **forces the boundary faces
+BC-consistent before solving** (wrap faces synced when periodic, wall faces zeroed when not); the
+direct path does not. Handed the same inconsistent random field, the two solvers therefore project
+*different inputs* and disagree at O(1). The comparison is only meaningful once the input is made
+BC-consistent up front.
 
 ---
 
@@ -518,7 +553,11 @@ python scratchpad/moore_twoway_ab.py           # Attempt G: two-way coupling A/B
 python scratchpad/moore_twoway_deep_gpu.py     # Attempt H: two-way deep cascade + vorticity budget
 python scratchpad/supercell_alignment_evolution.py  # Attempt I: freely-evolving supercell, alignment(t)
 python scratchpad/tornado_occlusion_gpu.py     # Attempt J: resolve the vortex to 22 m (elevated)
+python scratchpad/tornado_intensity_gpu.py     # Attempt K: all combined -> surface-INTENSIFIED
+DEV=gpu WIN=240 python scratchpad/tornado_intensity_L_gpu.py   # Attempt L: 3-level to 22 m,
+                                               #   persistence tracking + real Delta p on the nest
 
 # feature tests
 python -m pytest tests/test_forcing.py tests/test_vorticity_budget.py tests/test_vortex_diagnostics.py -q
+python -m pytest tests/test_lowmem_pressure.py -q     # the nest pressure fix (p = phi/dt)
 ```
