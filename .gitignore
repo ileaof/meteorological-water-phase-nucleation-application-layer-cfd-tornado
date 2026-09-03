@@ -61,3 +61,6 @@ src/met_water_nucleation/_engine/unified_h2o_nucleation_climate/unified_nucleati
 *.log
 # AMReX crash backtrace dumps
 Backtrace.*
+
+# Large regenerable maturation caches (13 min to rebuild; 93 MB)
+/outputs/*.npz

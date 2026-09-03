@@ -55,6 +55,7 @@ class NestSpec:
     z_stretch: float = 1.03         # cluster levels near the surface
     relax_width: int = 4            # boundary relaxation band (cells)
     relax_rate: float = 0.02        # max nudging rate at the outermost cell [1/s]
+    relax_width_m: float | None = None   # OPT-IN: sponge band as a PHYSICAL width [m]
 
     @classmethod
     def centered(cls, parent_grid: Grid, frac: float = 0.4, **kw) -> "NestSpec":
@@ -164,16 +165,35 @@ def interpolate_base_to_nest(parent_base: BaseState, nest_grid: Grid) -> BaseSta
                      u0=f(parent_base.u0), v0=f(parent_base.v0))
 
 
+def effective_relax_width(spec: NestSpec, nest_grid: Grid) -> int:
+    """Sponge band in CELLS for this nest.
+
+    ``relax_width`` is a cell COUNT, so the sponge's *physical* width shrinks by
+    ``refine`` at every cascade level (4 cells = 267 m at dx=67 m but only 89 m at
+    dx=22 m).  The damping an incoming disturbance receives crossing the band goes
+    like ``relax_rate * width / U``, so a cell-count band damps ~``refine`` times
+    less per level while the error it must absorb grows -- measured on the 4.0 km
+    matched-domain pair: edge/interior |zeta| was 0.9 at dx=67 m but 5.0 at dx=22 m,
+    and the tracked vortex ended up INSIDE the 89 m band.  Setting ``relax_width_m``
+    pins the band to a physical width instead (band = round(relax_width_m / dx),
+    at least 2 cells).  ``relax_width_m=None`` reproduces the old behaviour exactly."""
+    if spec.relax_width_m is None:
+        return int(spec.relax_width)
+    return max(2, int(round(float(spec.relax_width_m) / float(nest_grid.dx))))
+
+
 def relaxation_weight(nest_grid: Grid, spec: NestSpec):
     """A (nx,ny,1) nudging-weight field: ``relax_rate`` at the outermost cell,
-    ramping quadratically to 0 at ``relax_width`` cells in; 0 in the interior."""
+    ramping quadratically to 0 at the sponge band width (see
+    :func:`effective_relax_width`) in; 0 in the interior."""
     xp = nest_grid.xp
     nx, ny = nest_grid.nx, nest_grid.ny
     ix = xp.arange(nx); iy = xp.arange(ny)
     dx_edge = xp.minimum(ix, nx - 1 - ix)          # (nx,) distance to nearest x-edge
     dy_edge = xp.minimum(iy, ny - 1 - iy)          # (ny,)
     dist = xp.minimum(dx_edge[:, None], dy_edge[None, :])   # (nx,ny)
-    w = xp.clip(1.0 - dist / max(spec.relax_width, 1), 0.0, 1.0) ** 2
+    _bw = effective_relax_width(spec, nest_grid)
+    w = xp.clip(1.0 - dist / max(_bw, 1), 0.0, 1.0) ** 2
     return (spec.relax_rate * w)[:, :, None]
 
 
@@ -460,7 +480,7 @@ def interior_near_surface_zeta(nest, margin: int | None = None,
     is not a physical vortex).  This is the honest low-level-rotation measure for
     a nest."""
     g = nest.grid
-    m = margin if margin is not None else (nest.spec.relax_width + 2)
+    m = margin if margin is not None else (effective_relax_width(nest.spec, nest.grid) + 2)
     _, _, zeta = _rot.vorticity_3d(nest.state, g)
     zl = g.backend.to_cpu(zeta)[:, :, int(np.argmin(np.abs(np.asarray(
         g.backend.to_cpu(g.zc)) - z_near)))]
@@ -876,6 +896,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         two_way=False, two_way_rate=0.5, storm_motion=(0.0, 0.0),
                         follow_interval=None, follow_field="uh", follow_frac=0.5,
                         follow_filter=0.5, follow_z_lo=0.0, follow_z_hi=6000.0,
+                        follow_border=None,
                         progress=None, sample=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
@@ -962,9 +983,17 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
         # so each level follows its already-moved parent.  Opt-in; off -> fixed frame as before.
         if follow_interval and nstep % follow_interval == 0:
             for k in range(1, len(sims)):
+                # Levels >=1 track a PARENT THAT IS ITSELF A NEST, whose sponge band carries
+                # artificial edge vorticity; exclude it so the box is not steered into the wall.
+                if follow_border is None:
+                    fb = 0
+                elif follow_border == "auto":
+                    fb = (effective_relax_width(specs[k - 2], sims[k - 1].grid) + 2) if k >= 2 else 0
+                else:
+                    fb = int(follow_border)
                 ns = follow_spec(specs[k - 1], sims[k - 1], field=follow_field,
                                  frac=follow_frac, alpha=follow_filter,
-                                 z_lo=follow_z_lo, z_hi=follow_z_hi)
+                                 z_lo=follow_z_lo, z_hi=follow_z_hi, border=fb)
                 if ns is None:
                     continue
                 try:
@@ -1002,13 +1031,19 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
 # state conservatively each regrid) is the next increment built on these.
 # ---------------------------------------------------------------------------
 def tag_cells(state: FlowState, grid: Grid, field: str = "uh", frac: float = 0.5,
-              z_lo: float = 0.0, z_hi: float = 6000.0):
+              z_lo: float = 0.0, z_hi: float = 6000.0, border: int = 0):
     """Tag the coarse columns ``(x, y)`` that need refinement: those where a rotation
     diagnostic exceeds ``frac`` of its domain maximum.
 
     ``field='uh'`` uses updraft helicity (the mesocyclone footprint); ``'zeta'`` uses
     the column-max ``|zeta|`` over ``[z_lo, z_hi]``.  Returns a ``(nx, ny)`` boolean
-    array (host NumPy)."""
+    array (host NumPy).
+
+    ``border`` (cells) blanks the outer band BEFORE the maximum is taken.  This
+    matters when the tracked grid is itself a nest: its sponge generates edge
+    vorticity that is not a physical vortex, and because the threshold is
+    ``frac * domain max``, that junk both inflates the normaliser and drags the
+    tagged cluster to the boundary.  ``border=0`` is the historical behaviour."""
     xp = grid.xp; to = grid.backend.to_cpu
     if field == "uh":
         d = xp.asarray(_rot.updraft_helicity(state, grid, z_lo=max(z_lo, 2000.0), z_hi=z_hi))
@@ -1020,6 +1055,10 @@ def tag_cells(state: FlowState, grid: Grid, field: str = "uh", frac: float = 0.5
     else:
         raise ValueError("field must be 'uh' or 'zeta'")
     d = np.asarray(to(d))
+    if border > 0 and 2 * border < min(d.shape):
+        interior = np.zeros(d.shape, dtype=bool)
+        interior[border:-border, border:-border] = True
+        d = np.where(interior, d, 0.0)
     dmax = float(np.max(d)) if d.size else 0.0
     if dmax <= 0.0:
         return np.zeros(d.shape, dtype=bool)
@@ -1058,7 +1097,8 @@ def regrid_spec(parent, refine: int = 3, field: str = "uh", frac: float = 0.5,
 
 
 def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5,
-                alpha: float = 0.5, min_move: int = 1, z_lo: float = 0.0, z_hi: float = 6000.0):
+                alpha: float = 0.5, min_move: int = 1, z_lo: float = 0.0, z_hi: float = 6000.0,
+                border: int = 0):
     """**Moving-nest footprint**: the same-size nest box re-centred on the tracked rotation, with
     an exponentially **FILTERED trajectory** so the mesh does not oscillate (ROADMAP §2a / the
     moving-domain requirement).
@@ -1075,8 +1115,10 @@ def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5
     # so a nest chasing it can leave the near-surface vortex outside a small fine domain
     # entirely (measured: |zeta| 0.002 on a 2 km / 22 m nest against 0.238 on its 67 m parent).
     # For a surface-vortex study, restrict the tracker to the low levels.
+    # ``border`` excludes the tracked grid's own sponge band -- when ``coarse`` is itself a
+    # nest, its edge vorticity is an artifact and would otherwise steer the box into the wall.
     box = cluster_to_box(tag_cells(coarse.state, pg, field=field, frac=frac,
-                                   z_lo=z_lo, z_hi=z_hi), margin=0)
+                                   z_lo=z_lo, z_hi=z_hi, border=border), margin=0)
     if box is None:
         return None
     ti0, tj0, tncx, tncy = box
@@ -1138,4 +1180,5 @@ __all__ = [
     "conservative_restrict", "restrict_velocity", "interior_near_surface_zeta",
     "composite_project_two_level",
     "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest", "follow_spec",
+    "effective_relax_width",
 ]

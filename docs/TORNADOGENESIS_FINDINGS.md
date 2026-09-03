@@ -634,6 +634,54 @@ core (Δv ≫ 50 m s⁻¹) ever forms, 22 m-class mesh will be needed to *resolv
    ζ ≈ 0.045 / r ≈ 0.85, at the re-centring period). Cross-check any single-instant claim against
    the saved fields (`fields_{coarse,fine}.npz`) before believing it.
 
+#### RETRACTION — the "refinement does not intensify" verdict above is NOT SAFE
+
+Following up trap 1 turned it from a *scoring* caveat into a *simulation* defect. Locating every
+coherent vortex in the two final fields (a |ζ| maximum that also sits on a real `p_dyn`
+depression, rather than any |ζ| maximum) gives:
+
+| | 67 m | 22 m |
+|---|---|---|
+| coherent vortices found | **4** (at 333, 667, 1000, 1133 m from the edge; `dp_local` −99, −39, −73, −21 Pa) | **1** (at **111 m**, `dp_local` −30 Pa) |
+| top-5 \|ζ\| maxima that are boundary junk | 1 of 5 | **4 of 5** (`dp_local` **+193**, +26, −10, −7 Pa) |
+| mean \|ζ\|, 0–4 cells from edge | 0.0083 | **0.0343** |
+| mean \|ζ\|, 4–12 cells | 0.0084 | 0.0218 |
+| mean \|ζ\|, 12 cells–centre | 0.0095 | **0.0069** |
+
+The 67 m nest is healthy: |ζ| is flat with distance from the boundary, and its edge feature is a
+real anticyclone (`p_dyn` −118 Pa), the couplet's other member. The 22 m nest is not. It carries
+**5× more vorticity at its boundary than in its interior**, its global maximum sits on a `p_dyn`
+*maximum* (+368 Pa — not a vortex at all), and its **one** coherent vortex ended up 111 m from the
+wall, i.e. *inside its own 89 m sponge*, where it was being nudged toward the parent state. It was
+simultaneously damped by the relaxation and excluded from the interior scoring window.
+
+So the fine branch's 9.05 is not "22 m resolves a weaker vortex"; it is "22 m measured the flank of
+a vortex it had pushed into its own wall." **Horizontal mesh resolution is therefore NOT eliminated
+— that row is withdrawn from the measured-and-eliminated list pending the re-test below.** What
+does survive the pair unaffected: circulation agrees to 3 % (7.93e3 vs 8.16e3), and Attempt K's
+flat-to-surface connected profile reproduces independently at both meshes.
+
+Two root causes, both now fixed in `nesting.py` (opt-in, defaults byte-identical, 7 tests in
+`tests/test_nest_sponge_and_follow.py`):
+
+1. **`relax_width` is a cell COUNT, so the sponge shrinks physically with every refinement level**
+   — 4 cells = 267 m at 67 m but only 89 m at 22 m. Damping crossing the band goes like
+   `relax_rate * width / U`, so the fine nest damped incoming error ~3× less while having more of
+   it to absorb. Fix: `NestSpec.relax_width_m` pins the band to a physical width
+   (`effective_relax_width()`); `relax_width_m=None` reproduces the old behaviour exactly.
+2. **The moving-nest tracker was steered by the artifact.** `tag_cells` thresholds at
+   `frac * domain max`, so when the tracked grid is itself a nest, its sponge vorticity both
+   inflates the normaliser and drags the tagged cluster into the wall — a feedback that pushes the
+   real vortex toward the opposite boundary. Fix: `tag_cells(border=)` / `follow_spec(border=)`,
+   plumbed as `run_multilevel_nest(follow_border=)` with `"auto"` = exclude a parent-nest's own
+   band. This also better explains the fine run's two alternating regimes than the
+   "center-finder hopping" reading in trap 3 above.
+
+Re-test: `scratchpad/tornado_matched_domain_v2_gpu.py` (`sponge=267 m`, `follow_border=auto`,
+`follow_filter=0.7`). Note the sponge fix is a **no-op at 67 m** (267 m *is* 4 cells there), so the
+coarse branch re-run isolates the tracker fix alone — and it does change that branch, so the
+previously reported coarse numbers (peak V_sfc 12.28) are themselves provisional.
+
 ---
 
 ## 6. Reproduce
