@@ -67,6 +67,13 @@ class SurfaceDragConfig:
     enabled: bool = True
     C_d: float = 0.012           # bulk drag coefficient (~0.01-0.02 over land)
     U_min: float = 1.0           # floor on |V| so weak flow still feels some drag [m/s]
+    # Height-consistent (neutral log-law / MOST) closure: C_d = (kappa/ln(z1/z0))^2 evaluated at the
+    # ACTUAL first cell-centre height z1.  A fixed bulk C_d is only calibrated for one z1 -- at a
+    # refined near-surface mesh (z1 ~ 5-10 m, the corner-flow layer) it over-damps the lowest level.
+    # Off by default (fixed C_d, byte-identical); on -> C_d follows the mesh and the roughness.
+    use_log_law: bool = False
+    roughness_length_m: float = 0.1   # aerodynamic roughness z0 [m] (~0.1 over open land)
+    kappa: float = 0.4                # von Karman constant
 
 
 @dataclass

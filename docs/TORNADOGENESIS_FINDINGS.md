@@ -398,31 +398,46 @@ occlusion cycle. Horizontal mesh resolution, environmental SRH, updraft strength
 `examples/surface_sensitivity.py` (freely-evolving supercell; `surface_connection_report`'s
 surface/aloft V_rot ratio; > 0.8 ⇒ surface-connected):
 
-| case | C_d | first cell dz₁ | V_sfc | **sfc/aloft** |
-|---|---|---|---|---|
-| baseline | 0.012 | 49.6 m | 0.81 | 0.08 |
-| no drag | 0.000 | 49.6 m | **2.75** | **0.28** |
-| rough (2× C_d) | 0.024 | 49.6 m | 0.82 | 0.08 |
-| smooth (⅓ C_d) | 0.004 | 49.6 m | 0.91 | 0.09 |
-| **fine near-surface** | 0.012 | **6.2 m** | 1.25 | **0.53** |
-| drag + heat/moisture fluxes | 0.012 | 49.6 m | 0.81 | 0.08 |
+| case | C_d (applied) | first cell dz₁ | V_sfc | **sfc/aloft** | connected |
+|---|---|---|---|---|---|
+| baseline | 0.0120 | 49.6 m | 0.81 | 0.08 | ✗ |
+| no drag | 0 | 49.6 m | 2.75 | 0.28 | ✗ |
+| rough (2× C_d) | 0.0240 | 49.6 m | 0.82 | 0.08 | ✗ |
+| smooth (⅓ C_d) | 0.0040 | 49.6 m | 0.91 | 0.09 | ✗ |
+| coarse + log-law | 0.0042 | 49.6 m | 0.91 | 0.09 | ✗ |
+| fine + bulk drag | 0.0120 | **6.2 m** | 1.25 | 0.53 | ✗ |
+| fine + **log-law** drag | 0.0094 | **6.2 m** | 1.28 | 0.51 | ✗ |
+| **fine + no drag** | 0 | **6.2 m** | **3.25** | **0.88** | **✓** |
+| drag + heat/moisture fluxes | 0.0120 | 49.6 m | 0.81 | 0.08 | ✗ |
 
-Two results, one of them counterintuitive:
+**This is the first SURFACE-CONNECTED vortex in the whole study** — and it isolates the last gap to
+two ingredients, one expected and one not:
 
-- **Near-surface vertical resolution is the dominant control.** Taking the first cell centre from
-  ~50 m to ~6 m raises the surface/aloft ratio **6.6× (0.08 → 0.53)** — far more than any surface
-  parameter. The corner-flow layer simply is not represented by a 50 m first cell.
-- **Drag magnitude is nearly irrelevant here, and removing drag *helps*** (0.08 → 0.28). At a 50 m
-  first cell the *bulk* drag law damps the lowest level's tangential wind more than it generates the
-  convergent corner flow it is supposed to drive. Surface heat/moisture fluxes change nothing.
+- **Near-surface vertical resolution is necessary.** Taking the first cell centre from ~50 m to
+  ~6 m raises the ratio 6.6× (0.08 → 0.53); at 50 m even removing drag only reaches 0.28. The
+  corner-flow layer simply is not representable by a 50 m first cell.
+- **But the *drag parameterisation* is what blocks the connection.** Within the fine-mesh group
+  (all dz₁ = 6.2 m — a **clean one-variable comparison**) the ratio is 0.53 with bulk drag, 0.51
+  with the height-consistent log-law drag, and **0.88 with drag off** — the only case that meets
+  the surface-connection criterion, and it also has the strongest near-surface convergence
+  (5.6×10⁻³ vs 3.4×10⁻³). Roughness magnitude is nearly irrelevant (0.004–0.024 all ≈ 0.08 at 50 m),
+  and surface heat/moisture fluxes change nothing.
 
-*(Honest caveat: changing `z_stretch` redistributes **all** vertical levels, so the fine-near-surface
-row is not a perfectly controlled experiment — the storm aloft also differs, V_aloft 2.4 vs 10.1.
-The ratio is the intended metric and the jump is large, but this is indicative rather than a clean
-one-variable control.)*
+**Interpretation (honest).** In nature surface drag *drives* the corner-flow inflow that concentrates
+angular momentum (Rotunno–Klemp). In this model the drag is applied as an implicit damping of the
+lowest cell's **full** horizontal wind — including its **tangential** component — so it removes
+near-surface angular momentum without generating the compensating **radial** inflow. It is therefore
+a net *sink* of near-surface rotation rather than the source of the corner flow. Making C_d
+height-consistent (log-law) does not fix this, because the defect is the *form* of the closure, not
+its coefficient.
 
-**Implication:** the surface connection is gated by **resolving the corner-flow layer** (first cell
-≲ 10 m plus a drag formulation valid at that height), not by tuning roughness at a 50 m first cell.
+**The final gap is now specific:** a surface-layer closure that applies the stress as a *divergence
+through a resolved surface layer* (so the frictionally-induced radial inflow appears), rather than a
+bulk damping of the lowest cell — combined with dz₁ ≲ 10 m. That is a concrete, implementable next
+step, and the diagnostics to score it (`surface_connection_report`) are in place.
+
+*(Caveat: comparisons **across** the coarse/fine groups are indicative — `z_stretch` redistributes
+all levels, so V_aloft differs (2.4–3.7 vs ~10). Comparisons **within** the fine group are clean.)*
 
 ---
 

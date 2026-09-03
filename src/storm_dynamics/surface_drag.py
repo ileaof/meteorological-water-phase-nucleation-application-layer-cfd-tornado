@@ -25,10 +25,35 @@ from meteorological_flow.state import FlowState
 from .config import SurfaceDragConfig
 
 
+def log_law_drag_coefficient(z1_m: float, z0_m: float, kappa: float = 0.4) -> float:
+    """Neutral log-law drag coefficient ``C_d = (kappa / ln(z1/z0))^2`` at the first cell-centre
+    height ``z1``.  Unlike a fixed bulk ``C_d`` (calibrated for one z1), this stays consistent as
+    the near-surface mesh is refined toward the corner-flow layer -- the surface-sensitivity study
+    showed a fixed bulk coefficient over-damps the lowest level once z1 is resolved."""
+    import math
+    z1 = max(float(z1_m), 2.0 * float(z0_m))          # keep the log positive/well-posed
+    return (kappa / math.log(z1 / float(z0_m))) ** 2
+
+
+def effective_drag_coefficient(grid: Grid, drag: SurfaceDragConfig) -> float:
+    """The C_d actually applied: the log-law value at this mesh's first cell-centre height when
+    ``drag.use_log_law``, else the configured bulk constant."""
+    if not getattr(drag, "use_log_law", False):
+        return float(drag.C_d)
+    z1 = float(grid.zc[0]) if not hasattr(grid.zc, "get") else float(grid.backend.to_cpu(grid.zc)[0])
+    return log_law_drag_coefficient(z1, drag.roughness_length_m, getattr(drag, "kappa", 0.4))
+
+
 def apply_surface_drag(state: FlowState, grid: Grid, dt: float,
                        drag: SurfaceDragConfig) -> None:
-    """Retard the lowest model level by the bulk drag law (implicit, in place)."""
-    if not drag.enabled or drag.C_d <= 0.0:
+    """Retard the lowest model level by the bulk drag law (implicit, in place).
+
+    With ``drag.use_log_law`` the coefficient is the height-consistent neutral log-law value at the
+    actual first cell-centre height (see :func:`effective_drag_coefficient`)."""
+    if not drag.enabled:
+        return
+    C_d = effective_drag_coefficient(grid, drag)
+    if C_d <= 0.0:
         return
     xp = grid.xp
     dz0 = grid.dz if not getattr(grid, "stretched", False) else float(grid.dz_c[0])
@@ -51,10 +76,10 @@ def apply_surface_drag(state: FlowState, grid: Grid, dt: float,
         w = 0.5 * (speed_c[:, -1] + speed_c[:, 0]); sv[:, 0] = w; sv[:, -1] = w
     else:
         sv[:, 0] = speed_c[:, 0]; sv[:, -1] = speed_c[:, -1]
-    ru = drag.C_d * su / dz0
-    rv = drag.C_d * sv / dz0
+    ru = C_d * su / dz0
+    rv = C_d * sv / dz0
     state.u[:, :, 0] /= (1.0 + ru * dt)
     state.v[:, :, 0] /= (1.0 + rv * dt)
 
 
-__all__ = ["apply_surface_drag"]
+__all__ = ["apply_surface_drag", "log_law_drag_coefficient", "effective_drag_coefficient"]

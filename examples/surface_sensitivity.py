@@ -30,13 +30,16 @@ CASES = [
     ("no_drag",         dict(C_d=0.0,   z_stretch=1.05)),   # control: drag removed
     ("rough_surface",   dict(C_d=0.024, z_stretch=1.05)),   # z0 ~ rougher
     ("smooth_surface",  dict(C_d=0.004, z_stretch=1.05)),
-    ("fine_near_sfc",   dict(C_d=0.012, z_stretch=1.12)),   # much finer first cells
+    ("coarse+loglaw",   dict(C_d=0.012, z_stretch=1.05, log_law=True)),
+    ("fine_near_sfc",   dict(C_d=0.012, z_stretch=1.12)),   # much finer first cells, bulk C_d
+    ("fine+loglaw",     dict(C_d=0.012, z_stretch=1.12, log_law=True)),   # the physical combination
+    ("fine+no_drag",    dict(C_d=0.0,   z_stretch=1.12)),
     ("drag+fluxes",     dict(C_d=0.012, z_stretch=1.05, fluxes=True)),
 ]
 
 
 def _run(name, ov, nx, nz, steps, device):
-    ov = dict(ov); fluxes = ov.pop("fluxes", False)
+    ov = dict(ov); fluxes = ov.pop("fluxes", False); log_law = ov.pop("log_law", False)
     scfg = build_storm_config(preset="storm", nx=nx, ny=nx, nz=nz, Lx=nx * 600.0, Ly=nx * 600.0,
                               Lz=15000.0, duration=1.0, dt_max=3.0, drag=(ov["C_d"] > 0),
                               z_stretch=ov["z_stretch"], C_s=0.20,
@@ -44,6 +47,9 @@ def _run(name, ov, nx, nz, steps, device):
     scfg.sim.physics.bubble_dtheta = 5.0
     if ov["C_d"] > 0:
         scfg.dyn.drag.C_d = ov["C_d"]
+    if log_law:
+        scfg.dyn.drag.use_log_law = True
+        scfg.dyn.drag.roughness_length_m = 0.1
     if fluxes:
         scfg.dyn.fluxes = SurfaceFluxConfig(enabled=True, C_h=1.2e-3, C_q=1.2e-3,
                                             dtheta_sfc_K=2.0, saturate_surface=True)
@@ -57,9 +63,11 @@ def _run(name, ov, nx, nz, steps, device):
         if not np.isfinite(np.asarray(sim.grid.backend.to_cpu(sim.state.w))).all():
             break
     sim.state.diagnose(sim.cfg)
+    from storm_dynamics.surface_drag import effective_drag_coefficient
+    cd_eff = effective_drag_coefficient(sim.grid, scfg.dyn.drag) if scfg.dyn.drag.enabled else 0.0
     r = vd.surface_connection_report(sim.state, sim.grid)
     p = r["profile"]
-    return {"name": name, "C_d": ov["C_d"], "dz1_m": r["first_cell_height_m"],
+    return {"name": name, "C_d": cd_eff, "dz1_m": r["first_cell_height_m"],
             "v_sfc": p[0]["v_rot_m_s"], "v_aloft": max(q["v_rot_m_s"] for q in p),
             "ratio": r["surface_aloft_ratio"], "connected": r["surface_connected"],
             "conv": r["near_surface_convergence_s"]}
@@ -67,11 +75,11 @@ def _run(name, ov, nx, nz, steps, device):
 
 def run_matrix(nx=40, nz=44, steps=250, device="cpu"):
     rows = [_run(n, o, nx, nz, steps, device) for n, o in CASES]
-    hdr = (f"{'case':<16}{'C_d':>7}{'dz1[m]':>8}{'V_sfc':>8}{'V_aloft':>9}"
+    hdr = (f"{'case':<16}{'C_d_eff':>9}{'dz1[m]':>8}{'V_sfc':>8}{'V_aloft':>9}"
            f"{'sfc/aloft':>11}{'conv':>10}  connected")
     print(hdr); print("-" * len(hdr))
     for r in rows:
-        print(f"{r['name']:<16}{r['C_d']:>7.3f}{r['dz1_m']:>8.1f}{r['v_sfc']:>8.2f}"
+        print(f"{r['name']:<16}{r['C_d']:>9.4f}{r['dz1_m']:>8.1f}{r['v_sfc']:>8.2f}"
               f"{r['v_aloft']:>9.2f}{r['ratio']:>11.2f}{r['conv']:>10.2e}  {r['connected']}")
     print("\nsurface/aloft ratio > 0.8 => surface-connected; < 0.8 => ELEVATED vortex.")
     print("NOTE: ground contact is never claimed below the first cell-centre height dz1.")
