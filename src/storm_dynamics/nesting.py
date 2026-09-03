@@ -874,7 +874,8 @@ def run_concurrent_nest(parent, spec: NestSpec, window: float,
 def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         record_interval=None, restrict_up=True, restrict_momentum=False,
                         two_way=False, two_way_rate=0.5, storm_motion=(0.0, 0.0),
-                        progress=None):
+                        follow_interval=None, follow_field="uh", follow_frac=0.5,
+                        follow_filter=0.5, progress=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
     ``specs`` is the nest hierarchy: ``specs[0]`` a sub-region of the parent, ``specs[1]``
@@ -943,14 +944,32 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
             except ValueError:
                 pass                                           # non-aligned pair -> skip up-feedback
 
-    t = 0.0
+    t = 0.0; nstep = 0; nmoves = 0
     while t < window - 1e-9:
         dtp = parent._dt()
         if t + dtp > window:
             dtp = window - t
         parent._step(dtp)
         drive(1, dtp)
-        t += dtp
+        t += dtp; nstep += 1
+        # MOVING NEST: every follow_interval parent steps, re-centre each level (same size, exact
+        # integer fine-cell shift) on the tracked rotation, along a FILTERED trajectory.  Top-down
+        # so each level follows its already-moved parent.  Opt-in; off -> fixed frame as before.
+        if follow_interval and nstep % follow_interval == 0:
+            for k in range(1, len(sims)):
+                ns = follow_spec(specs[k - 1], sims[k - 1], field=follow_field,
+                                 frac=follow_frac, alpha=follow_filter)
+                if ns is None:
+                    continue
+                try:
+                    sims[k] = regrid_nest(sims[k], sims[k - 1], ns, les_boost=les_boost, cfl=cfl)
+                except Exception:
+                    continue
+                specs[k - 1] = ns
+                tgt_prev[k - 1] = _interp_targets(sims[k - 1].state, sims[k - 1].grid,
+                                                  sims[k].grid, ns)
+                nmoves += 1
+            finest = sims[-1]
         if progress:
             progress(t, window, finest.step)
     finest.tracker.update(finest.t, finest.state, finest.grid); SS._record(finest, initial)
@@ -958,6 +977,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
     rep["nest"] = {"levels": len(specs), "dx_m": finest.grid.dx, "nz": finest.grid.nz,
                    "nx": finest.grid.nx, "ny": finest.grid.ny,
                    "refine_per_level": [s.refine for s in specs], "two_way": bool(two_way),
+                   "moving_nest": bool(follow_interval), "nest_moves": nmoves,
                    "total_refine": int(round(parent.grid.dx / finest.grid.dx))}
     return sims, rep
 
@@ -1024,6 +1044,36 @@ def regrid_spec(parent, refine: int = 3, field: str = "uh", frac: float = 0.5,
     return NestSpec.aligned(parent.grid, i0=i0, j0=j0, ncx=ncx, ncy=ncy, refine=refine, **nest_kw)
 
 
+def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5,
+                alpha: float = 0.5, min_move: int = 1):
+    """**Moving-nest footprint**: the same-size nest box re-centred on the tracked rotation, with
+    an exponentially **FILTERED trajectory** so the mesh does not oscillate (ROADMAP §2a / the
+    moving-domain requirement).
+
+    Keeping the size fixed is deliberate: :func:`regrid_nest` then transfers the old fine field by
+    an *exact integer cell shift* (no interpolation, no smoothing of the developed vortex).  The
+    centre is taken from :func:`tag_cells`/:func:`cluster_to_box` on the parent, then moved only a
+    fraction ``alpha`` of the way there each regrid.  Returns ``None`` if nothing is tagged or the
+    filtered move is below ``min_move`` coarse cells (avoids churn).
+    """
+    pg = coarse.grid
+    box = cluster_to_box(tag_cells(coarse.state, pg, field=field, frac=frac), margin=0)
+    if box is None:
+        return None
+    ti0, tj0, tncx, tncy = box
+    ncx = int(round(old_spec.Lx / pg.dx)); ncy = int(round(old_spec.Ly / pg.dy))
+    ci = ti0 + tncx // 2; cj = tj0 + tncy // 2               # tracked centre (coarse cells)
+    i_t = ci - ncx // 2; j_t = cj - ncy // 2                  # target origin, same size
+    i_o = int(round(old_spec.x0 / pg.dx)); j_o = int(round(old_spec.y0 / pg.dy))
+    i_n = int(round(i_o + alpha * (i_t - i_o)))               # filtered (smoothed) trajectory
+    j_n = int(round(j_o + alpha * (j_t - j_o)))
+    i_n = int(np.clip(i_n, 0, pg.nx - ncx)); j_n = int(np.clip(j_n, 0, pg.ny - ncy))
+    if abs(i_n - i_o) < min_move and abs(j_n - j_o) < min_move:
+        return None
+    return NestSpec.aligned(pg, i0=i_n, j0=j_n, ncx=ncx, ncy=ncy, refine=old_spec.refine,
+                            nz=old_spec.nz, z_stretch=old_spec.z_stretch)
+
+
 def _shift_copy(A_old, A_new, d0, d1):
     """``A_new[i,j] <- A_old[i+d0, j+d1]`` for every index in range (integer shift on the
     first two axes); cells with no source keep their current (parent-filled) value.
@@ -1068,5 +1118,5 @@ __all__ = [
     "run_concurrent_nest", "run_multilevel_nest", "restrict_nest_to_parent",
     "conservative_restrict", "restrict_velocity", "interior_near_surface_zeta",
     "composite_project_two_level",
-    "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest",
+    "tag_cells", "cluster_to_box", "regrid_spec", "regrid_nest", "follow_spec",
 ]
