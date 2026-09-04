@@ -111,3 +111,72 @@ def test_real_case_simulation_is_limited_area_not_periodic():
     sim = StormSimulation(cfg)
     assert getattr(sim.grid, "periodic", True) is False
     assert sim.cfg.boundaries.x_west == "outflow" and sim.cfg.boundaries.y == "outflow"
+
+
+# ------------------------------------------------------------------ open-boundary projection
+def _poisson_case(seed=0, nx=32, ny=32, nz=24):
+    rng = np.random.default_rng(seed)
+    dx = dy = 600.0
+    zf = np.linspace(0.0, 15000.0, nz + 1)
+    dzc = np.diff(zf); zc = 0.5 * (zf[1:] + zf[:-1]); dzf = np.diff(zc)
+    rc = 1.2 * np.exp(-zc / 8500.0); rw = np.interp(zf, zc, rc)
+    u = rng.normal(0, 5, (nx + 1, ny, nz))
+    v = rng.normal(0, 5, (nx, ny + 1, nz))
+    w = rng.normal(0, 2, (nx, ny, nz + 1))
+    return u, v, w, rc, rw, dx, dy, dzc, dzf
+
+
+def _scaled_divergence(u, v, w, rc, rw, dx, dy, dzc):
+    from storm_dynamics.pressure_fft import anelastic_divergence
+    d = np.abs(anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc))
+    return d / (rc.max() * max(np.abs(u).max(), 1e-9) / dx)
+
+
+def test_open_lateral_projection_is_divergence_free_including_the_boundary_face():
+    """The lowmem solver assumed SOLID WALLS on every non-periodic grid.
+
+    That is right for a nest (walls + sponge) but wrong for a limited-area parent, where the
+    boundary normal velocity carries the environmental inflow: zeroing it each step and letting
+    the BC restore it left that face divergent (measured 3.5e-01 against 5.9e-06 periodic).
+    """
+    from storm_dynamics.pressure_fft import project_anelastic_fft
+    u, v, w, rc, rw, dx, dy, dzc, dzf = _poisson_case()
+    project_anelastic_fft(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=False, lateral="open")
+    d = _scaled_divergence(u, v, w, rc, rw, dx, dy, dzc)
+    assert d.max() < 1e-12, "open-boundary projection must be divergence-free everywhere"
+    assert d[0, :, :].max() < 1e-12 and d[-1, :, :].max() < 1e-12       # the boundary faces too
+
+
+def test_open_lateral_default_is_wall_and_byte_identical():
+    """Opt-in: the default must reproduce the previous (solid-wall) behaviour exactly."""
+    from storm_dynamics.pressure_fft import project_anelastic_fft
+    a = _poisson_case(); b = _poisson_case()
+    project_anelastic_fft(*a[:5], *a[5:], periodic_h=False)
+    project_anelastic_fft(*b[:5], *b[5:], periodic_h=False, lateral="wall")
+    for x, y in zip(a[:3], b[:3]):
+        assert np.array_equal(x, y)
+
+
+def test_open_lateral_preserves_the_inflow_profile():
+    """A solid-wall projection zeroes the boundary normal velocity; 'open' must not -- it may
+    only remove a UNIFORM offset (the Neumann solvability condition), keeping the structure."""
+    from storm_dynamics.pressure_fft import project_anelastic_fft
+    u, v, w, rc, rw, dx, dy, dzc, dzf = _poisson_case()
+    inflow_before = u[0, :, :].copy()
+    project_anelastic_fft(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=False, lateral="open")
+    assert np.abs(u[0, :, :]).max() > 0.0                       # NOT zeroed
+    shifted = u[0, :, :] - inflow_before
+    assert np.ptp(shifted) < 1e-9                                # differs only by a constant
+
+
+def test_limited_area_grid_is_flagged_for_the_open_projection():
+    """The routing: an outflow, non-periodic config must reach the projection as 'open'."""
+    cfg = build_storm_config(preset="storm", nx=16, ny=16, nz=12, Lx=16000.0, Ly=16000.0,
+                             Lz=8000.0, duration=1.0, dt_max=3.0, device="cpu", periodic=False)
+    cfg.sim.boundaries.x_west = cfg.sim.boundaries.x_east = "outflow"
+    cfg.sim.boundaries.y = "outflow"
+    assert StormSimulation(cfg).grid._lateral_open is True
+    # a nest-style / periodic domain must NOT be flagged
+    cfg2 = build_storm_config(preset="storm", nx=16, ny=16, nz=12, Lx=16000.0, Ly=16000.0,
+                              Lz=8000.0, duration=1.0, dt_max=3.0, device="cpu", periodic=True)
+    assert StormSimulation(cfg2).grid._lateral_open is False

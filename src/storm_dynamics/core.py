@@ -124,10 +124,12 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
     sep = separable(grid)
     is_gpu = type(st.u).__module__.split(".", 1)[0] == "cupy"
     keep_p = dt is not None and float(dt) > 0.0
+    lateral = "open" if getattr(grid, "_lateral_open", False) else "wall"
     if sep and is_gpu:                                        # GPU fast path: solve on-device
         from .pressure_fft import project_anelastic_fft as _proj
         out = _proj(st.u, st.v, st.w, rho0_c, rho0_wface, dx, dy, dzc, dzf,
-                    periodic_h=periodic_h, return_phi=keep_p) # modifies st.{u,v,w} in place
+                    periodic_h=periodic_h, return_phi=keep_p,
+                    lateral=lateral)                          # modifies st.{u,v,w} in place
         if keep_p:
             res, phi = out
             st.p_dyn = phi / float(dt)                        # stays on the device
@@ -139,9 +141,11 @@ def _project_anelastic_lowmem(st, grid: Grid, rho0_c, rho0_wface, dt=None):
     rc = np.asarray(to_cpu(rho0_c), float); rw = np.asarray(to_cpu(rho0_wface), float)
     if sep:
         from .pressure_fft import project_anelastic_fft as _proj
+        out = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h,
+                    return_phi=keep_p, lateral=lateral)
     else:
         from .pressure_iterative import project_anelastic_iterative as _proj
-    out = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h, return_phi=keep_p)
+        out = _proj(u, v, w, rc, rw, dx, dy, dzc, dzf, periodic_h=periodic_h, return_phi=keep_p)
     if keep_p:
         res, phi = out
         st.p_dyn = xp.asarray(phi / float(dt))
@@ -169,6 +173,14 @@ class StormSimulation:
                          Lx=cfg.domain.Lx, Ly=cfg.domain.Ly, Lz=cfg.domain.Lz,
                          z_stretch=getattr(cfg.grid, "z_stretch", 1.0),
                          periodic=periodic, backend=self.backend)
+        # A non-periodic grid with OPEN ('outflow') lateral faces is a limited-area domain: its
+        # boundary normal velocity carries the environmental inflow and must survive the
+        # projection.  The low-memory solver otherwise assumes SOLID WALLS (correct for a nest,
+        # which is walls + sponge) and zeroes it every step; the BC then restores a value that
+        # was never part of the projected field, leaving that face divergent.  Flag it on the
+        # grid so the projection can pick the right lateral treatment.
+        self.grid._lateral_open = (not periodic) and (
+            getattr(cfg.boundaries, "x_west", None) == "outflow")
         g = self.grid
         xp = g.xp
         # curved-hodograph base state (item 5); reuse WK thermodynamics.

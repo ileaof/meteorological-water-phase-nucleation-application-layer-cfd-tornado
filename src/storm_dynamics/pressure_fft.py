@@ -146,8 +146,32 @@ def anelastic_divergence(u, v, w, rho0_c, rho0_wface, dx, dy, dzc):
             + (rw[:, :, 1:] * w[:, :, 1:] - rw[:, :, :-1] * w[:, :, :-1]) / xp.asarray(dzc)[None, None, :])
 
 
+def _balance_open_lateral_flux(u, v, rc, dx, dy, dzc, xp):
+    """Make the NET mass flux through the open lateral faces vanish.
+
+    The DCT solve imposes homogeneous Neumann on ``phi``, so the correction never touches the
+    boundary faces; the discrete Poisson problem is then solvable ONLY if the prescribed
+    boundary flux already integrates to zero (the classic Neumann compatibility condition).
+    A uniform normal-velocity offset on the open faces is the minimal way to enforce it, and it
+    leaves the boundary PROFILE (hence the inflow structure) intact.  Returns the offset."""
+    dzc = xp.asarray(dzc)
+    ny = u.shape[1]; nx = v.shape[0]
+    col = rc * dzc                          # (nz,) mass-weight of a unit-width column cell
+    wx = col[None, :] * dy                  # weight of one x-face cell, broadcast over (ny,nz)
+    wy = col[None, :] * dx                  # weight of one y-face cell, broadcast over (nx,nz)
+    net = (xp.sum(u[-1, :, :] * wx) - xp.sum(u[0, :, :] * wx)
+           + xp.sum(v[:, -1, :] * wy) - xp.sum(v[:, 0, :] * wy))     # net OUTflow
+    # denominator must count EVERY face cell: the numerator sums over ny (x-faces) and nx
+    # (y-faces), so the weights have to carry those counts too.
+    denom = 2.0 * ny * xp.sum(col) * dy + 2.0 * nx * xp.sum(col) * dx
+    c = net / denom
+    u[-1, :, :] -= c; u[0, :, :] += c
+    v[:, -1, :] -= c; v[:, 0, :] += c
+    return float(c)
+
+
 def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodic_h=True,
-                          return_phi=False):
+                          return_phi=False, lateral="wall"):
     """Make the staggered velocity anelastically divergence-free, ``div(rho0 u)=0``, with the
     **low-memory** FFT/DCT + tridiagonal solve.  ``u`` (nx+1,ny,nz), ``v`` (nx,ny+1,nz),
     ``w`` (nx,ny,nz+1) (host NumPy, modified in place); ``rho0_c`` (nz,), ``rho0_wface``
@@ -166,7 +190,13 @@ def project_anelastic_fft(u, v, w, rho0_c, rho0_wface, dx, dy, dzc, dzf, periodi
     w[:, :, 0] = 0.0; w[:, :, -1] = 0.0                         # solid top/bottom
     if periodic_h:                                             # sync the redundant wrap face
         u[-1, :, :] = u[0, :, :]; v[:, -1, :] = v[:, 0, :]
-    else:                                                      # solid lateral walls
+    elif lateral == "open":
+        # OPEN lateral boundaries (a limited-area parent): the boundary normal velocity is set
+        # by the BC (zero-gradient outflow) and carries the environmental inflow, so it must NOT
+        # be zeroed -- doing that wipes out the inflow every step, and the BC then restores a
+        # value that was never part of the projected field, leaving that face divergent.
+        _balance_open_lateral_flux(u, v, rc, dx, dy, dzc, xp)
+    else:                                                      # solid lateral walls (nest)
         u[0, :, :] = u[-1, :, :] = 0.0; v[:, 0, :] = v[:, -1, :] = 0.0
     f = anelastic_divergence(u, v, w, rc, rw, dx, dy, dzc)
     phi = _solve_poisson(f, dx, dy, dzc, dzf, periodic_h)
