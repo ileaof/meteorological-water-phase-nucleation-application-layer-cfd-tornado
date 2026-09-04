@@ -82,15 +82,25 @@ def range_for_beam_height(target_height_m, elevation_deg, radar_alt_m: float = 0
     return float(-a * np.sin(e) + np.sqrt(disc))
 
 
-def _gauss_weights(n: int, beamwidth_deg: float):
-    """Sub-beam offsets [deg] and two-way Gaussian weights across the 3 dB beamwidth.
+def _gauss_weights(n: int, beamwidth_deg: float, two_way: bool = True):
+    """Sub-beam offsets [deg] and Gaussian beam weights across the 3 dB beamwidth.
 
-    A Gaussian beam has one-way power ``exp(-4 ln2 (phi/theta_3dB)^2)``; the offsets span
-    +-1 beamwidth, which captures the great majority of the weight."""
+    A Doppler estimate is weighted by the TWO-WAY pattern (transmit x receive), which is the
+    SQUARE of the one-way power pattern:
+
+        one-way : exp(-4 ln2 (phi/theta_3dB)^2)   -- halves at phi = theta/2
+        two-way : exp(-8 ln2 (phi/theta_3dB)^2)   -- halves at phi = theta/(2 sqrt 2)
+
+    This previously used the ONE-WAY form while the docstrings claimed two-way, making the
+    effective beam 1.41x too wide in each of azimuth and elevation and so under-reading a
+    sub-beam vortex by ~8% relative to the correct weighting.  ``two_way=False`` restores the
+    old behaviour for comparison.
+    """
     if n <= 1:
         return np.array([0.0]), np.array([1.0])
     off = np.linspace(-1.0, 1.0, n) * float(beamwidth_deg)
-    w = np.exp(-4.0 * np.log(2.0) * (off / float(beamwidth_deg)) ** 2)
+    k = 8.0 if two_way else 4.0
+    w = np.exp(-k * np.log(2.0) * (off / float(beamwidth_deg)) ** 2)
     return off, w / w.sum()
 
 
@@ -183,16 +193,26 @@ def sweep_grid_for_domain(radar: RadarSpec, x_center_m, y_center_m, half_width_m
     return az, rg
 
 
-def vrot_from_sweep(sweep, max_separation_m: float = 4000.0):
+def vrot_from_sweep(sweep, max_separation_m=None, n_beam_widths: float = 8.0):
     """``V_rot`` from a synthetic sweep, using the OBSERVATION's definition.
 
     The reported Moore value is half the peak-to-peak Doppler difference across a couplet
     (inbound -26 / outbound +26 -> ``V_rot = 26``).  We take the maximum and minimum radial
     velocity within the sweep, require them to be within ``max_separation_m`` of each other
     (a couplet, not two unrelated features), and return ``(max - min)/2`` together with the
-    separation -- which is directly comparable to the observed ~253 m.
+    separation -- directly comparable to the observed separation.
+
+    ``max_separation_m=None`` (default) sets the limit to ``n_beam_widths`` beam diameters at
+    the sweep's own range, so the constraint SCALES WITH THE GEOMETRY instead of being a fixed
+    number.  The previous fixed 4000 m default was simultaneously too loose near the radar
+    (12 beam diameters at 20 km, admitting two unrelated features) and too tight for a
+    well-resolved vortex (a 2000 m core produces a ~4000 m observed separation and returned
+    NaN).  Both failure modes are now geometry-relative.
     """
     vr = np.asarray(sweep["v_r"], float)
+    if max_separation_m is None:
+        bd = np.asarray(sweep.get("beam_diameter_m", 500.0), float)
+        max_separation_m = float(n_beam_widths) * float(np.median(bd))
     if not np.isfinite(vr).any():
         return {"v_rot_m_s": float("nan"), "delta_v_m_s": float("nan"),
                 "couplet_separation_m": float("nan"), "valid": False,

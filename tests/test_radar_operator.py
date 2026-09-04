@@ -116,3 +116,55 @@ def test_sweep_reports_its_own_geometry_provenance():
     for key in ("couplet_separation_m", "beam_diameter_m", "sample_height_m", "valid"):
         assert key in got, key
     assert got["sample_height_m"] > 0.0 and got["beam_diameter_m"] > 0.0
+
+
+# ------------------------------------------------- the weighting form (found by external audit)
+def test_beam_weighting_is_TWO_way_not_one_way():
+    """A Doppler estimate is weighted by the two-way (transmit x receive) pattern, the SQUARE of
+    the one-way power pattern.  The operator originally used the one-way form while claiming
+    two-way, making the effective beam 1.41x too wide and under-reading a sub-beam vortex."""
+    th = 0.925
+    off, w = ro._gauss_weights(201, th, two_way=True)
+    w = w / w.max()
+    # two-way halves at theta/(2*sqrt(2)), NOT at theta/2
+    i_half2 = int(np.argmin(np.abs(off - th / (2 * np.sqrt(2)))))
+    i_half1 = int(np.argmin(np.abs(off - th / 2.0)))
+    assert w[i_half2] == pytest.approx(0.5, abs=0.02)
+    assert w[i_half1] < 0.30                       # one-way would be exactly 0.5 here
+    off1, w1 = ro._gauss_weights(201, th, two_way=False)
+    w1 = w1 / w1.max()
+    assert w1[i_half1] == pytest.approx(0.5, abs=0.02)      # the old behaviour, on request
+
+
+def test_two_way_weighting_reads_higher_than_one_way():
+    """A narrower effective beam smooths less, so it must recover MORE of a sub-beam vortex."""
+    import atmospheric_data.radar_operator as m
+    rad = ro.RadarSpec(elevation_deg=0.5211)
+    rng = 20250.0
+    cx, cy = 0.0, rng * np.cos(np.radians(0.5211))
+    x = np.arange(cx - 2000, cx + 2001, 20.0); y = np.arange(cy - 2000, cy + 2001, 20.0)
+    z = np.array([100.0, 208.0, 320.0])
+    u, v, w = ro.rankine_vortex(x, y, z, (cx, cy), 39.49, 292.0)
+    az, rg = ro.sweep_grid_for_domain(rad, cx, cy, 1800.0, az_resolution_deg=0.5)
+    orig = m._gauss_weights
+    try:
+        got = {}
+        for tw in (True, False):
+            m._gauss_weights = lambda n, b, _tw=tw: orig(n, b, two_way=_tw)
+            got[tw] = ro.vrot_from_sweep(
+                ro.synthetic_sweep(u, v, w, x, y, z, rad, az, rg, n_beam=5, n_gate=3))["v_rot_m_s"]
+    finally:
+        m._gauss_weights = orig
+    assert got[True] > got[False]
+
+
+def test_couplet_separation_limit_scales_with_the_beam():
+    """A fixed 4000 m limit was 12 beam diameters at 20 km (admitting non-couplets) and yet too
+    tight for a well-resolved core (a 2000 m core gives ~4000 m observed separation -> NaN)."""
+    sweep = {"v_r": np.array([[-10.0, 10.0]]),
+             "x_m": np.array([[0.0, 900.0]]), "y_m": np.array([[0.0, 0.0]]),
+             "beam_diameter_m": np.full((1, 2), 327.0), "height_m": np.full((1, 2), 208.0)}
+    auto = ro.vrot_from_sweep(sweep)                       # 8 * 327 = 2616 m allowance
+    assert auto["valid"] is True and auto["v_rot_m_s"] == pytest.approx(10.0)
+    tight = ro.vrot_from_sweep(sweep, max_separation_m=500.0)
+    assert tight["valid"] is False
