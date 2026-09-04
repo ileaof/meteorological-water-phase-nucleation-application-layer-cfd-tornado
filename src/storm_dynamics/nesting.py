@@ -897,6 +897,7 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
                         follow_interval=None, follow_field="uh", follow_frac=0.5,
                         follow_filter=0.5, follow_z_lo=0.0, follow_z_hi=6000.0,
                         follow_border=None,
+                        parent_hook=None,
                         progress=None, sample=None):
     """M3 / ROADMAP §2b increment 2 — a **concurrent multi-level** driver.
 
@@ -976,6 +977,13 @@ def run_multilevel_nest(parent, specs, window, les_boost=1.25, cfl=0.25,
         if t + dtp > window:
             dtp = window - t
         parent._step(dtp)
+        # LIMITED-AREA BC: the parent's own lateral boundary treatment (e.g. the Davies
+        # relaxation toward a real analysed environment, storm_dynamics.limited_area) must be
+        # re-applied after EVERY parent step.  Without this hook the cascade stepped the parent
+        # with whatever the bare grid does -- for a `periodic=True` grid, wrapping -- so a
+        # real-case cascade ran with NO environmental inflow at all.  Signature: fn(parent, dt).
+        if parent_hook is not None:
+            parent_hook(parent, dtp)
         drive(1, dtp)
         t += dtp; nstep += 1
         # MOVING NEST: every follow_interval parent steps, re-centre each level (same size, exact

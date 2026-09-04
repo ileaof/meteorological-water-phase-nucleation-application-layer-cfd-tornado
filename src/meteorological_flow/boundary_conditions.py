@@ -54,6 +54,14 @@ def apply_velocity_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig) -> N
     if b.y == "free_slip" or b.y == "wall":
         state.v[:, 0, :] = 0.0
         state.v[:, -1, :] = 0.0
+    elif b.y == "outflow":
+        # OPEN y boundary (zero normal gradient), the counterpart of x 'outflow'.  A
+        # limited-area run driven by a Davies relaxation zone needs this: forcing v=0 at the
+        # y faces directly contradicts a zone that is nudging v toward an environmental
+        # profile with v != 0, so the wall fights the driving and no meridional inflow
+        # is possible.  Not reachable unless y is explicitly set to 'outflow'.
+        state.v[:, 0, :] = state.v[:, 1, :]
+        state.v[:, -1, :] = state.v[:, -2, :]
     # z: bottom free-slip (w=0); top boundary
     if b.z_bottom in ("free_slip", "no_slip"):
         state.w[:, :, 0] = 0.0
@@ -110,7 +118,7 @@ def apply_scalar_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig,
         state.theta[-1, :, :] = state.theta[-2, :, :]
         state.qv[-1, :, :] = state.qv[-2, :, :]
     # y walls: zero normal gradient
-    if b.y in ("free_slip", "wall"):
+    if b.y in ("free_slip", "wall", "outflow"):
         state.theta[:, 0, :] = state.theta[:, 1, :]
         state.theta[:, -1, :] = state.theta[:, -2, :]
         state.qv[:, 0, :] = state.qv[:, 1, :]

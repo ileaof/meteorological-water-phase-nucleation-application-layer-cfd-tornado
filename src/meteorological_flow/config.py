@@ -78,7 +78,7 @@ class InflowConfig:
 class BoundaryConfig:
     x_west: str = "inflow"        # inflow | outflow | periodic | wall
     x_east: str = "inflow"        # inflow (cold, -x) | outflow | periodic | wall
-    y: str = "free_slip"          # free_slip | periodic | wall
+    y: str = "free_slip"          # free_slip | periodic | wall | outflow (open)
     z_bottom: str = "free_slip"   # free_slip | no_slip
     z_top: str = "open"           # open (mass-balanced outflow) | damping_layer | rigid_lid
     warm_inflow: InflowConfig = field(default_factory=InflowConfig)

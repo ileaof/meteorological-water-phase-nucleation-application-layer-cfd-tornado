@@ -36,8 +36,14 @@ def _make_grid(cfg, max_n=64):
     nx, ny, nz, Lx, Ly, Lz = _grid_dims(cfg, max_n)
     dev = {"auto": "auto", "cpu": "cpu", "gpu": "gpu"}[cfg.model.execution_backend]
     backend = get_backend(dev)                                      # 'auto'/'gpu' -> CPU fallback inside
+    # A real case is a LIMITED-AREA problem: the lateral boundaries are driven toward the
+    # analysed environment by the Davies zone (storm_dynamics.limited_area).  A periodic grid
+    # contradicts that -- advection wraps, so the storm ingests its own cold pool and anvil
+    # instead of environmental air, and there is no inflow at all.  `periodic` stays available
+    # for the idealized mean-wind mode, but real_case defaults to non-periodic.
+    periodic = str(getattr(cfg.model, "input_mode", "real_case")) != "real_case"
     return Grid(nx=nx, ny=ny, nz=nz, Lx=Lx, Ly=Ly, Lz=Lz, z_stretch=1.03,
-                periodic=True, backend=backend)
+                periodic=periodic, backend=backend)
 
 
 def preprocess(cfg, cache, outdir, logger=print, max_n=64):
@@ -77,9 +83,21 @@ def build_simulation(cfg, pre, logger=print, **kw):
     dev = {"auto": "auto", "cpu": "cpu", "gpu": "gpu"}[cfg.model.execution_backend]
     use_fields = kw.get("use_fields", False)               # inject the raw gridded 3-D field?
     trigger_dtheta = kw.get("trigger_dtheta", 3.0)
+    # LIMITED-AREA, not periodic.  StormSimulation builds its OWN grid from this config
+    # (the preprocess grid only supplies dimensions), so `periodic` must be set HERE -- setting
+    # it on the preprocess grid alone is cosmetic and the run stays periodic.
+    real_case = str(getattr(cfg.model, "input_mode", "real_case")) == "real_case"
     scfg = build_storm_config(preset="storm", nx=grid.nx, ny=grid.ny, nz=grid.nz,
                               Lx=grid.Lx, Ly=grid.Ly, Lz=grid.Lz, duration=1.0, dt_max=3.0,
-                              drag=True, z_stretch=1.03, device=dev)
+                              drag=True, z_stretch=1.03, device=dev,
+                              periodic=not real_case)
+    if real_case:
+        # OPEN lateral faces (zero normal gradient); the environmental information enters
+        # through the Davies zone, which nudges the boundary band toward the analysis.  The
+        # storm preset's default 'wall' would close the domain -- no inflow at all, and it
+        # would fight the relaxation that is trying to drive u,v toward the environment.
+        scfg.sim.boundaries.x_west = scfg.sim.boundaries.x_east = "outflow"
+        scfg.sim.boundaries.y = "outflow"
     # Default (environment mode): the analysis sets the real BASE STATE (environment); convection
     # is triggered by a warm bubble -- the physically-sound, stable way to use a coarse analysis
     # (ERA5 ~31 km / HRRR ~3 km resolve the environment, NOT the storm vortex; limitation 2/5).
@@ -124,7 +142,7 @@ def run_case(cfg, pre, sim=None, steps=None, logger=print, lbc_width=8, lbc_rate
 
 
 def run_multilevel_real_case(cfg, pre, window=None, mature_steps=0, half_frac=0.28,
-                             sim=None, logger=print):
+                             sim=None, logger=print, lbc_width=8, lbc_rate=1.0 / 300.0):
     """Drive the AMR **multi-level nest cascade** from the real initial conditions
     (parent Δx → nest → fine Δx), reusing ``storm_dynamics.run_multilevel_nest``.
 
@@ -134,18 +152,38 @@ def run_multilevel_real_case(cfg, pre, window=None, mature_steps=0, half_frac=0.
     later.  Returns ``(sims, rep)`` with ``sims[-1]`` the finest level."""
     from storm_dynamics import nesting as nst
     parent = sim or build_simulation(cfg, pre, logger=logger)
+    from storm_dynamics.limited_area import apply_lateral_relaxation as _alr
+    from storm_dynamics.limited_area import lateral_relaxation_weight as _lrw
+    _w0 = _lrw(parent.grid, lbc_width, lbc_rate)
     for _ in range(int(mature_steps)):                             # optional short spin-up
-        parent._step(float(parent._dt()))
+        _dt = float(parent._dt())
+        parent._step(_dt)
+        if getattr(parent, "_lbc_target", None) is not None:       # drive the spin-up too
+            _alr(parent.state, parent.grid, parent._lbc_target, _dt, weight=_w0)
     r1 = max(2, int(round(cfg.model.parent_dx_m / cfg.model.nest_dx_m)))
     r2 = max(2, int(round(cfg.model.nest_dx_m / cfg.model.fine_dx_m)))
     mkspec = lambda refine: (lambda g: nst.NestSpec.around(
         g, 0.5 * g.Lx, 0.5 * g.Ly, half=g.Lx * half_frac, refine=refine, nz=g.nz,
         z_stretch=getattr(g, "z_stretch", 1.0)))
     window = window or 20.0 * float(parent._dt())
-    logger("[multilevel] cascade parent dx=%.0f -> nest /%d -> fine /%d over %.0f s"
-           % (parent.grid.dx, r1, r2, window))
+    # The cascade steps the parent internally, so the Davies lateral relaxation has to ride
+    # along on a hook -- otherwise the multilevel path runs with unconstrained laterals while
+    # the single-level `run_case` path is properly driven (they used to disagree).
+    from storm_dynamics.limited_area import apply_lateral_relaxation, lateral_relaxation_weight
+    _w = lateral_relaxation_weight(parent.grid, lbc_width, lbc_rate)
+    _tgt = getattr(parent, "_lbc_target", None)
+
+    def _lbc(p, dt):
+        if _tgt is not None:
+            apply_lateral_relaxation(p.state, p.grid, _tgt, dt, weight=_w)
+
+    logger("[multilevel] cascade parent dx=%.0f -> nest /%d -> fine /%d over %.0f s "
+           "(lateral relaxation %s, grid %s)"
+           % (parent.grid.dx, r1, r2, window,
+              "ON" if _tgt is not None else "OFF -- no _lbc_target!",
+              "periodic" if getattr(parent.grid, "periodic", False) else "limited-area"))
     sims, rep = nst.run_multilevel_nest(parent, [mkspec(r1), mkspec(r2)], window=window,
-                                        les_boost=1.4, cfl=cfg_cfl(cfg))
+                                        les_boost=1.4, cfl=cfg_cfl(cfg), parent_hook=_lbc)
     finest = sims[-1]
     rep.setdefault("nest", {})
     logger("[multilevel] finest dx=%.0f m, zeta_abs_max=%.3e"
