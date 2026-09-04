@@ -274,3 +274,31 @@ At Moore's actual location the geometry is:
 `dealias_region_based` or similar), re-extract the couplet constrained to the Moore mesocyclone,
 and re-derive the target with its true scan geometry. Until then no model/observation ratio is
 meaningful.
+
+### G3. RESOLVED — the corrected target, from the dealiased Level II
+
+`deploy/wsl2_dealias_moore.py` (WSL2 / Py-ART 2.2.0, region-based dealiasing) on
+`KTLX20130520_202058_V06`, velocity sweep 1, elevation 0.5211°:
+
+* **The radar's own metadata gives `NYQUIST = 26.12 m/s`** — confirming directly that the
+  study's "26 m/s" target was the instrument ceiling.
+* Dealiasing recovers **−61.2 … +62.7 m/s**, well beyond that ceiling.
+* Constrained to Moore, the couplet is stable across 3 / 5 / 8 km search radii.
+
+| quantity | OLD (aliased, wrong location) | **CORRECTED** |
+|---|---|---|
+| V_rot | 26.00 m/s (= Nyquist) | **39.49 m/s** |
+| Δv | 52.0 m/s | **79.0 m/s** |
+| couplet separation | 253 m (feature 21 km away) | **584 m** |
+| range from KTLX | ~30–41 km implied | **20.25 km** |
+| beam diameter | 250 m assumed | **327 m** |
+| sampling height | ~460 m AGL | **204 m AGL** |
+
+**The validation target is therefore V_rot = 39.5 m/s, sampled at 204 m AGL through a 327 m
+beam** — 52 % higher than the number the study has been chasing, at less than half the assumed
+height. Model comparison must go through the forward operator at this geometry
+(`RadarSpec(elevation_deg=0.5211)`, range 20.25 km), not against a grid-point wind.
+
+Applying the operator's under-reading curve at 2R/D = 584/327 ≈ 1.8 (≈70 % recovery) implies a
+true peak tangential wind near **56 m/s at 204 m AGL** — not inconsistent with an EF5 damage
+rating, which is assessed at the surface where winds exceed those aloft.
