@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import scales as _scales
 from .rotation import _centered_velocity, vertical_vorticity
 
 
@@ -166,7 +167,7 @@ def vortex_report(state, grid, z_m=100.0, storm_motion=(0.0, 0.0), radius_m=1500
 
 def surface_connection_report(state, grid, storm_motion=(0.0, 0.0),
                               z_levels=(50.0, 200.0, 500.0, 1000.0, 1500.0), radius_m=1000.0,
-                              border_frac=0.2):
+                              border_frac=0.2, border_m=None, min_cells=3, strict=False):
     """Is the vortex SURFACE-CONNECTED or ELEVATED?  Returns V_rot and peak |zeta| on a height
     ladder (interior only), the **surface-to-aloft ratio** (>1 ⇒ surface-intensified/descending,
     <1 ⇒ elevated), the near-surface convergence at the vortex, and — as the spec requires — the
@@ -175,34 +176,72 @@ def surface_connection_report(state, grid, storm_motion=(0.0, 0.0),
 
     ``border_frac`` sets the interior margin excluded from the search.  It must be generous enough to
     stay outside a nest's boundary-relaxation zone: a too-narrow margin picks up boundary-contaminated
-    cells and reports a spuriously huge near-surface V_rot (observed: 37.9 vs the true ~9.0)."""
+    cells and reports a spuriously huge near-surface V_rot (observed: 37.9 vs the true ~9.0).
+    ``border_m`` (PREFERRED) sets that margin as a physical width in metres instead, so the
+    excluded region is the same on every mesh; it overrides ``border_frac`` when given.
+
+    RESOLUTION SEMANTICS (CHANGED -- see docs/REVIEW_REQUEST.md A7).  ``radius_m`` is a PHYSICAL
+    sampling radius.  The previous implementation did ``R = max(3, int(radius_m / grid.dx))``,
+    which silently substituted a 3-cell window whenever the request was smaller than 3*dx: a
+    nominal 400 m radius became 1800 m at dx=600 m and 900 m at dx=300 m, a 2x mismatch in exactly
+    the quantity a resolution study measures, biased toward the coarse mesh.  It now REFUSES
+    instead: when the radius cannot be spanned by ``min_cells`` cells the V_rot entries are NaN,
+    ``valid`` is False and ``surface_connected`` is False (``strict=True`` raises
+    :class:`scales.UnderResolvedError`).  The ``resolution`` block reports the requested radius,
+    the represented radius, the cell count and the status, so a cross-resolution comparison can be
+    CHECKED rather than assumed.  ``zeta_max_s`` is still reported when under-resolved: it is a
+    point maximum and does not depend on the sampling radius."""
     xp = grid.xp
     zc = np.asarray(grid.backend.to_cpu(grid.zc))
     uc, vc, wc = _centered_velocity(state, grid)
     zeta3 = vertical_vorticity(state, grid)
-    nb = max(2, int(border_frac * grid.nx))
+    # interior margin: PHYSICAL when border_m is given, else the legacy domain fraction
+    if border_m is not None:
+        _mb = _scales.cells_for_length(border_m, grid.dx, min_cells=1, name="interior margin",
+                                       strict=strict)
+        nb = max(2, _mb.cells)
+        margin_info = _mb.as_dict()
+    else:
+        nb = max(2, int(border_frac * grid.nx))
+        margin_info = {"name": "interior margin (border_frac)", "requested_m": float(nb * grid.dx),
+                       "dx_m": float(grid.dx), "cells": int(nb),
+                       "represented_m": float(nb * grid.dx), "min_cells": 2, "resolved": True,
+                       "relative_error": 0.0, "status": "ok (domain fraction, NOT a fixed length)"}
+
+    # PHYSICAL sampling radius -- refuses rather than silently substituting 3 cells (A7)
+    rad = _scales.cells_for_length(radius_m, grid.dx, min_cells=min_cells,
+                                   name="V_rot sampling radius", strict=strict, warn=True)
+    R = rad.cells
     prof = []
     for zt in z_levels:
         k = int(np.argmin(np.abs(zc - zt)))
         Zi = np.abs(np.asarray(grid.backend.to_cpu(zeta3))[nb:-nb, nb:-nb, k])
         ii, jj = np.unravel_index(int(np.argmax(Zi)), Zi.shape); ii += nb; jj += nb
         u2 = np.asarray(grid.backend.to_cpu(uc))[:, :, k]; v2 = np.asarray(grid.backend.to_cpu(vc))[:, :, k]
-        R = max(3, int(radius_m / grid.dx))
-        us = u2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
-        vs = v2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
-        vr = float(np.sqrt((us - us.mean()) ** 2 + (vs - vs.mean()) ** 2).max())
+        if rad.resolved:
+            us = u2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
+            vs = v2[max(0, ii - R):ii + R, max(0, jj - R):jj + R]
+            vr = float(np.sqrt((us - us.mean()) ** 2 + (vs - vs.mean()) ** 2).max())
+        else:
+            vr = float("nan")      # under-resolved: not comparable, and NOT silently widened
         prof.append({"z_m": float(zc[k]), "v_rot_m_s": vr, "zeta_max_s": float(Zi.max()),
                      "edge_cells": int(min(ii, jj, grid.nx - 1 - ii, grid.ny - 1 - jj))})
     v_sfc = prof[0]["v_rot_m_s"]; v_aloft = max(p["v_rot_m_s"] for p in prof)
     # near-surface convergence at the lowest sampled level
     k0 = int(np.argmin(np.abs(zc - z_levels[0])))
     conv = -(grid._central_x(uc[:, :, k0:k0 + 1])[:, :, 0] + grid._central_y(vc[:, :, k0:k0 + 1])[:, :, 0])
+    _ok = bool(rad.resolved and v_sfc == v_sfc and v_aloft == v_aloft)
     return {
         "first_cell_height_m": float(zc[0]),
         "profile": prof,
-        "surface_aloft_ratio": float(v_sfc / v_aloft) if v_aloft > 1e-9 else 0.0,
-        "surface_connected": bool(v_sfc >= 0.8 * v_aloft),
+        "surface_aloft_ratio": (float(v_sfc / v_aloft) if (_ok and v_aloft > 1e-9)
+                                else (0.0 if _ok else float("nan"))),
+        "surface_connected": bool(_ok and v_sfc >= 0.8 * v_aloft),
         "near_surface_convergence_s": float(xp.max(conv)),
+        # discretisation provenance, so a cross-resolution comparison can be CHECKED not assumed
+        "resolution": rad.as_dict(),
+        "interior_margin": margin_info,
+        "valid": _ok,
     }
 
 
