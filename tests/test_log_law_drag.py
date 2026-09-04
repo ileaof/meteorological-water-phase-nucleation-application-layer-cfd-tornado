@@ -8,6 +8,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -116,3 +117,55 @@ if __name__ == "__main__":
         if nm.startswith("test_") and callable(fn):
             fn(); print("ok", nm)
     print("ALL LOG-LAW DRAG TESTS PASSED")
+
+
+def test_log_law_reference_height_removes_the_dz1_confound():
+    """C_d = (kappa/ln(z1/z0))^2 genuinely depends on the reference height -- correct physics, and
+    the whole point of the log-law closure.  But it means a dz1 sweep varies the DRAG at the same
+    time as the RESOLUTION: measured 0.0045 at z1=39.9 m vs 0.0146 at 2.73 m, a 3.2x spread.  A
+    fine-dz1 run then came back with a much lower peak surface wind than its coarse counterpart,
+    and the tripled drag is at least as plausible an explanation as the mesh.
+
+    Pinning the evaluation height makes every member of the sweep apply an IDENTICAL C_d.
+    """
+    import numpy as np
+    from storm_dynamics import surface_drag as sd
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+
+    default_cd, pinned_cd = [], []
+    for nz, zs in ((48, 1.05), (64, 1.06), (64, 1.09)):
+        cfg = build_storm_config(preset="storm", nx=16, ny=16, nz=nz, Lx=72000.0, Ly=72000.0,
+                                 Lz=15000.0, duration=1.0, dt_max=3.0, drag=True,
+                                 z_stretch=zs, device="cpu")
+        cfg.dyn.drag.use_log_law = True
+        cfg.dyn.drag.roughness_length_m = 0.1
+        g = StormSimulation(cfg).grid
+        default_cd.append(sd.effective_drag_coefficient(g, cfg.dyn.drag))
+        cfg.dyn.drag.log_law_reference_height_m = 10.0
+        pinned_cd.append(sd.effective_drag_coefficient(g, cfg.dyn.drag))
+
+    # the CONFOUND: mesh-following C_d spreads widely across a dz1 sweep
+    assert max(default_cd) / min(default_cd) > 3.0, default_cd
+    # the FIX: pinned C_d is identical on every mesh
+    assert max(pinned_cd) - min(pinned_cd) < 1e-12, pinned_cd
+    # and it equals the log law evaluated at the reference height
+    assert pinned_cd[0] == pytest.approx(sd.log_law_drag_coefficient(10.0, 0.1, 0.4))
+
+
+def test_log_law_reference_height_default_is_mesh_following():
+    """Opt-in: None must reproduce the previous behaviour (evaluate at the first cell centre)."""
+    import numpy as np
+    from storm_dynamics import surface_drag as sd
+    from storm_dynamics.config import build_storm_config
+    from storm_dynamics.core import StormSimulation
+    cfg = build_storm_config(preset="storm", nx=16, ny=16, nz=64, Lx=72000.0, Ly=72000.0,
+                             Lz=15000.0, duration=1.0, dt_max=3.0, drag=True, z_stretch=1.09,
+                             device="cpu")
+    cfg.dyn.drag.use_log_law = True
+    cfg.dyn.drag.roughness_length_m = 0.1
+    assert cfg.dyn.drag.log_law_reference_height_m is None      # default unchanged
+    g = StormSimulation(cfg).grid
+    z1 = float(np.asarray(g.backend.to_cpu(g.zc))[0])
+    assert sd.effective_drag_coefficient(g, cfg.dyn.drag) == pytest.approx(
+        sd.log_law_drag_coefficient(z1, 0.1, 0.4))

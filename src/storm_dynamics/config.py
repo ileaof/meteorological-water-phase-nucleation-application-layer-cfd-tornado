@@ -74,6 +74,11 @@ class SurfaceDragConfig:
     use_log_law: bool = False
     roughness_length_m: float = 0.1   # aerodynamic roughness z0 [m] (~0.1 over open land)
     kappa: float = 0.4                # von Karman constant
+    # Height at which the log law is evaluated.  None = this mesh's first cell centre, which is
+    # correct physics but makes C_d change with the vertical mesh (0.0045 at z1=39.9 m vs 0.0146
+    # at 2.73 m -- a 3.2x spread) and so CONFOUNDS a dz1 resolution experiment.  Pin it to a fixed
+    # height (e.g. 10.0) when the mesh is the variable under test.
+    log_law_reference_height_m: float | None = None
     # Surface-layer STRESS-DIVERGENCE form: instead of damping only the lowest cell (sink rate
     # C_d|V|/dz1, which BLOWS UP as the mesh is refined and strips the tangential wind), apply the
     # stress as a flux divergence spread over a PHYSICAL surface-layer depth: tau(z)=tau_s(1-z/h)

@@ -37,11 +37,28 @@ def log_law_drag_coefficient(z1_m: float, z0_m: float, kappa: float = 0.4) -> fl
 
 def effective_drag_coefficient(grid: Grid, drag: SurfaceDragConfig) -> float:
     """The C_d actually applied: the log-law value at this mesh's first cell-centre height when
-    ``drag.use_log_law``, else the configured bulk constant."""
+    ``drag.use_log_law``, else the configured bulk constant.
+
+    **Height dependence is correct physics, and a confound for a resolution experiment.**
+    ``C_d = (kappa/ln(z1/z0))^2`` genuinely depends on the reference height, which is the whole
+    point of the log-law closure -- it is what keeps the surface stress consistent as the mesh is
+    refined.  But it means a dz1 sweep varies the drag coefficient at the same time as the
+    resolution: measured at z0 = 0.1 m, C_d is 0.0045 at z1 = 39.9 m (nz=48, zs=1.05), 0.0072 at
+    11.1 m (nz=64, zs=1.06) and 0.0146 at 2.73 m (nz=64, zs=1.09) -- a 3.2x spread.  A run at
+    dz1 = 5.5 m therefore came back with a much lower peak surface wind than its dz1 = 79.8 m
+    counterpart, and the tripled drag is at least as plausible an explanation as the resolution.
+
+    ``drag.log_law_reference_height_m`` pins the evaluation height, so every member of a dz1
+    sweep applies an IDENTICAL C_d and the only variable is the mesh.  ``None`` (default) keeps
+    the mesh-following behaviour, which remains the right choice for a production run."""
     if not getattr(drag, "use_log_law", False):
         return float(drag.C_d)
-    z1 = float(grid.zc[0]) if not hasattr(grid.zc, "get") else float(grid.backend.to_cpu(grid.zc)[0])
-    return log_law_drag_coefficient(z1, drag.roughness_length_m, getattr(drag, "kappa", 0.4))
+    z_ref = getattr(drag, "log_law_reference_height_m", None)
+    if z_ref is None:
+        z_ref = (float(grid.zc[0]) if not hasattr(grid.zc, "get")
+                 else float(grid.backend.to_cpu(grid.zc)[0]))
+    return log_law_drag_coefficient(float(z_ref), drag.roughness_length_m,
+                                    getattr(drag, "kappa", 0.4))
 
 
 def _face_speed(state: FlowState, grid: Grid, k: int, U_min: float):

@@ -97,7 +97,22 @@ d = sounding_diagnostics(b)
 cx, cy = snd.bunkers_storm_motion(b)
 base_sr = BaseState(zc=b.zc, theta0=b.theta0, qv0=b.qv0, p0=b.p0, T0=b.T0, rho0=b.rho0,
                     u0=b.u0 - cx, v0=b.v0 - cy)
-sim = StormSimulation(scfg, base=base_sr); sim.state.diagnose(sim.cfg)
+sim = StormSimulation(scfg, base=base_sr)
+
+# ENSEMBLE SEED.  A supercell is chaotic, so a single realisation per configuration cannot
+# distinguish an effect from run-to-run spread -- and the A/B pair (600 vs 300 m) currently rests
+# on exactly one run each.  SEED>0 adds a physically negligible theta perturbation (amplitude
+# SEED_K, default 0.01 K, ~0.003% of theta) whose only role is to send the run down a different
+# chaotic trajectory.  SEED=0 reproduces the original member bit-for-bit.
+SEED = int(os.environ.get("SEED", 0))
+SEED_K = float(os.environ.get("SEED_K", 0.01))
+if SEED:
+    _rng = np.random.default_rng(SEED)
+    _pert = _rng.normal(0.0, SEED_K, size=tuple(sim.state.theta.shape))
+    sim.state.theta = sim.state.theta + sim.grid.xp.asarray(_pert)
+    log("ENSEMBLE MEMBER seed=%d, theta perturbation amplitude %.3f K (chaotic divergence only)"
+        % (SEED, SEED_K))
+sim.state.diagnose(sim.cfg)
 g = sim.grid
 log("grid %dx%dx%d dx=%.1f m dz1=%.1f m periodic=%r | CAPE=%.0f shear06=%.1f | Bunkers=(%.1f,%.1f)"
     % (g.nx, g.ny, g.nz, g.dx, float(np.asarray(g.backend.to_cpu(g.zc))[0]) * 2,
