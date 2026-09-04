@@ -56,6 +56,7 @@ class NestSpec:
     relax_width: int = 4            # boundary relaxation band (cells)
     relax_rate: float = 0.02        # max nudging rate at the outermost cell [1/s]
     relax_width_m: float | None = None   # OPT-IN: sponge band as a PHYSICAL width [m]
+    relax_before_project: bool = False    # OPT-IN: nudge the border BEFORE the projection
 
     @classmethod
     def centered(cls, parent_grid: Grid, frac: float = 0.4, **kw) -> "NestSpec":
@@ -353,6 +354,18 @@ class NestedStormSimulation:
     # parent+nest projection can replace this level's own projection.
     def _step(self, dt):
         Km = self._predictor(dt)
+        # ORDERING.  By default the sponge runs inside _transport, i.e. AFTER the projection has
+        # enforced div(rho u)=0 with wall faces -- so nudging the border velocities toward the
+        # parent re-introduces divergence exactly in the relaxation band.  Measured on a
+        # 60x60x64 nest, scaled |div(rho u)|: 3.43e-01 on the outermost face, 4.10e-04 at cells
+        # 1-3, 5.30e-05 at 4-11, and 7.03e-16 in the interior -- the contaminated region IS the
+        # sponge band and its ramp.  A divergent border is a vorticity source, sitting where the
+        # spurious nest edge vorticity lives.  Relaxing FIRST lets the projection clean it up
+        # (and advection then uses a properly constrained velocity).  Opt-in: this changes nest
+        # results, so it must be measured, not assumed.
+        if getattr(self.spec, "relax_before_project", False):
+            self._relax_to_parent(dt)
+            self._apply_nest_bcs()
         self._project(dt)
         self._transport(dt, Km)
 
@@ -411,7 +424,8 @@ class NestedStormSimulation:
             setattr(st, nm, xp.maximum(adv(getattr(st, nm)), 0.0))
         st.theta = _les.les_scalar_diffusion(st.theta, Km, g, self.dyn.les, dt, base=self.theta0_field)
         st.qv = xp.maximum(_les.les_scalar_diffusion(st.qv, Km, g, self.dyn.les, dt, base=self.qv0_field), 0.0)
-        self._relax_to_parent(dt)                    # sponge border -> frozen parent
+        if not getattr(self.spec, "relax_before_project", False):
+            self._relax_to_parent(dt)                # sponge border -> frozen parent
         self._apply_nest_bcs(); st.diagnose(cfg)
         self.coupler.apply(st, g, dt, nf=None)
         self.coupler.sediment(st, g, dt, rho_ref=self._transport_rho_c)
@@ -1146,7 +1160,8 @@ def follow_spec(old_spec: NestSpec, coarse, field: str = "uh", frac: float = 0.5
     return NestSpec.aligned(pg, i0=i_n, j0=j_n, ncx=ncx, ncy=ncy, refine=old_spec.refine,
                             nz=old_spec.nz, z_stretch=old_spec.z_stretch,
                             relax_width=old_spec.relax_width, relax_rate=old_spec.relax_rate,
-                            relax_width_m=old_spec.relax_width_m)
+                            relax_width_m=old_spec.relax_width_m,
+                            relax_before_project=old_spec.relax_before_project)
 
 
 def _shift_copy(A_old, A_new, d0, d1):

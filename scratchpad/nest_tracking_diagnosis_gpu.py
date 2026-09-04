@@ -26,7 +26,7 @@ REPO = r"c:/Users/ileao/OneDrive/Documentos/met_h2o_nucleation_cfd_tornado"
 sys.path.insert(0, os.path.join(REPO, "src"))
 import numpy as np, warnings; warnings.filterwarnings("ignore")
 
-OUT = os.path.join(REPO, "outputs", "tracking_diagnosis"); os.makedirs(OUT, exist_ok=True)
+OUT = os.path.join(REPO, "outputs", "tracking_diagnosis_%s" % os.environ.get("TAG","orig")); os.makedirs(OUT, exist_ok=True)
 LOG = os.path.join(OUT, "progress.log"); open(LOG, "w").close()
 _t0 = time.time()
 
@@ -46,7 +46,10 @@ SAMPLE_EVERY = int(os.environ.get("SAMPLE_EVERY", 2))
 SPONGE_M = float(os.environ.get("SPONGE_M", 267.0))
 FOLLOW_BORDER = os.environ.get("FOLLOW_BORDER", "auto")
 FOLLOW_FILTER = float(os.environ.get("FOLLOW_FILTER", 0.7))
-NCX = [30, 30, 60]                                # the FINE cascade: 200 -> 67 -> 22 m
+# NCX_ENV lets the L2 fix be tested without editing the script: [30,30,60] is the ORIGINAL
+# ladder (67 m intermediate = 6 km, the one that loses the vortex), [30,50,60] widens that
+# intermediate to 10 km so the 4 km child sits inside its trusted interior.
+NCX = [int(x) for x in os.environ.get("NCX", "30,30,60").split(",")]
 NEST_NZ = 64
 NEST_ZS = 1.077
 

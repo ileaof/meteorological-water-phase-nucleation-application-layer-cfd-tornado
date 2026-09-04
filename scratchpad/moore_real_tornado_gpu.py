@@ -53,8 +53,15 @@ from storm_dynamics.limited_area import (environment_target, apply_lateral_relax
                                          lateral_relaxation_weight)
 
 # ---- numerics: IDENTICAL to the idealized line, so only IC/BC differ -------------------
-NX = int(os.environ.get("NX", 120)); NZ = int(os.environ.get("NZ", 48))
-LX = float(os.environ.get("LX", 72000.0)); LZ = 15000.0
+# DOMAIN SIZE.  The 72 km box lost the storm: at t=2800 the remaining anvil sat at 91% across
+# the domain, 4.2 km from the edge and INSIDE the 8-cell Davies band, where the relaxation
+# nudges it back to the environment and erases it.  The storm-relative frame subtracts the
+# BUNKERS estimate, but the simulated cell moved ~10 m/s faster eastward, so it drifted ~29 km
+# over the maturation.  With the old PERIODIC laterals it would have wrapped and survived --
+# that apparent longevity was the recycling artifact.  An open domain has to be big enough to
+# absorb the frame error: 108 km gives +-54 km against a ~29 km drift.
+NX = int(os.environ.get("NX", 180)); NZ = int(os.environ.get("NZ", 48))
+LX = float(os.environ.get("LX", 108000.0)); LZ = 15000.0
 T_MAT = float(os.environ.get("T_MAT", 2800.0))
 DEV = os.environ.get("DEV", "gpu")
 LBC_WIDTH = int(os.environ.get("LBC_WIDTH", 8))
@@ -130,6 +137,23 @@ log("environment sampled from the INFLOW SECTOR: %+.0f km E, %+.0f km N of the c
     % (PROX_KM_E, PROX_KM_N))
 log("ERA5 regridded onto OUR grid: %d levels, z %.0f..%.0f m (first cell centre %.1f m)"
     % (len(zc), zc[0], zc[-1], zc[0]))
+# CONTROL (ENV=ideal): the ANALYTIC quarter-circle sounding -- the environment the idealized
+# line used -- run through this SAME limited-area configuration.  This separates the two
+# remaining explanations for the storm collapsing at t~900 s in both the 72 km and 108 km
+# domains (identical decay curves, storm 35-52 km from any boundary, so neither the domain nor
+# the Davies zone did it):
+#     if the idealized environment SUSTAINS a supercell here -> the real environment's weaker
+#        deep shear (22.2 vs 42.0 m/s) is the limiter;
+#     if it ALSO collapses -> the limited-area setup itself cannot maintain a storm that the
+#        periodic recycling was propping up, and the idealized results rest on that artifact.
+if os.environ.get("ENV", "real").lower() == "ideal":
+    from storm_dynamics.core import StormSimulation as _SS
+    _icfg = build_storm_config(preset="storm", nx=NX, ny=NX, nz=NZ, Lx=LX, Ly=LX, Lz=LZ,
+                               duration=1.0, dt_max=3.0, drag=True, z_stretch=1.05, C_s=0.20,
+                               hodograph_kind="quarter_circle", U_max=30.0, device="cpu")
+    real_on_grid = _SS(_icfg).base
+    log("CONTROL: using the ANALYTIC quarter-circle sounding in the limited-area setup")
+
 d = sounding_diagnostics(real_on_grid)
 def _shear(b, z0, z1):
     z = np.asarray(b.zc); uu = np.asarray(b.u0); vv = np.asarray(b.v0)
@@ -206,10 +230,23 @@ def health(tag, t):
             log("  (anelastic residual unavailable: %r)" % (e,))
     face = (u[0].sum() - u[-1].sum()) * g.dy + (v[:, 0].sum() - v[:, -1].sum()) * g.dx
     fscale = np.abs(u).mean() * g.Ly + 1e-12
+    # WHERE is the storm?  A drifting storm that reaches the Davies band is deleted by it, so
+    # track the condensate centroid and its distance to the nearest lateral boundary.
+    try:
+        tot = np.asarray(to(sim.state.ql)) + np.asarray(to(sim.state.qr)) + np.asarray(to(sim.state.qi))
+        colm = tot.sum(axis=2)
+        if colm.sum() > 0:
+            ci, cj = np.unravel_index(int(np.argmax(colm)), colm.shape)
+            edge = min(ci, g.nx - 1 - ci, cj, g.ny - 1 - cj)
+            where = "storm@(%3d,%3d) %5.1fkm from edge%s" % (
+                ci, cj, edge * g.dx / 1e3, "  <-- IN THE DAVIES BAND" if edge < LBC_WIDTH else "")
+        else:
+            where = "no condensate"
+    except Exception:
+        where = "?"
     log("  %-8s t=%7.1fs | finite=%s | max|u|=%6.2f max|w|=%6.2f | theta %.1f..%.1f K | "
-        "anelastic resid=%.2e | net lateral flux/scale=%.3e"
-        % (tag, t, finite, np.abs(u).max(), np.abs(w).max(), th.min(), th.max(),
-           resid, abs(face) / fscale))
+        "resid=%.2e | %s"
+        % (tag, t, finite, np.abs(u).max(), np.abs(w).max(), th.min(), th.max(), resid, where))
     return finite
 
 
