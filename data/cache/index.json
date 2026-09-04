@@ -14,5 +14,12 @@
     "path": "C:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\era5\\era5__2013-05-20_2000.nc",
     "fetched_utc": "2026-09-02T01:11:47Z",
     "meta": {}
+  },
+  "c:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\era5\\era5__2013-05-20_2000": {
+    "source": "era5",
+    "key": "2013-05-20_2000",
+    "path": "c:\\Users\\ileao\\OneDrive\\Documentos\\met_h2o_nucleation_cfd_tornado\\data\\cache\\era5\\era5__2013-05-20_2000.nc",
+    "fetched_utc": "2026-09-04T10:11:55Z",
+    "meta": {}
   }
 }

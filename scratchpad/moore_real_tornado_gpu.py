@@ -107,18 +107,53 @@ zc = np.asarray(probe.grid.backend.to_cpu(probe.grid.zc), float)
 # near-surface profile is an extrapolation at t=0; the model then spins up its own surface layer
 # over the maturation under the log-law/stress-divergence closure.
 from atmospheric_data import interpolate as adint, basestate as adbase
+
+# WHERE in the ERA5 field do we take the environment from?  This is a real modelling decision
+# with a ~3x effect on SRH, so it is explicit rather than implied by a domain average.
+# Measured SRH 0-1 km across the 143 cached ERA5 columns: min -29, median 70, MAX 227, with a
+# monotone increase toward the E/SE.  The storm's own column gives only 82 -- reanalysis has
+# smeared the storm's existing circulation there -- while low-level moisture is essentially the
+# same across the gradient (15.0 vs 15.6 g/kg), so this is a WIND-shear gradient, not moisture.
+# A storm ingests air from its INFLOW SECTOR (E/SE here), and columns ~100-130 km ESE give
+# SRH 128-169, bracketing the documented ERA5 value for this case (~146-152).  That agreement
+# is the check on the choice.  PROX_KM_E / PROX_KM_N move the sampling point; (0,0) reproduces
+# the storm-column environment that produced the decaying null run.
+PROX_KM_E = float(os.environ.get("PROX_KM_E", 110.0))
+PROX_KM_N = float(os.environ.get("PROX_KM_N", -35.0))
 _xc = np.asarray(probe.grid.backend.to_cpu(probe.grid.xc), float) - 0.5 * probe.grid.Lx
 _yc = np.asarray(probe.grid.backend.to_cpu(probe.grid.yc), float) - 0.5 * probe.grid.Ly
-_fields = adint.regrid_to_model(pre["state"], _xc, _yc, zc,
+_fields = adint.regrid_to_model(pre["state"], _xc + PROX_KM_E * 1e3, _yc + PROX_KM_N * 1e3, zc,
                                 conservative=(cfg.processing.interpolation == "conservative"))
 real_on_grid = adbase.base_state_from_fields(_fields, zc)
+log("environment sampled from the INFLOW SECTOR: %+.0f km E, %+.0f km N of the case centre "
+    "(0,0 = the storm column, which gave SRH0-1 ~82 and a storm that decayed)"
+    % (PROX_KM_E, PROX_KM_N))
 log("ERA5 regridded onto OUR grid: %d levels, z %.0f..%.0f m (first cell centre %.1f m)"
     % (len(zc), zc[0], zc[-1], zc[0]))
 d = sounding_diagnostics(real_on_grid)
-log("REAL environment on our grid: CAPE=%.0f CIN=%.0f LCL=%.0f LFC=%.0f shear06=%.1f"
+def _shear(b, z0, z1):
+    z = np.asarray(b.zc); uu = np.asarray(b.u0); vv = np.asarray(b.v0)
+    return float(np.hypot(np.interp(z1, z, uu) - np.interp(z0, z, uu),
+                          np.interp(z1, z, vv) - np.interp(z0, z, vv)))
+
+
+def _srh(b, top, mx, my):
+    z = np.asarray(b.zc); a = np.asarray(b.u0) - mx; c = np.asarray(b.v0) - my
+    m = z <= top; z = z[m]; a = a[m]; c = c[m]; acc = 0.0
+    for i in range(len(z) - 1):
+        acc += (a[i+1]+a[i])/2*(c[i+1]-c[i]) - (c[i+1]+c[i])/2*(a[i+1]-a[i])
+    return float(-acc)
+
+
+_bx, _by = snd.bunkers_storm_motion(real_on_grid)
+log("REAL environment: CAPE=%.0f CIN=%.0f LCL=%.0f LFC=%.0f | shear 0-1/0-3/0-6 = %.1f/%.1f/%.1f"
     % (d.get("CAPE_J_kg", float("nan")), d.get("CIN_J_kg", float("nan")),
        d.get("LCL_m", float("nan")), d.get("LFC_m", float("nan")),
-       d.get("shear_0_6km_m_s", float("nan"))))
+       _shear(real_on_grid, 0, 1000), _shear(real_on_grid, 0, 3000),
+       _shear(real_on_grid, 0, 6000)))
+log("                  SRH 0-1 = %.0f | SRH 0-3 = %.0f  (idealized line: 242 / 648; "
+    "storm-column sampling gave 80 / 243)"
+    % (_srh(real_on_grid, 1000, _bx, _by), _srh(real_on_grid, 3000, _bx, _by)))
 
 # ---- 3. storm-relative (Bunkers) frame, consistently for state AND the Davies target ----
 cx, cy = snd.bunkers_storm_motion(real_on_grid)
