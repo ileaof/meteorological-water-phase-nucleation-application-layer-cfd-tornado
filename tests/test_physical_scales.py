@@ -208,3 +208,87 @@ def test_missing_pressure_is_not_treated_as_zero_deficit():
     out = cl.classify(diag, allow_pressure=True)
     assert out["criteria"]["pressure_branch_available"] is False
     assert out["criteria"]["tornado_like_via_pressure"] is False
+
+
+# ------------------------------- the tangential-profile / classification defect (external audit)
+def _vth_r(g, st, z_m=100.0):
+    """v_theta and r about the domain centre at a level -- matches tangential_radial's API."""
+    from storm_dynamics.rotation import _centered_velocity
+    import numpy as _np
+    zc = _np.asarray(g.backend.to_cpu(g.zc))
+    k = int(_np.argmin(_np.abs(zc - z_m)))
+    uc, vc, _ = _centered_velocity(st, g)
+    vth, _vr, r = vd.tangential_radial(uc[:, :, k], vc[:, :, k], g, (0.5 * g.Lx, 0.5 * g.Ly))
+    return vth, r
+
+
+def test_tangential_profile_bin_width_tracks_the_MESH_not_a_fixed_count():
+    """The defect: nbins was fixed at 24, so bin width = r_max/24 at EVERY resolution.  With the
+    classifier's radius_m=1500 that is 62.5 m on any mesh -- and `core_radius_m` came back as
+    exactly 62.5 m at dx=600 AND dx=300, i.e. it reported the binning, not the vortex.
+
+    Correct behaviour: the number of bins spanning a FIXED physical radius must GROW as the mesh
+    refines, and every bin must span at least `min_cells_per_bin` cells.  On a mesh too coarse to
+    support even one such bin the profile collapses to a single bin -- which is the honest answer,
+    not a 24-bin fiction.
+    """
+    got = {}
+    for nx in (20, 40, 80):                                  # dx = 600, 300, 150 m over 12 km
+        g = Grid(nx=nx, ny=nx, nz=8, Lx=12000.0, Ly=12000.0, Lz=2000.0, periodic=True)
+        vth, r = _vth_r(g, _vortex_state(g, rc=1500.0))
+        rc, prof, vmax, core = vd.tangential_profile(vth, r, g, r_max_m=1500.0)
+        w = float(rc[1] - rc[0]) if len(rc) > 1 else float("nan")
+        got[g.dx] = (len(rc), w)
+        if len(rc) > 1:
+            assert w >= 3.0 * g.dx - 1e-6, (g.dx, w)          # >= min_cells_per_bin cells
+    # bin COUNT over a fixed physical radius must increase as the mesh refines
+    counts = [got[dx][0] for dx in (600.0, 300.0, 150.0)]
+    assert counts[-1] > counts[0], got
+    # and the old constant 62.5 m core must be gone: core radius now varies with the mesh
+    cores = set()
+    for nx in (20, 40, 80):
+        g = Grid(nx=nx, ny=nx, nz=8, Lx=12000.0, Ly=12000.0, Lz=2000.0, periodic=True)
+        vth, r = _vth_r(g, _vortex_state(g, rc=1500.0))
+        cores.add(round(vd.tangential_profile(vth, r, g, r_max_m=1500.0)[3], 1))
+    assert len(cores) > 1, cores
+
+
+def test_tangential_profile_excludes_r_zero_and_reports_nan_for_empty_bins():
+    """At r=0, phi=arctan2(0,0)=0 so v_theta collapses to the raw meridional wind of ONE cell.
+    That single number crossed the tornado gate.  It must be excluded, and unsampled radii must
+    be NaN rather than a 0.0 that looks like a measurement."""
+    g = Grid(nx=40, ny=40, nz=8, Lx=12000.0, Ly=12000.0, Lz=2000.0, periodic=True)
+    st = _vortex_state(g, rc=1500.0)
+    vth, r = _vth_r(g, st)
+    rc, prof, vmax, core = vd.tangential_profile(vth, r, g, r_max_m=1500.0)
+    assert rc[0] >= g.dx, "the centre cell (r=0) must be excluded"
+    assert not np.any(prof == 0.0), "empty bins must be NaN, never 0.0"
+    assert np.isfinite(vmax) and np.isfinite(core)
+
+
+def test_classifier_refuses_a_tornado_tier_when_the_core_is_unresolved():
+    """The live false claim: both uniform runs were classified SURFACE_CONNECTED_TORNADO_LIKE_
+    VORTEX on a 600 m mesh with a 62.5 m 'core' -- 0.1 cells."""
+    from storm_dynamics import classification as cl
+    base = {"w_max": 40.0, "midlevel_mesocyclone": 1.0, "updraft_helicity_2_5km": 1e4,
+            "near_surface_zeta_max": 1.0, "v_theta_max_m_s": 18.19, "circulation_m2_s": 0.0,
+            "level_m": 50.0, "gust_front_convergence_s": 1.0}
+    unresolved = dict(base, core_radius_m=62.5, dx_m=600.0)      # 0.10 cells
+    out = cl.classify(unresolved)
+    assert out["criteria"]["core_resolved"] is False
+    assert out["category"] == "LOW_LEVEL_MESOCYCLONE"
+
+    # the gate must NOT suppress a legitimately resolved core
+    resolved = dict(base, core_radius_m=2400.0, dx_m=600.0)      # 4.0 cells
+    assert cl.classify(resolved)["category"] == "SURFACE_CONNECTED_TORNADO_LIKE_VORTEX"
+    same_core_fine_mesh = dict(base, core_radius_m=62.5, dx_m=20.0)   # 3.1 cells
+    assert cl.classify(same_core_fine_mesh)["category"] == "SURFACE_CONNECTED_TORNADO_LIKE_VORTEX"
+
+
+def test_classifier_gate_is_inert_without_dx_information():
+    """Back-compatible: a diag dict with no dx_m cannot be gated, so it must classify as before."""
+    from storm_dynamics import classification as cl
+    d = {"w_max": 40.0, "midlevel_mesocyclone": 1.0, "updraft_helicity_2_5km": 1e4,
+         "near_surface_zeta_max": 1.0, "v_theta_max_m_s": 18.19, "level_m": 50.0,
+         "gust_front_convergence_s": 1.0}
+    assert cl.classify(d)["criteria"]["core_resolved"] is True

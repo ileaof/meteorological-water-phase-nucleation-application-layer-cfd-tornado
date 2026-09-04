@@ -39,6 +39,7 @@ class ClassThresholds:
     surface_level_m: float = 250.0          # "surface-connected" if the vortex reaches this low
     surface_convergence_s: float = 5.0e-3   # low-level convergence at the vortex
     min_persistence_s: float = 120.0        # required rotation lifetime for the tornado-like tiers
+    min_core_cells: float = 3.0             # a tornado-like tier needs a RESOLVED core (>= N cells)
 
 
 def classify(diag: dict, thresholds: ClassThresholds = None, persistence_s: float = None,
@@ -66,7 +67,21 @@ def classify(diag: dict, thresholds: ClassThresholds = None, persistence_s: floa
     _p_ok = bool(allow_pressure) and diag.get("pressure_deficit_Pa") is not None
     tlv_pressure = (_p_ok and g("circulation_m2_s") >= th.tlv_circulation_m2_s
                     and g("pressure_deficit_Pa", 0.0) <= th.tlv_pdeficit_Pa)
-    tlv = (g("v_theta_max_m_s") >= th.tlv_vtheta_m_s) or tlv_pressure
+
+    # RESOLUTION GATE.  A tornado-like tier asserts a resolved vortex CORE, so refuse it when the
+    # core is not actually resolved.  Both uniform-resolution runs were classified
+    # SURFACE_CONNECTED_TORNADO_LIKE_VORTEX on a 600 m mesh with ONE cell below 100 m, because
+    # tangential_profile's fixed 24 bins put the vortex centre alone in bin 0, where r=0 makes
+    # v_theta collapse to the raw meridional wind of a single cell -- which then crossed the
+    # v_theta gate.  `core_radius_m` came back as exactly 62.5 m at dx=600 AND dx=300, i.e. it
+    # was reporting the binning.  A core narrower than `min_core_cells` cells is not a
+    # measurement of a vortex and cannot promote a tier.
+    _dx = diag.get("dx_m")
+    _core = diag.get("core_radius_m")
+    core_resolved = True
+    if _dx and _core is not None and _core == _core:
+        core_resolved = float(_core) >= float(th.min_core_cells) * float(_dx)
+    tlv = core_resolved and ((g("v_theta_max_m_s") >= th.tlv_vtheta_m_s) or tlv_pressure)
     persist_ok = (persistence_s is None) or (persistence_s >= th.min_persistence_s)
     surface = tlv and (g("level_m", 1e9) <= th.surface_level_m) \
         and (g("gust_front_convergence_s") >= th.surface_convergence_s) and persist_ok
@@ -74,7 +89,8 @@ def classify(diag: dict, thresholds: ClassThresholds = None, persistence_s: floa
     criteria = {"deep_convection": w >= th.w_deep_m_s, "mesocyclone": meso,
                 "low_level_rotation": lowlevel, "tornado_like": tlv and persist_ok,
                 "surface_connected": surface,
-                "pressure_branch_available": _p_ok, "tornado_like_via_pressure": tlv_pressure}
+                "pressure_branch_available": _p_ok, "tornado_like_via_pressure": tlv_pressure,
+                "core_resolved": core_resolved}
 
     if w < th.w_deep_m_s:
         cat = "NO_DEEP_CONVECTION"
@@ -113,6 +129,7 @@ def classify_simulation(sim, z_surface_m=150.0, storm_motion=(0.0, 0.0),
     vr = vd.vortex_report(sim.state, sim.grid, z_m=z_surface_m, storm_motion=storm_motion)
     diag.update(vr)                                   # adds v_theta_max_m_s, circulation, level_m, ...
     diag.update(cp.coldpool_report(sim.state, sim.grid, z_m=z_surface_m))
+    diag.setdefault("dx_m", float(sim.grid.dx))       # lets classify() apply its resolution gate
     out = classify(diag, thresholds=thresholds, persistence_s=persistence_s,
                    allow_pressure=allow_pressure)
     out["diagnostics"] = diag

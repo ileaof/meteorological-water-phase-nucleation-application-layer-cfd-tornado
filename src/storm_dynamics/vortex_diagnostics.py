@@ -73,17 +73,41 @@ def tangential_radial(uc2d, vc2d, grid, center, storm_motion=(0.0, 0.0)):
     return vth, vrad, r
 
 
-def tangential_profile(vth2d, r2d, grid, r_max_m=None, nbins=24):
-    """Azimuthally-averaged v_theta(r); returns (r_centres, vth_mean, vth_max, core_radius_m)."""
-    xp = grid.xp
+def tangential_profile(vth2d, r2d, grid, r_max_m=None, nbins=None, min_cells_per_bin=3):
+    """Azimuthally-averaged v_theta(r); returns (r_centres, vth_mean, vth_max, core_radius_m).
+
+    RESOLUTION SEMANTICS (CHANGED -- see docs/REVIEW_REQUEST.md, the audit of 2026-09-04).
+    ``nbins`` was fixed at 24, so the bin width was ``r_max/24`` INDEPENDENT of the mesh: with
+    the classifier's hardwired ``radius_m=1500`` that is 62.5 m at every resolution.  Two
+    consequences, both observed:
+
+    * the innermost bin contained a single cell -- the vortex centre, where ``r = 0`` and
+      ``phi = arctan2(0,0) = 0``, so ``v_theta = -u sin0 + v cos0 = v``, i.e. the raw meridional
+      wind at ONE cell.  That number crossed the ``v_theta >= 15 m/s`` tornado gate;
+    * ``core_radius_m`` came back as exactly 62.5 m at dx=600 m AND at dx=300 m -- a constant
+      that reports the binning, not the vortex.
+
+    Now the bin width is tied to the mesh (>= ``min_cells_per_bin`` cells), radii below one cell
+    are excluded (no v_theta is defined at r=0), and EMPTY bins return NaN rather than 0.0 so an
+    unsampled radius cannot masquerade as a measured zero.  ``nbins=None`` derives the count.
+    """
     r = np.asarray(grid.backend.to_cpu(r2d)).ravel()
     v = np.asarray(grid.backend.to_cpu(vth2d)).ravel()
+    dx = float(grid.dx)
     r_max = r_max_m if r_max_m is not None else float(np.percentile(r, 40))
-    edges = np.linspace(0.0, r_max, nbins + 1)
-    idx = np.clip(np.digitize(r, edges) - 1, 0, nbins - 1)
-    prof = np.array([v[idx == k].mean() if np.any(idx == k) else 0.0 for k in range(nbins)])
+    # a bin must span enough cells to average over; and r=0 carries no tangential direction
+    bin_w = max(float(min_cells_per_bin) * dx, r_max / 64.0)
+    if nbins is None:
+        nbins = max(1, int(np.floor((r_max - dx) / bin_w)))
+    edges = np.linspace(dx, dx + nbins * bin_w, nbins + 1)
+    keep = r >= dx                                     # exclude the centre cell itself
+    r = r[keep]; v = v[keep]
+    idx = np.digitize(r, edges) - 1
+    prof = np.array([v[idx == k].mean() if np.any(idx == k) else np.nan for k in range(nbins)])
     rc = 0.5 * (edges[:-1] + edges[1:])
-    kmax = int(np.argmax(prof))
+    if not np.isfinite(prof).any():
+        return rc, prof, float("nan"), float("nan")
+    kmax = int(np.nanargmax(prof))
     return rc, prof, float(prof[kmax]), float(rc[kmax])
 
 
