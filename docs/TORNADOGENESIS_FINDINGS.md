@@ -1,3 +1,25 @@
+> # ⚠ READ FIRST — validity notice (2026-09-04)
+>
+> **Every percentage in this document quoted against "the observed 26 m/s" is INVALID**, on both
+> sides of the ratio:
+>
+> * **Denominator** — 26 m/s was the radar's *Nyquist ceiling*, and the couplet was extracted
+>   21 km from Moore. The corrected target is **V_rot 39.5 m/s [34, 45] at 208 m through a 327 m
+>   beam at 20.25 km** (see §2).
+> * **Numerator** — the model V_rot values were produced by diagnostics since found defective:
+>   a sampling radius that silently rescaled with the mesh, a moving nest steered by its own
+>   sponge vorticity, and a tangential profile whose fixed 24 bins made `v_theta` at `r=0` the
+>   raw meridional wind of a single cell. Peak values of 12.28 and 8.47 m/s are **retracted**,
+>   and both `outputs/uniform_resolution` tornado classifications are **retracted**.
+>
+> What survives is the **mechanistic** content — internally consistent idealized-vs-idealized
+> comparisons: the tilting-geometry bottleneck, free evolution building streamwise geometry, the
+> surface-layer closure *form* being the switch, and near-surface vertical resolution dominating
+> horizontal. Those do not depend on the observation.
+>
+> Model/observation comparison must go through `atmospheric_data/radar_operator.py`. See
+> `docs/REVIEW_REQUEST.md` for the full defect synthesis.
+
 # Tornadogenesis: findings, honest limits, and the sustainment lever
 
 *Moore, OK — EF5 of 20 May 2013 — as the real-data test case.*
@@ -49,13 +71,50 @@ multi-stage causal chain, accurate microphysics, *and* a correctly-hit threshold
 Read on WSL2 with Py-ART + nexradaws (no credentials) — `deploy/wsl2_nexrad_moore.py`,
 `deploy/wsl2_extract_velocity.py`. Scan **KTLX 2013-05-20 20:20:58 UTC, 0.5° sweep**:
 
-| Quantity | Observed value |
-|---|---|
-| Reflectivity core | ~70 dBZ |
-| Velocity couplet Δv | **52 m s⁻¹** (inbound −26 / outbound +26) |
-| Rotational velocity V_rot | **26 m s⁻¹** |
-| Couplet separation | ~253 m (a tight **TVS**) |
-| Azimuthal shear ≈ vertical vorticity | **~0.205 s⁻¹** |
+> ## ⚠ RETRACTED AND CORRECTED (2026-09-04)
+>
+> **Every number in the original version of this table was wrong, and every percentage quoted
+> against it elsewhere in this document is therefore invalid.** Two independent defects:
+>
+> 1. **`V_rot = 26 m/s` was the radar's NYQUIST VELOCITY**, not a measurement. The sweep's own
+>    metadata gives `nyquist = 26.12 m/s`; the field saturated at exactly ±26.000 m/s in *every*
+>    sub-region, and 9 adjacent-gate pairs differed by >40 m/s (the 2×Nyquist folding signature).
+>    `(max − min)/2` over any region containing a folded gate returns 26 **by construction**.
+> 2. **The couplet was extracted 21 km from Moore.** The old script took the strongest
+>    inbound/outbound pair over the whole cropped field; that pair sits 4.9 km from KTLX (near-radar
+>    clutter) while Moore is at 19.3 km.
+>
+> Corrected by dealiasing the Level II velocity (Py-ART region-based) and constraining the couplet
+> to the Moore mesocyclone — `deploy/wsl2_dealias_moore.py`, stable across 3/5/8 km search radii:
+
+| Quantity | OLD (retracted) | **CORRECTED** |
+|---|---|---|
+| Reflectivity core | ~70 dBZ | ~70 dBZ (unchanged) |
+| Velocity couplet Δv | 52 m s⁻¹ (= 2×Nyquist) | **79.0 m s⁻¹** |
+| Rotational velocity V_rot | 26 m s⁻¹ (= Nyquist) | **39.5 m s⁻¹, interval [34, 45]** |
+| Couplet separation | ~253 m (wrong feature) | **584 m** (3 rays × 1 gate) |
+| Range from KTLX | ~30–41 km implied | **20.25 km** |
+| Beam diameter | 250 m assumed | **327 m** |
+| Sample height | ~460 m "AGL" | **208 m above the antenna** |
+| Elevation | "0.5°" | **0.5211°** |
+| Angular velocity Ω = Δv/sep | mislabelled 0.205 s⁻¹ | **0.135 s⁻¹** |
+| Vertical vorticity ζ = 2Ω | — | **0.271 s⁻¹** |
+
+> **Unit error, additionally:** the old `0.205 s⁻¹` row was labelled "azimuthal shear ≈ vertical
+> vorticity" and compared against the model's ζ. For solid-body rotation `Δv/sep = Ω = ζ/2`, so
+> that row compared unlike quantities and was off by a **factor of two** on top of being derived
+> from the wrong couplet.
+>
+> **Uncertainty:** the dominant term is the *estimator choice* (top-1 gate 39.49 vs 3×3 median
+> 33.49), **not** the dealiasing — a fold round-trip (`deploy/wsl2_fold_roundtrip.py`) recovers a
+> known V_rot exactly up to ~45 m/s and only fails at 60, so the interval stays asymmetric on the
+> high side.
+>
+> **How to compare a model against this:** never against a grid-point wind. Push the model through
+> `atmospheric_data/radar_operator.py` at `RadarSpec(elevation_deg=0.5211)`, range 20.25 km, and
+> compare observable to observable. The model-mesh penalty vanishes by dx ≈ 100 m
+> (`scratchpad/mesh_recovery_curve.py`); the residual 0.700 recovery is the irreducible beam
+> penalty.
 
 Figures: `docs/media/storm/ktlx_moore_2013_radar.png`, `docs/media/storm/moore_sim_vs_radar.png`.
 

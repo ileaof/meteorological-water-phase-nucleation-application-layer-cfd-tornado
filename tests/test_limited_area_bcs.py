@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from meteorological_flow.boundary_conditions import apply_velocity_bcs
 from storm_dynamics.config import build_storm_config
-from storm_dynamics.core import StormSimulation
+from storm_dynamics.core import Grid, StormSimulation
 from storm_dynamics import nesting as nst
 
 
@@ -180,3 +180,34 @@ def test_limited_area_grid_is_flagged_for_the_open_projection():
     cfg2 = build_storm_config(preset="storm", nx=16, ny=16, nz=12, Lx=16000.0, Ly=16000.0,
                               Lz=8000.0, duration=1.0, dt_max=3.0, device="cpu", periodic=True)
     assert StormSimulation(cfg2).grid._lateral_open is False
+
+
+# ------------------------------------- the Davies zone in METRES (audit row 14, last of the class)
+def test_davies_zone_cell_width_rescales_but_physical_width_does_not():
+    """`width` is a CELL COUNT, so the band's physical width changes with the mesh -- the same
+    defect class as NestSpec.relax_width.  It had not corrupted a result only because parent dx
+    was constant within every run; a parent-RESOLUTION study is exactly what it breaks."""
+    from storm_dynamics.limited_area import lateral_relaxation_weight
+    reach_cells, reach_phys = {}, {}
+    for nx in (40, 80):                                   # dx = 600 m and 300 m over 24 km
+        g = Grid(nx=nx, ny=nx, nz=8, Lx=24000.0, Ly=24000.0, Lz=2000.0, periodic=False)
+        mid = nx // 2                                     # slice mid-domain: the corner is all-band
+        a = np.asarray(g.backend.to_cpu(lateral_relaxation_weight(g, width=8)))[:, mid, 0]
+        b = np.asarray(g.backend.to_cpu(
+            lateral_relaxation_weight(g, width_m=4800.0)))[:, mid, 0]
+        reach_cells[g.dx] = float((a[:mid] > 0).sum() * g.dx)
+        reach_phys[g.dx] = float((b[:mid] > 0).sum() * g.dx)
+    # the DEFECT: a cell-count band halves in physical width when the mesh refines
+    assert reach_cells[600.0] > 1.8 * reach_cells[300.0], reach_cells
+    # the FIX: a metre-specified band is mesh-independent
+    assert abs(reach_phys[600.0] - reach_phys[300.0]) <= 600.0 + 1e-9, reach_phys
+    assert all(abs(v - 4800.0) <= 600.0 for v in reach_phys.values()), reach_phys
+
+
+def test_davies_zone_default_is_unchanged():
+    """Opt-in: width_m=None must reproduce the cell-count behaviour exactly."""
+    from storm_dynamics.limited_area import lateral_relaxation_weight
+    g = Grid(nx=40, ny=40, nz=8, Lx=24000.0, Ly=24000.0, Lz=2000.0, periodic=False)
+    a = np.asarray(g.backend.to_cpu(lateral_relaxation_weight(g, width=8)))
+    b = np.asarray(g.backend.to_cpu(lateral_relaxation_weight(g, width=8, width_m=None)))
+    assert np.array_equal(a, b)

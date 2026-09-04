@@ -1,18 +1,35 @@
 """Radar FORWARD OPERATOR -- turn a model wind field into what a WSR-88D would actually report.
 
-**Why this exists.**  The Moore 2013 validation target, ``V_rot = 26 m/s``, is not a wind speed.
-It is half the peak-to-peak Doppler velocity difference across a couplet whose members are
-separated by ~253 m, measured by KTLX at a range of ~30 km with a 0.5 deg sweep.  At that range
-the 0.925 deg beam is ~480 m across and the sample volume is ~460 m above ground.  A tornado
-with a 125 m radius of maximum wind is therefore SMALLER THAN THE BEAM: the radar cannot resolve
-it and necessarily under-reports its peak wind.
+**Why this exists.**  The Moore 2013 validation target is not a wind speed.  It is half the
+peak-to-peak Doppler velocity difference across a couplet, and the sweep that measured it has a
+NYQUIST VELOCITY OF 26.12 m/s -- so the long-quoted "V_rot = 26 m/s" was the instrument ceiling,
+not a measurement (the field saturated at exactly +-26.000 in every sub-region, with adjacent-gate
+jumps at 2*Nyquist).  Dealiased and re-extracted at Moore's actual location, the target is:
+
+    V_rot            39.49 m/s   (interval [34, 45]; the dominant term is the ESTIMATOR choice,
+                                  top-1 gate 39.49 vs 3x3 median 33.49 -- NOT the dealiasing,
+                                  which a fold round-trip shows is exact below ~45 m/s)
+    delta-v          79.0 m/s
+    couplet sep      584 m       (quantised: 3 rays x 1 gate = 528 m azimuthal + 250 m radial)
+    range from KTLX  20.25 km
+    beam diameter    327 m
+    sample height    208 m above the KTLX antenna (NOT 460 m, and NOT AGL -- the antenna is
+                                  ~370 m MSL and Moore ~350 m, so true AGL is ~10% higher)
+    elevation        0.5211 deg
+
+At 20.25 km the 0.925 deg beam is 327 m across while the couplet separation is 584 m, so the
+vortex is comparable to -- not far below -- the resolution volume, and the radar still
+under-reports its peak wind.
 
 Comparing a model's grid-point wind against that number is not a validation -- the two are
 different quantities.  This module makes the comparison honest in the only direction that is
 well posed: push the MODEL through the radar's sampling, and compare observable with observable.
 
-A useful corollary falls out of the same machinery: for an assumed core radius, the operator
-gives the UNDER-READING FACTOR, i.e. what true peak wind an observed 26 m/s implies.
+A corollary falls out of the same machinery: for an assumed core radius the operator gives the
+UNDER-READING FACTOR.  Measured at the true geometry for a Rankine core of 292 m the recovery is
+0.700, so an observed 39.49 m/s implies a true peak near 56 m/s -- a RANKINE-DEPENDENT inversion,
+not a measurement.  The model-mesh penalty is separate and vanishes by dx ~ 100 m
+(scratchpad/mesh_recovery_curve.py).
 
 **What is modelled**
 

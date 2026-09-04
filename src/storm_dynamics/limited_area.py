@@ -26,11 +26,27 @@ from meteorological_flow.grid import Grid
 from meteorological_flow.state import FlowState
 
 
-def lateral_relaxation_weight(grid: Grid, width: int = 8, rate: float = 1.0 / 300.0):
+def lateral_relaxation_weight(grid: Grid, width: int = 8, rate: float = 1.0 / 300.0,
+                              width_m: float | None = None):
     """The Davies-zone nudging weight ``(nx,ny,1)``: ``rate`` [1/s] at the outermost cell,
-    ramping quadratically to 0 at ``width`` cells in from any lateral edge; 0 in the interior."""
+    ramping quadratically to 0 at the band width in from any lateral edge; 0 in the interior.
+
+    ``width`` is a CELL COUNT, so the band's PHYSICAL width changes whenever the mesh does --
+    the same defect class that made the nest sponge shrink by ``refine`` at every cascade level
+    (``NestSpec.relax_width``; see docs/resolution_audit.md rows 7 and 14).  It has not corrupted
+    a result yet only because the parent dx has been constant within every run so far; it will
+    the moment a parent-RESOLUTION study is run, which is exactly the next experiment.
+
+    ``width_m`` (PREFERRED) pins the band to a physical width in metres, so the same domain
+    driven at two resolutions is driven identically.  It reports the achieved discretisation
+    through :mod:`storm_dynamics.scales` and is never silently widened.  ``width_m=None``
+    reproduces the cell-count behaviour exactly."""
     xp = grid.xp
     nx, ny = grid.nx, grid.ny
+    if width_m is not None:
+        from .scales import cells_for_length
+        sc = cells_for_length(width_m, grid.dx, min_cells=2, name="Davies zone width", warn=True)
+        width = max(2, sc.cells)
     ix = xp.arange(nx); iy = xp.arange(ny)
     d = xp.minimum(xp.minimum(ix, nx - 1 - ix)[:, None],
                    xp.minimum(iy, ny - 1 - iy)[None, :])       # distance to nearest lateral edge
