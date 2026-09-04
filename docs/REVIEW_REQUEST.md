@@ -225,3 +225,52 @@ environmental SRH, updraft strength, cold-pool source strength.
 - Test suite: 370 passed, 3 skipped.
 - Everything above is committed with the measurements in the commit messages
   (`git log` around 2026-09-03/04).
+
+---
+
+## G. ADDENDUM (2026-09-04) — the validation target itself is an artifact
+
+Building the radar forward operator forced an inspection of the cached KTLX extraction
+(`outputs/nexrad_moore/ktlx_velocity.npz`, 0.5211° sweep, 2013-05-20 20:20:58Z, 65,907 gates).
+Two independent defects in the observational target:
+
+**G1. `V_rot = 26 m/s` is the NYQUIST VELOCITY, not a measurement.**
+
+| region about Moore | gates | min v_r | max v_r |
+|---|---|---|---|
+| 1 km | 74 | −9.0 | +18.5 |
+| 2 km | 290 | −25.5 | +26.0 |
+| 3 km | 652 | **−26.000** | **+26.000** |
+| 5 km | 1,840 | **−26.000** | **+26.000** |
+| 8 km | 4,788 | **−26.000** | **+26.000** |
+| 15 km | 17,584 | **−26.000** | **+26.000** |
+
+Every region ≥3 km saturates at exactly ±26.000. Adjacent-gate velocity jumps confirm folding:
+**9 neighbouring pairs differ by >40 m/s, 7 of them in the 45–52 m/s band** — i.e. ~2×Nyquist =
+52 m/s, the classic aliasing discontinuity. So `(max − min)/2` over any region containing a
+folded gate returns exactly 26 by construction.
+
+**The true rotational velocity is a LOWER BOUND of 26 m/s and cannot be recovered from this
+field without dealiasing.** Every percentage this study has quoted against "26 m/s" was
+measured against an instrument ceiling.
+
+**G2. The recorded couplet was extracted 21 km from Moore.**
+The saved couplet (`V_rot 26.0`, separation 253 m) sits at 4.9 km range from KTLX. Moore is at
+19.3 km range — **21.2 km away** from the extracted feature. The extraction script takes the
+strongest inbound/outbound pair over the whole cropped field, and that pair is near-radar
+clutter, not the Moore mesocyclone.
+
+At Moore's actual location the geometry is:
+
+| quantity | recorded in docs | **measured at Moore** |
+|---|---|---|
+| range from KTLX | (implied ~30–41 km) | **20.1 km** |
+| beam diameter | 250 m assumed | **325 m** |
+| sampling height | ~460 m AGL | **207 m AGL** |
+| couplet separation | 253 m | **1015 m** |
+| V_rot | 26 m/s | **≥26 m/s (aliased)** |
+
+**Required before any quantitative validation:** dealias the Level II velocity field (Py-ART
+`dealias_region_based` or similar), re-extract the couplet constrained to the Moore mesocyclone,
+and re-derive the target with its true scan geometry. Until then no model/observation ratio is
+meaningful.
