@@ -66,6 +66,60 @@ multi-stage causal chain, accurate microphysics, *and* a correctly-hit threshold
 
 ---
 
+## 1b. The first quantitative result that survives its own test (2026-09-05)
+
+Everything else in this document is either mechanistic (idealized-vs-idealized, and therefore
+independent of the observation) or retracted. This is the one *quantitative* claim that has been
+tested against the thing that invalidates most convective results — run-to-run chaotic spread.
+
+**Design.** Uniform grid, **no nesting anywhere**, periodic laterals (verified clean by direct
+measurement: 1.8 % of the inflow level >1 K cold, dθ −0.23…+0.14 K from 5–60 km upstream), the
+same analytic environment, the same storm-relative frame, the same stress-divergence + log-law
+surface closure with an **identical C_d** (both arms have dz₁ = 79.8 m), full 2800 s maturation,
+statistics over the mature window t = 1800–2800 (21 samples), scored at ONE fixed physical radius
+of 3000 m — legal on the coarsest mesh, so the comparison is not corrupted by the
+`R = max(3, int(radius_m/dx))` defect. **The only variable is dx.**
+
+**Ensemble.** Four members of the 600 m arm, differing only by a 0.01 K θ perturbation
+(~0.003 % of θ) whose sole role is chaotic divergence. Divergence is confirmed to operate: the
+members' time series separate and the separation grows (2.1e−3 → 7.7e−3), reaching 1.28 m/s at
+individual samples — which is why the comparison uses window statistics and never a single instant.
+
+| arm A (dx = 600 m) | peak V_sfc | mean V_sfc | peak circulation |
+|---|---|---|---|
+| mean of 4 members | 19.99 | 11.89 | 2.967e3 |
+| **SD** | **0.013** | 0.027 | 11.0 |
+| SD as % of mean | 0.1 % | 0.2 % | 0.4 % |
+
+| | effect A→B | ensemble SD | ratio |
+|---|---|---|---|
+| peak V_sfc | **+5.78 m/s (+29 %)** | 0.013 | **440×** |
+| mean V_sfc | +2.90 m/s (+24 %) | 0.027 | 109× |
+| peak circulation | **+3.26e3 (+109 %)** | 11.0 | **295×** |
+
+> **Refining 600 → 300 m increases low-level mesocyclone circulation by +109 % and peak surface
+> rotational velocity by +29 %, at a margin of 100–400× the chaotic spread.**
+
+**Caveats, all of which stand:**
+
+* **This is MESOCYCLONE scale, not tornado intensity.** The 3000 m scoring radius is ~24× a
+  tornado core. It must not be compared against the 39.5 m/s radar target without passing the
+  model through `atmospheric_data/radar_operator.py` first.
+* **The ensemble is under-dispersive.** 0.01 K is at the low end (0.1–0.5 K is typical) and n = 4.
+  It is accepted only because overturning the result would require a spread **216× larger** than
+  measured.
+* **Only arm A has an ensemble**; arm B is a single member, and its spread is assumed comparable
+  rather than measured.
+* **ζ is deliberately not quoted as an effect.** It rose 4.5× (0.0055 → 0.0250), but ζ is a
+  gradient and grows with refinement by construction — exactly the resolution-sensitivity this
+  document has been burned by elsewhere.
+* A separate arm at dz₁ = 5.5 m is **not** interpretable: it varies the vertical mesh *and* the
+  drag coefficient together (C_d 0.0045 → 0.0146, a 3.2× spread), because the log law is
+  evaluated at the first cell centre. `SurfaceDragConfig.log_law_reference_height_m` now pins
+  that height so a clean dz₁ axis is possible; it has not yet been run.
+
+---
+
 ## 2. The observed target (real NEXRAD KTLX Level II)
 
 Read on WSL2 with Py-ART + nexradaws (no credentials) — `deploy/wsl2_nexrad_moore.py`,
