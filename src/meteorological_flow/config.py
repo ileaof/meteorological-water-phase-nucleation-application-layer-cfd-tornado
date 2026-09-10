@@ -64,6 +64,7 @@ class PhysicsConfig:
     precision: str = "float64"         # float64 (scientific) | float32 (performance)
     pressure_gradient: float | None = None   # if set, p_drop = gradient * Lx [Pa/m]
     dynamics: str = "boussinesq"       # boussinesq (test mode) | anelastic (deep convection)
+    rain_evaporation_factor: float = 1.0  # forwarded only to bulk rain evaporation
 
 
 @dataclass
@@ -181,7 +182,8 @@ def from_dict(d: dict[str, Any]) -> SimulationConfig:
                                scenario=str(_get(ph, "scenario", "mixing_chamber")),
                                bubble_dtheta=float(_get(ph, "bubble_dtheta", 3.0)),
                                precision=str(_get(ph, "precision", "float64")),
-                               dynamics=str(_get(ph, "dynamics", "boussinesq")))
+                               dynamics=str(_get(ph, "dynamics", "boussinesq")),
+                               rain_evaporation_factor=float(_get(ph, "rain_evaporation_factor", 1.0)))
     bd = _get(d, "boundaries", {})
     warm = _get(bd, "warm_inflow", {})
     cold = _get(bd, "cold_inflow", {})
@@ -247,6 +249,9 @@ def from_yaml(path: str) -> SimulationConfig:
 
 def validate(cfg: SimulationConfig) -> None:
     import math as _m
+    factor = cfg.physics.rain_evaporation_factor
+    if not _m.isfinite(factor) or factor < 0:
+        raise ValueError("rain_evaporation_factor must be finite and non-negative")
     g, d = cfg.grid, cfg.domain
     _MIN = 3   # central-difference / Laplacian stencils need >= 3 cells per axis
     assert g.nx >= _MIN and g.ny >= _MIN and g.nz >= _MIN, \

@@ -219,29 +219,33 @@ on the repository's already-validated physics.
 ## How to run
 
 ```bash
+# Run from the repo root. The examples put src/ on sys.path themselves, so no
+# PYTHONPATH is needed for any `python examples/...` command.
+# (PYTHONPATH=src is the bash syntax — on Windows PowerShell, use
+#  $env:PYTHONPATH="src" instead, only where noted below.)
+
 # M1 — rotating supercell (storm splitting); --plots writes the rotation figures
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell --plots
+python examples/supercell_tornadogenesis.py --scenario supercell --plots
 
 # M2 — low-level rotation (curved hodograph + drag + cold pool)
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
     --nx 40 --ny 40 --nz 48 --duration 3600 --plots
 
 # optional: couple the validated nucleation kernel as the microphysics embryo
 # source (eq39 pathway), exactly as meteorological_flow does (builds a lookup
 # table -> slower); off by default
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell \
-    --kernel-nucleation
+python examples/supercell_tornadogenesis.py --scenario supercell --kernel-nucleation
 
 # M3 phase 1 — static nested-grid refinement of the low-level vortex
-PYTHONPATH=src python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
+python examples/tornado_nest.py --refine 3 --window 120 --plots --animate
 
-# declarative configs
+# declarative configs (needs src importable; PowerShell: $env:PYTHONPATH="src")
 python -c "from storm_dynamics.config import storm_config_from_yaml as L; \
            from storm_dynamics.core import StormSimulation as S; \
            print(S(L('configs/storm_supercell.yaml')).run()['rotation'])"
 
-# tests
-PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q
+# tests (needs src importable; PowerShell: $env:PYTHONPATH="src")
+python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q
 ```
 
 ## Compute backend (CPU / GPU)

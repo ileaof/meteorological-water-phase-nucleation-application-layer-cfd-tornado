@@ -38,6 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+diagnostics = ["h5py>=3"]
 # NetCDF ingestion/export via xarray (scipy engine gives NetCDF3 with no extra).
 netcdf = ["netCDF4"]
 # GRIB ingestion (requires the system eccodes library too).

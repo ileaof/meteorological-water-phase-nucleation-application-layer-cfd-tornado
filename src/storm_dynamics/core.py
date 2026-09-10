@@ -225,7 +225,9 @@ class StormSimulation:
         self.pressure = None if self._lowmem_pressure else PressureSolver(g, method=_pressure_method(g))
         # two-way microphysics (cold pool) -- reused unchanged
         from meteorological_flow.microphysics_coupling import MicrophysicsCoupler
-        self.coupler = MicrophysicsCoupler()
+        from precip_microphysics.config import MicrophysicsConfig
+        self.coupler = MicrophysicsCoupler(MicrophysicsConfig(
+            rain_evaporation_factor=getattr(cfg.physics, "rain_evaporation_factor", 1.0)))
         # optional: couple the validated nucleation kernel as the embryo source
         # (eq39 pathway), exactly as meteorological_flow.Simulation does.
         self.couple_nucleation = bool(getattr(cfg.nucleation, "couple_kernel", False))
@@ -299,6 +301,12 @@ class StormSimulation:
         return max(dt, 1e-4)
 
     # ---- one anelastic projection step ----
+    def _diagnostic_mark(self, name, dt):
+        """Optional read-only observer; no observer is installed by default."""
+        observer = getattr(self, "diagnostic_observer", None)
+        if observer is not None:
+            observer.mark(self, name, dt)
+
     # The step is split into phases so the composite (parent+nest) projection can
     # run once over BOTH levels (storm_dynamics.nesting.run_concurrent_nest) in
     # place of the two per-level solves: _predictor -> _project -> _transport.
@@ -313,10 +321,12 @@ class StormSimulation:
         g = self.grid
         xp = g.xp
         st = self.state
+        self._diagnostic_mark("begin", dt)
         # 1. BCs + diagnose
         bc.apply_velocity_bcs(st, g, cfg)
         bc.apply_scalar_bcs(st, g, cfg, theta0=self.theta0_field, qv0=self.qv0_field)
         st.diagnose(cfg)
+        self._diagnostic_mark("initial_bcs", dt)
         # 2. momentum predictor -----------------------------------------------
         # (a) LES subgrid closure: eddy viscosity from the resolved strain,
         #     momentum diffusion applied to the PERTURBATION so the environmental
@@ -330,19 +340,24 @@ class StormSimulation:
         st.u -= self._u0_face; st.v -= self._v0_face
         les.apply_les_momentum(st, g, Km, dt)
         st.u += self._u0_face; st.v += self._v0_face
+        self._diagnostic_mark("les", dt)
         # (b) conservative flux-form momentum advection (the enabling term)
         if self.dyn.momentum_advection:
             mom.add_momentum_advection(st, g, dt, order=self.dyn.momentum_order)
+        self._diagnostic_mark("advection", dt)
         # (c) moist buoyancy on w (reused, perturbation vs base state)
         Bf = buo.buoyancy_w_tendency(st, g, cfg, self.T_ref, self.qv_ref,
                                      theta0=self.theta0_field, qv0=self.qv0_field)
         st.w += dt * Bf
+        self._diagnostic_mark("buoyancy", dt)
         # (d) f-plane Coriolis on the perturbation wind
         if self.dyn.coriolis:
             from .coriolis import add_coriolis
             add_coriolis(st, g, dt, self.f, self._u0_face, self._v0_face)
+        self._diagnostic_mark("coriolis", dt)
         # (e) surface bulk drag on the lowest level
         sfc.apply_surface_drag(st, g, dt, self.dyn.drag)
+        self._diagnostic_mark("surface_drag", dt)
         # (f) sustained low-level mesoscale-ascent forcing (dryline/convergence proxy):
         #     keeps lifting parcels through a real CIN cap so a supercell can establish
         #     instead of a one-shot bubble that decays.  Opt-in; off by default.
@@ -355,11 +370,14 @@ class StormSimulation:
         flx = getattr(self.dyn, "fluxes", None)
         if flx is not None and getattr(flx, "enabled", False):
             sfl.apply_surface_fluxes(st, g, dt, flx, base=self.base)
+        self._diagnostic_mark("external_forcing", dt)
         # extreme numerical guard ONLY (documented; not a physical cap)
         vg = self.dyn.v_guard
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v)
         xp.clip(st.w, -vg, vg, out=st.w)
+        self._diagnostic_mark("guard", dt)
         bc.apply_velocity_bcs(st, g, cfg)
+        self._diagnostic_mark("predictor_bcs", dt)
         return Km
 
     def _project(self, dt: float) -> None:
@@ -372,7 +390,9 @@ class StormSimulation:
         else:
             res, it = self.pressure.project(st, dt, self.rho0)
         self._last_res, self._last_iters = res, it
+        self._diagnostic_mark("projection", dt)
         bc.apply_velocity_bcs(st, self.grid, self.cfg)
+        self._diagnostic_mark("projection_bcs", dt)
 
     def _transport(self, dt: float, Km: "object") -> None:
         cfg = self.cfg
@@ -414,6 +434,7 @@ class StormSimulation:
             st.theta = th.theta_from_T(Tc, st.P_total, th.P0_REF, xp=xp)
             st.diagnose(cfg)
         st.t = self.t + dt
+        self._diagnostic_mark("transport_microphysics_bcs", dt)
 
     # ---- main loop ----
     def run(self, progress=None, record_interval=None, capture_frames=False) -> dict:

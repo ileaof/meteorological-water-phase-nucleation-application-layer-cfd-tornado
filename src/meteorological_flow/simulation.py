@@ -271,7 +271,9 @@ class Simulation:
         self.coupler = None
         if self.do_microphysics:
             from .microphysics_coupling import MicrophysicsCoupler
-            self.coupler = MicrophysicsCoupler()
+            from precip_microphysics.config import MicrophysicsConfig
+            self.coupler = MicrophysicsCoupler(MicrophysicsConfig(
+                rain_evaporation_factor=getattr(cfg.physics, "rain_evaporation_factor", 1.0)))
         # bookkeeping
         self.snapshots = []
         self.history = []
@@ -652,6 +654,7 @@ class Simulation:
             "duration": self.cfg.time.duration, "cfl": self.cfg.time.cfl,
             "stage": self.stage,
             "dynamics": self.dynamics,
+            "rain_evaporation_factor": self.cfg.physics.rain_evaporation_factor,
         }
 
 
@@ -661,6 +664,7 @@ def _cfg_summary(cfg: SimulationConfig) -> dict:
         "grid": {"nx": cfg.grid.nx, "ny": cfg.grid.ny, "nz": cfg.grid.nz},
         "duration": cfg.time.duration, "cfl": cfg.time.cfl,
         "p_drop": cfg.flow.p_drop, "P0": cfg.physics.P0,
+        "rain_evaporation_factor": cfg.physics.rain_evaporation_factor,
         "warm_inflow": {"T": cfg.boundaries.warm_inflow.T, "RH": cfg.boundaries.warm_inflow.RH_water,
                         "u": cfg.boundaries.warm_inflow.u},
         "cold_inflow": {"T": cfg.boundaries.cold_inflow.T, "RH": cfg.boundaries.cold_inflow.RH_water,

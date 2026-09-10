@@ -45,6 +45,14 @@ class BulkMicrophysics:
         dq = xp.minimum(dq, xp.maximum(src, 0.0))          # re-cap at apply time
         if not xp.any(dq > 0):
             return 0.0
+        observer = getattr(self, "process_observer", None)
+        if observer is not None:
+            rs, rd = _RANK[tr.src], _RANK[tr.dst]
+            latent_per_dq = 0.0
+            if rs != rd:
+                _, L = _LKIND[frozenset({rs, rd})]
+                latent_per_dq = (1.0 if rd > rs else -1.0) * L / C.cp_d
+            observer(tr.name, dq, latent_per_dq)
         setattr(st, tr.src, src - dq)
         setattr(st, tr.dst, xp.asarray(getattr(st, tr.dst), dtype=float) + dq)
         rs, rd = _RANK[tr.src], _RANK[tr.dst]

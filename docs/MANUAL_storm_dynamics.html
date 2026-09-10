@@ -430,16 +430,19 @@ time series.</p>
 
 <section id="s11">
 <h2><span class="num">§11</span>Install &amp; quick start</h2>
-<p>The repository is self-contained (numpy / scipy / matplotlib). Run from <code>src</code> on the path:</p>
+<p>The repository is self-contained (numpy / scipy / matplotlib). The examples put <code>src/</code> on
+<code>sys.path</code> themselves, so run them from the repo root with no <code>PYTHONPATH</code>
+(<code>PYTHONPATH=src</code> is bash syntax &mdash; in PowerShell use <code>$env:PYTHONPATH="src"</code>,
+only for the <code>pytest</code> / <code>python -c</code> forms below):</p>
 <pre><code># M1 - rotating supercell (storm splitting); --plots writes the rotation figures
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell --plots
+python examples/supercell_tornadogenesis.py --scenario supercell --plots
 
 # M2 - low-level rotation (curved hodograph + drag + cold pool)
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
+python examples/supercell_tornadogenesis.py --scenario tornadogenesis \
     --nx 40 --ny 40 --nz 48 --duration 3600 --plots
 
 # optional: couple the validated nucleation kernel (eq39 embryo source; slower)
-PYTHONPATH=src python examples/supercell_tornadogenesis.py --scenario supercell --kernel-nucleation
+python examples/supercell_tornadogenesis.py --scenario supercell --kernel-nucleation
 
 # compute backend: --device cpu (default) | gpu (NVIDIA + CuPy) | auto
 python examples/supercell_tornadogenesis.py --scenario supercell --device auto
@@ -461,8 +464,8 @@ python examples/tornado_nest.py --parent-duration 1200 --u-max 18 --refine 3 --f
 # 3-D view of the refined nest (vorticity column / mesocyclone streamlines)
 python examples/render_tornado_3d.py --device gpu --mode streamlines
 
-# tests
-PYTHONPATH=src python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
+# tests (needs src importable; PowerShell: $env:PYTHONPATH="src")
+python -m pytest tests/test_storm_dynamics.py tests/test_storm_milestones.py -q</code></pre>
 <div class="note"><strong>CPU or GPU.</strong> The core is backend-agnostic (every hot-loop module uses
 <code>grid.xp</code>), so it runs on CPU (NumPy) or GPU (CuPy) with <em>identical</em> results
 (regression-tested). <code>cpu</code> is the default; <code>gpu</code> requires an NVIDIA GPU + CuPy and fails

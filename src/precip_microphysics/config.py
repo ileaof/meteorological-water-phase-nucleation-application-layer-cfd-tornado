@@ -13,6 +13,7 @@ not substitutes for the process modelling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 
 
 @dataclass
@@ -61,6 +62,15 @@ class MicrophysicsConfig:
     conservation_tol: float = 1.0e-9        # rel. total-water error tolerated
     seed: int = 20260821                    # RNG seed (reproducibility)
 
+    # Dimensionless experimental multiplier of rain evaporation BEFORE the
+    # existing saturation/available-rain caps. No other rate reads this value.
+    rain_evaporation_factor: float = 1.0
+
+    def __post_init__(self):
+        self.rain_evaporation_factor = float(self.rain_evaporation_factor)
+        if not math.isfinite(self.rain_evaporation_factor) or self.rain_evaporation_factor < 0:
+            raise ValueError("rain_evaporation_factor must be finite and non-negative")
+
     def threshold(self, category: str) -> float:
         return {
             "rain": self.threshold_rain, "snow": self.threshold_snow,
@@ -85,7 +95,7 @@ def from_dict(d: dict) -> MicrophysicsConfig:
     for key in ("scheme", "stochastic_nucleation", "embryo_radius_liquid",
                 "embryo_radius_ice", "vapour_limited", "activation_pathway",
                 "threshold_rain", "threshold_snow", "threshold_graupel",
-                "threshold_hail", "conservation_tol", "seed"):
+                "threshold_hail", "conservation_tol", "seed", "rain_evaporation_factor"):
         if key in d:
             kw[key] = d[key]
     if "T_valid" in d:

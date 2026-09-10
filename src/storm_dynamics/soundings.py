@@ -237,7 +237,7 @@ def storm_relative_helicity(base: BaseState, z_top: float = 3000.0,
     dudz = np.gradient(uc, zc)
     dvdz = np.gradient(vc, zc)
     integrand = (vc - cy) * dudz - (uc - cx) * dvdz
-    _trapz = getattr(np, "trapezoid", np.trapz)
+    _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
     return float(_trapz(integrand, zc))
 
 
