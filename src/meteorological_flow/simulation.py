@@ -60,7 +60,8 @@ def _grid_from_config(cfg: SimulationConfig, backend: Backend | None = None) -> 
     return Grid(nx=cfg.grid.nx, ny=cfg.grid.ny, nz=cfg.grid.nz,
                 Lx=cfg.domain.Lx, Ly=cfg.domain.Ly, Lz=cfg.domain.Lz,
                 z_stretch=getattr(cfg.grid, "z_stretch", 1.0), periodic=periodic,
-                backend=backend)
+                backend=backend, z_faces_m=getattr(cfg.grid, "z_faces_m", None),
+                vertical_reference_dz_m=getattr(cfg.grid, "vertical_reference_dz_m", None))
 
 
 def _deep_convection_initial(grid: Grid, cfg: SimulationConfig, base=None) -> FlowState:

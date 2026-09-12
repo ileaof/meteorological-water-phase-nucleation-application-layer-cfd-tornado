@@ -27,7 +27,9 @@ def inflow_state(inflow: InflowConfig, P0: float):
     return theta, qv
 
 
-def apply_velocity_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig) -> None:
+def apply_velocity_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig, *,
+                       damping_observer=None, context=None, step=None,
+                       time_s=None, dt=None) -> None:
     """Enforce velocity boundary conditions in place (config-driven)."""
     b = cfg.boundaries
     if getattr(grid, "periodic", False):
@@ -77,10 +79,26 @@ def apply_velocity_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig) -> N
     # top damping layer: gently relax w toward 0 in the top slab (Rayleigh damping)
     if b.z_top == "damping_layer":
         nz = grid.nz
-        nd = max(2, nz // 10)
+        configured = getattr(b, "damping_faces", None)
+        nd = max(2, nz // 10) if configured is None else int(configured)
+        if not 2 <= nd <= nz + 1:
+            raise ValueError("damping_faces must be between 2 and nz+1")
         damp = grid.xp.linspace(0.0, 1.0, nd) ** 2
+        strength = float(getattr(b, "damping_max_fraction", 0.05))
+        if not 0.0 <= strength < 1.0:
+            raise ValueError("damping_max_fraction must be in [0,1)")
+        indices = tuple(nz - d for d in range(nd))
+        before = None
+        if damping_observer is not None:
+            before = state.w[:, :, list(indices)].copy()
         for d, coeff in enumerate(damp):
-            state.w[:, :, -1 - d] *= (1.0 - 0.05 * coeff)
+            state.w[:, :, -1 - d] *= (1.0 - strength * coeff)
+        if damping_observer is not None:
+            damping_observer.record(
+                state=state, grid=grid, indices=indices,
+                multipliers=1.0 - strength * damp, before=before,
+                context=context, step=step, time_s=time_s, dt=dt,
+            )
 
 
 def apply_scalar_bcs(state: FlowState, grid: Grid, cfg: SimulationConfig,

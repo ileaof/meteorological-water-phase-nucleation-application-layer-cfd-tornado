@@ -172,7 +172,9 @@ class StormSimulation:
         self.grid = Grid(nx=cfg.grid.nx, ny=cfg.grid.ny, nz=cfg.grid.nz,
                          Lx=cfg.domain.Lx, Ly=cfg.domain.Ly, Lz=cfg.domain.Lz,
                          z_stretch=getattr(cfg.grid, "z_stretch", 1.0),
-                         periodic=periodic, backend=self.backend)
+                         periodic=periodic, backend=self.backend,
+                         z_faces_m=getattr(cfg.grid, "z_faces_m", None),
+                         vertical_reference_dz_m=getattr(cfg.grid, "vertical_reference_dz_m", None))
         # A non-periodic grid with OPEN ('outflow') lateral faces is a limited-area domain: its
         # boundary normal velocity carries the environmental inflow and must survive the
         # projection.  The low-memory solver otherwise assumes SOLID WALLS (correct for a nest,
@@ -307,6 +309,14 @@ class StormSimulation:
         if observer is not None:
             observer.mark(self, name, dt)
 
+    def _apply_velocity_bcs(self, context, dt):
+        """Apply velocity BCs and optionally observe the top sponge exactly."""
+        bc.apply_velocity_bcs(
+            self.state, self.grid, self.cfg,
+            damping_observer=getattr(self, "top_boundary_observer", None),
+            context=context, step=self.step, time_s=self.t, dt=dt,
+        )
+
     # The step is split into phases so the composite (parent+nest) projection can
     # run once over BOTH levels (storm_dynamics.nesting.run_concurrent_nest) in
     # place of the two per-level solves: _predictor -> _project -> _transport.
@@ -323,7 +333,7 @@ class StormSimulation:
         st = self.state
         self._diagnostic_mark("begin", dt)
         # 1. BCs + diagnose
-        bc.apply_velocity_bcs(st, g, cfg)
+        self._apply_velocity_bcs("pre_predictor", dt)
         bc.apply_scalar_bcs(st, g, cfg, theta0=self.theta0_field, qv0=self.qv0_field)
         st.diagnose(cfg)
         self._diagnostic_mark("initial_bcs", dt)
@@ -376,7 +386,7 @@ class StormSimulation:
         xp.clip(st.u, -vg, vg, out=st.u); xp.clip(st.v, -vg, vg, out=st.v)
         xp.clip(st.w, -vg, vg, out=st.w)
         self._diagnostic_mark("guard", dt)
-        bc.apply_velocity_bcs(st, g, cfg)
+        self._apply_velocity_bcs("post_predictor", dt)
         self._diagnostic_mark("predictor_bcs", dt)
         return Km
 
@@ -391,7 +401,7 @@ class StormSimulation:
             res, it = self.pressure.project(st, dt, self.rho0)
         self._last_res, self._last_iters = res, it
         self._diagnostic_mark("projection", dt)
-        bc.apply_velocity_bcs(st, self.grid, self.cfg)
+        self._apply_velocity_bcs("post_projection", dt)
         self._diagnostic_mark("projection_bcs", dt)
 
     def _transport(self, dt: float, Km: "object") -> None:
@@ -414,7 +424,7 @@ class StormSimulation:
         st.qv = xp.maximum(les.les_scalar_diffusion(st.qv, Km, g, self.dyn.les, dt,
                                                     base=self.qv0_field), 0.0)
         bc.apply_scalar_bcs(st, g, cfg, theta0=self.theta0_field, qv0=self.qv0_field)
-        bc.apply_velocity_bcs(st, g, cfg)
+        self._apply_velocity_bcs("post_transport", dt)
         st.diagnose(cfg)
         # 5. two-way microphysics: growth + latent heat + cold pool + sedimentation.
         #    when kernel coupling is on, evaluate the validated 2nd-order rate on the

@@ -26,6 +26,8 @@ class GridConfig:
     ny: int = 20
     nz: int = 20
     z_stretch: float = 1.0     # >1 clusters vertical levels near the surface (1=uniform)
+    z_faces_m: list[float] | None = None  # optional explicit vertical faces; default path unchanged
+    vertical_reference_dz_m: float | None = None  # legacy scalar/filter width for an explicit grid
 
 
 @dataclass
@@ -82,6 +84,8 @@ class BoundaryConfig:
     y: str = "free_slip"          # free_slip | periodic | wall | outflow (open)
     z_bottom: str = "free_slip"   # free_slip | no_slip
     z_top: str = "open"           # open (mass-balanced outflow) | damping_layer | rigid_lid
+    damping_faces: int | None = None  # None preserves max(2,nz//10)
+    damping_max_fraction: float = 0.05
     warm_inflow: InflowConfig = field(default_factory=InflowConfig)
     cold_inflow: InflowConfig = field(default_factory=lambda: InflowConfig(side="east", T=258.0, RH_water=30.0, u=2.0))
 
@@ -160,9 +164,13 @@ def from_dict(d: dict[str, Any]) -> SimulationConfig:
         Lx=float(_get(dom, "Lx", 100.0)), Ly=float(_get(dom, "Ly", 100.0)),
         Lz=float(_get(dom, "Lz", 100.0)))
     gr = _get(d, "grid", {})
+    z_faces = _get(gr, "z_faces_m", None)
     cfg.grid = GridConfig(nx=int(_get(gr, "nx", 20)), ny=int(_get(gr, "ny", 20)),
                           nz=int(_get(gr, "nz", 20)),
-                          z_stretch=float(_get(gr, "z_stretch", 1.0)))
+                          z_stretch=float(_get(gr, "z_stretch", 1.0)),
+                          z_faces_m=None if z_faces is None else [float(v) for v in z_faces],
+                          vertical_reference_dz_m=(None if _get(gr, "vertical_reference_dz_m", None) is None
+                                                   else float(_get(gr, "vertical_reference_dz_m"))))
     tm = _get(d, "time", {})
     cfg.time = TimeConfig(duration=float(_get(tm, "duration", 120.0)),
                           cfl=float(_get(tm, "cfl", 0.5)), dt_max=float(_get(tm, "dt_max", 0.25)))
@@ -193,6 +201,9 @@ def from_dict(d: dict[str, Any]) -> SimulationConfig:
         y=str(_get(bd, "y", "free_slip")),
         z_bottom=str(_get(bd.get("z", {}), "bottom", "free_slip")),
         z_top=str(_get(bd.get("z", {}), "top", "open")),
+        damping_faces=(None if _get(bd.get("z", {}), "damping_faces", None) is None
+                       else int(_get(bd.get("z", {}), "damping_faces"))),
+        damping_max_fraction=float(_get(bd.get("z", {}), "damping_max_fraction", 0.05)),
         warm_inflow=InflowConfig(side=str(_get(warm, "side", "west")),
                                  T=float(_get(warm, "T", 293.0)),
                                  RH_water=float(_get(warm, "RH_water", 90.0)),
@@ -259,6 +270,22 @@ def validate(cfg: SimulationConfig) -> None:
             _MIN, g.nx, g.ny, g.nz)
     assert all(_m.isfinite(v) and v > 0 for v in (d.Lx, d.Ly, d.Lz)), \
         "domain lengths must be positive and finite"
+    if g.z_faces_m is not None:
+        assert len(g.z_faces_m) == g.nz + 1, "z_faces_m must contain nz+1 entries"
+        assert all(_m.isfinite(v) for v in g.z_faces_m), "z_faces_m must be finite"
+        assert g.z_faces_m[0] == 0.0 and g.z_faces_m[-1] == d.Lz, \
+            "z_faces_m must start at 0 and end at domain Lz"
+        assert all(b > a for a, b in zip(g.z_faces_m, g.z_faces_m[1:])), \
+            "z_faces_m must be strictly increasing"
+    if g.vertical_reference_dz_m is not None:
+        assert _m.isfinite(g.vertical_reference_dz_m) and g.vertical_reference_dz_m > 0, \
+            "vertical_reference_dz_m must be positive and finite"
+    if cfg.boundaries.damping_faces is not None:
+        assert 2 <= cfg.boundaries.damping_faces <= g.nz + 1, \
+            "damping_faces must be between 2 and nz+1"
+    assert _m.isfinite(cfg.boundaries.damping_max_fraction) \
+        and 0 <= cfg.boundaries.damping_max_fraction < 1, \
+        "damping_max_fraction must be in [0,1)"
     ncells = g.nx * g.ny * g.nz
     assert 0 < ncells < 2_000_000_000, "number of cells out of range: %d" % ncells
     assert cfg.physics.precision in ("float32", "float64"), \

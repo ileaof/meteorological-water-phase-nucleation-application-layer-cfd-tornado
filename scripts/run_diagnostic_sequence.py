@@ -26,7 +26,8 @@ from storm_dynamics.diagnostic_capture import DiagnosticCapture
 
 
 def build(device='gpu',nx=120,nz=48,duration=3900.,rain_evaporation_factor=1.0,
-          *,ny=None,Lx_m=72000.,Ly_m=None,Lz_m=15000.):
+          *,ny=None,Lx_m=72000.,Ly_m=None,Lz_m=15000.,high_top_m=None,
+          damping_faces=None,reference_T=None,reference_qv=None):
     ny=nx if ny is None else ny
     Ly_m=Lx_m if Ly_m is None else Ly_m
     cfg=build_storm_config(preset='storm',nx=nx,ny=ny,nz=nz,Lx=Lx_m,Ly=Ly_m,Lz=Lz_m,
@@ -34,13 +35,23 @@ def build(device='gpu',nx=120,nz=48,duration=3900.,rain_evaporation_factor=1.0,
                           hodograph_kind='quarter_circle',U_max=30.,device=device)
     cfg.sim.physics.bubble_dtheta=5.
     cfg.sim.physics.rain_evaporation_factor=float(rain_evaporation_factor)
+    if reference_T is not None:
+        cfg.sim.physics.T_ref=float(reference_T)
+    if damping_faces is not None:
+        cfg.sim.boundaries.damping_faces=int(damping_faces)
     cfg.dyn.drag.stress_divergence=True; cfg.dyn.drag.surface_layer_depth_m=150.
     cfg.dyn.drag.use_log_law=True; cfg.dyn.drag.roughness_length_m=.1
+    if high_top_m is not None:
+        from storm_dynamics.top_boundary import configure_high_top
+        cfg=configure_high_top(cfg,float(high_top_m))
     initial=StormSimulation(cfg); b=initial.base; cx,cy=bunkers_storm_motion(b)
     base=BaseState(zc=b.zc,theta0=b.theta0,qv0=b.qv0,p0=b.p0,T0=b.T0,rho0=b.rho0,
                    u0=b.u0-cx,v0=b.v0-cy)
     del initial
-    return StormSimulation(cfg,base=base),(cx,cy)
+    sim=StormSimulation(cfg,base=base)
+    if reference_qv is not None:
+        sim.qv_ref=float(reference_qv)
+    return sim,(cx,cy)
 
 
 def main():

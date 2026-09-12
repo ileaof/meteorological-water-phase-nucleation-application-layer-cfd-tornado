@@ -1,6 +1,6 @@
 # Continuidade da análise de tornadogênese
 
-## Reparação validada e proveniência em execução — 9 de setembro, atualização posterior
+## Reparação e proveniência validadas — 9 de setembro, consolidação
 
 A simulação de 300 m terminou em 3300,023494218 s, passo 7397. O primeiro
 pós-processamento falhou porque `DiagnosticCapture.save()` somava um ao
@@ -26,19 +26,14 @@ Depois:
 `2ade1b0911b453bba1fa808dc3871a8dc4e4f8bad612effa35b13c3368ec8fff`.
 Registro completo: `outputs/resolution_300m_20260909/final_step_repair.json`.
 
-Proveniência iniciada com os argumentos requeridos (snapshot 0 → 17, GPU,
-`outputs/resolution_300m_provenance_20260909`). Não houve nova simulação
-desde t=0. O runner agora registra a grade real e aceita diretório existente
-somente quando vazio, para recuperar a tentativa anterior sem sobrescrever.
-Limites originais de fechamento são verificados em cada estágio; neutralidade
-bit a bit é verificada em cada passo. Aos 50/1283 passos: erro relativo de
-ω 1,379e-15; κω=1,03327; κT=1,08378. **Gate final ainda pendente.**
-
-`scripts/finish_repaired_resolution.py` está aguardando a proveniência;
-verifica fechamento, finitude, neutralidade e restos advectivos, gera os
-diagnósticos de 300 m com bins radiais comuns de 600 m e os artefatos de
-comparação. Estado em `repaired_followup_status.json` no diretório da
-sequência. Condicionamento e interpretação científica exigem revisão final.
+A proveniência v4 foi concluída com os argumentos requeridos (snapshot 0 → 17,
+GPU, `outputs/resolution_300m_provenance_20260909`), sem nova simulação desde
+t=0. Percorreu 1.283 passos; o gate numérico terminou em `PASS`, os 12 campos
+prognósticos permaneceram bit a bit idênticos e o maior fechamento relativo foi
+`8,7053e-15`. O HDF5 `provenance_long_v4.h5` tem 6.313.607.913 bytes e SHA-256
+`fc8c5e3c57fad248294fa1e7c21328ae57d2fac1639eb320b14fcadfd10805b0`.
+O estado final está em `repaired_followup_status.json`; interpretação, métricas
+e limitações permanecem preservadas em `docs/RESOLUTION_300M_COMPARISON.md`.
 
 Referência de 600 m reprocessada com as mesmas definições ampliadas em
 `outputs/resolution_600m_comparison_audit_20260909`. Foram acrescentadas
@@ -53,9 +48,11 @@ contato de condensado com laterais e região superior também presente.
 Permanece a classificação de sensibilidade conjunta à resolução e aos
 efeitos dependentes do dt. Não foi demonstrada irrelevância do amortecimento.
 
-**Resposta científica 300/600 m ainda não determinada:** concluir a execução,
-revisar todos os gates e κ(t), conferir volumes/orçamentos e classificar
-evidências antes de afirmar redução do déficit de concentração.
+**Resposta científica 300/600 m concluída para o par analisado:** 300 m aumenta
+a intensidade de baixo nível, mas o núcleo permanece marginalmente resolvido,
+ambos os casos enfraquecem e o par não demonstra convergência espacial nem uma
+contração causal geral. O damping dependente do passo e a ausência de ensemble
+continuam limitando a inferência.
 
 ## Auditoria posterior do domínio (9 de setembro)
 
@@ -68,7 +65,11 @@ superior é aplicado por chamada, sem dt, e tem perfil invertido em relação
 à rampa usual crescente até o teto; auditar antes de interpretar diferenças
 entre resoluções como exclusivamente espaciais. Nenhuma física alterada.
 
-## Execução refinada iniciada em 9 de setembro de 2026
+## Registro histórico do lançamento refinado em 9 de setembro de 2026
+
+Esta seção preserva o estado operacional no momento do lançamento. A execução
+foi posteriormente concluída; o estado autoritativo está na atualização de
+2026-09-09 abaixo.
 
 O caso único de 300 m está em `outputs/resolution_300m_20260909`.
 Inicialização analítica desde t=0, 240×240×48, mesma física e domínio.
@@ -79,11 +80,11 @@ O spin-up não salva campos completos para reservar espaço em disco.
 
 Comando: `python scripts/run_diagnostic_sequence.py --out outputs/resolution_300m_20260909 --nx 240 --nz 48 --duration 3300.023494218 --capture-start 2790.253490277 --interval 30 --device gpu`.
 
-`scripts/finish_resolution_300m.py` foi iniciado como processo auxiliar:
-aguarda `metadata.json` completo, executa proveniência v4 com controle
-lado a lado e gera os diagnósticos somente após aprovação do gate.
-Estado e erros ficam em `followup_status.json` e `followup.stderr.log`
-dentro do diretório da execução. Saídas previstas:
+`scripts/finish_resolution_300m.py` foi iniciado como processo auxiliar,
+aguardou `metadata.json` completo, executou a proveniência v4 com controle
+lado a lado e gerou os diagnósticos após aprovação do gate.
+Estado e erros foram registrados em `followup_status.json` e
+`followup.stderr.log` dentro do diretório da execução. Saídas produzidas:
 `outputs/resolution_300m_provenance_20260909` e
 `outputs/resolution_300m_audit_20260909`.
 
@@ -91,10 +92,9 @@ Validação antes do lançamento: 34 testes de captura/proveniência passaram.
 O runner de proveniência agora lê nx/nz da sequência, mantendo a validação
 exata da grade e do estado base no reinício.
 
-**Pendente:** concluir a execução, verificar gates e comparar os produtos
-de 300 e 600 m em volumes físicos comuns. Não há resultado científico
-novo nem conclusão de convergência de malha nesta etapa. O auxiliar gera
-os diagnósticos refinados; a comparação científica permanece pendente.
+**Pendências à época, hoje concluídas:** execução, gates e comparação dos
+produtos de 300 e 600 m em volumes físicos comuns. O resultado final não
+estabelece convergência de malha; ver a atualização de 2026-09-09.
 
 Atualizado em 8 de setembro de 2026. Este arquivo é autocontido para continuação em outra sessão.
 
@@ -293,7 +293,8 @@ de 120 km recebeu 8,65% mais exposição nominal ao damping superior por segundo
 na janela, devido ao passo adaptativo; esse é um confundidor de realimentação.
 
 Conclusão atual: o domínio original de 72 km era pequeno para a nuvem completa,
-mas isso não explica o déficit de intensidade do vórtice observado. O próximo
+mas a extensão não produziu grande efeito favorável neste par. A generalização
+depende do ensemble. O próximo
 teste geométrico adequado é estender o topo para 20 km preservando exatamente
 as faces da malha abaixo de 15 km; mudar `Lz` mantendo `nz=48` confundiria altura
 e resolução vertical. Uma afirmação causal forte ainda requer ensemble pareado.

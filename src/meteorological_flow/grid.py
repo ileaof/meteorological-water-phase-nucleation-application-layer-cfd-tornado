@@ -11,6 +11,7 @@ Laplacian.  All array shapes are (nx, ny, nz) for cell centres unless noted.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import numpy as np
 
 from .backend import Backend, get_backend
 
@@ -27,6 +28,8 @@ class Grid:
                                 # coarser aloft); 1.0 = uniform (default, unchanged)
     periodic: bool = False      # periodic lateral (x,y) boundaries (mean-wind storm)
     backend: Backend | None = None   # None -> CPU (every existing call site unaffected)
+    z_faces_m: object | None = None  # explicit faces are opt-in; legacy construction is unchanged
+    vertical_reference_dz_m: float | None = None
 
     def __post_init__(self):
         if self.backend is None:
@@ -34,13 +37,23 @@ class Grid:
         xp = self.xp = self.backend.xp
         self.dx = self.Lx / self.nx
         self.dy = self.Ly / self.ny
-        self.dz = self.Lz / self.nz               # uniform reference spacing [m]
+        self.dz = (self.Lz / self.nz if self.vertical_reference_dz_m is None
+                   else float(self.vertical_reference_dz_m))  # scalar reference/filter width [m]
         self.xc = (xp.arange(self.nx) + 0.5) * self.dx
         self.yc = (xp.arange(self.ny) + 0.5) * self.dy
         self.xf = xp.linspace(0.0, self.Lx, self.nx + 1)
         self.yf = xp.linspace(0.0, self.Ly, self.ny + 1)
         # vertical levels: uniform, or geometrically stretched (dz_k = dz0 * r^k).
-        if self.z_stretch == 1.0:
+        if self.z_faces_m is not None:
+            faces_h = np.asarray(self.z_faces_m, dtype=float)
+            if faces_h.ndim != 1 or len(faces_h) != self.nz + 1:
+                raise ValueError("z_faces_m must be one-dimensional with nz+1 entries")
+            if (not np.all(np.isfinite(faces_h)) or not np.all(np.diff(faces_h) > 0)
+                    or faces_h[0] != 0.0 or faces_h[-1] != float(self.Lz)):
+                raise ValueError("z_faces_m must be finite, strictly increasing, start at 0 and end at Lz")
+            self.zf = xp.asarray(faces_h)
+            self.zc = 0.5 * (self.zf[:-1] + self.zf[1:])
+        elif self.z_stretch == 1.0:
             self.zf = xp.linspace(0.0, self.Lz, self.nz + 1)
             self.zc = (xp.arange(self.nz) + 0.5) * self.dz
         else:
@@ -48,7 +61,7 @@ class Grid:
             edges = xp.concatenate([xp.asarray([0.0]), xp.cumsum(w)])
             self.zf = self.Lz * edges / edges[-1]
             self.zc = 0.5 * (self.zf[:-1] + self.zf[1:])
-        self.stretched = self.z_stretch != 1.0
+        self.stretched = self.z_faces_m is not None or self.z_stretch != 1.0
         # dz arrays: cell heights dz_c (nz) and centre-to-centre spacings on the
         # z-faces dzc_f (nz+1).  For uniform these equal the scalar dz exactly, so
         # every operator below is byte-identical to the previous scalar-dz version.

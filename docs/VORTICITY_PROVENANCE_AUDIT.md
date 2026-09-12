@@ -1,5 +1,13 @@
 # Auditoria de proveniência da vorticidade horizontal
 
+> **Atualização de estado (2026-09-11):** a execução longa de proveniência v4
+> do caso de 300 m foi posteriormente concluída com gate `PASS`, neutralidade
+> bit a bit dos 12 prognósticos e SHA-256
+> `fc8c5e3c57fad248294fa1e7c21328ae57d2fac1639eb320b14fcadfd10805b0`.
+> A resposta final está em `docs/RESOLUTION_300M_COMPARISON.md`; as referências
+> abaixo a uma execução ainda não iniciada registram o estado desta auditoria
+> metodológica quando foi escrita.
+
 ## Resposta executiva
 
 **Os dados atuais não permitem reconstruir com segurança a proveniência de `ωh` sem nova integração.** Eles permitem calcular `ξ`, `η`, seus balanços intervalares e o curl de cada incremento de velocidade, mas os incrementos estão somados em janelas de aproximadamente 30 s. A identidade de origem precisa ser transportada e deformada em cada passo nativo, na ordem efetiva dos operadores. Essa propagação não pode ser invertida a partir das somas arquivadas.

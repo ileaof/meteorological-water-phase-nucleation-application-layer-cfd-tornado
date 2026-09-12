@@ -55,9 +55,9 @@ concentração.
 | cold pool abaixo de -1 K | 11,1 km | 35,7 km |
 
 O caso de 120 km passa o gate lateral de 6 km, ainda que o condensado leve passe
-por apenas 0,3 km de margem. Isso mostra que 72 km era geometricamente pequeno
-para a nuvem completa, mas essa proximidade lateral não explica o déficit do
-vórtice de baixo nível.
+por apenas 0,3 km de margem. No par e na janela analisados, 72 km era
+geometricamente pequeno para a nuvem completa, mas a extensão não oferece
+evidência de que essa proximidade explique o déficit do vórtice de baixo nível.
 
 Condensado acima de `1e-5` ainda alcança o centro da última célula, a 14,605 km,
 e ocupa até 41,04 km2 no último nível. Há movimento vertical de 1,05–1,34 m/s na
@@ -72,10 +72,10 @@ na face inferior cresce de 0,4085 para 0,4439 s^-1, diferença de 8,65%. A
 variável manipulada é a extensão lateral, mas a resposta total inclui esse
 feedback numérico dependente do passo de tempo.
 
-- **Comprovado neste par:** 120 km remove o contato lateral e não aumenta a
-  intensidade ou a circulação do vórtice.
-- **Fortemente suportado:** a borda lateral de 72 km não era a causa dominante
-  do déficit de concentração.
+- **Comprovado neste par e janela:** em 120 km, `qcond>1e-5` ficou a pelo menos
+  6 km da borda e as métricas de intensidade e circulação não aumentaram.
+- **Fortemente suportado para esta realização:** a borda lateral de 72 km não
+  era a causa dominante do déficit de concentração.
 - **Não determinado:** efeito causal do topo/damping, suficiência de 20 km de
   altura e incerteza de ensemble.
 
