@@ -866,3 +866,88 @@ Mas o seu alvo agora é menor do que eu disse — mede se a quota de 0,27–0,34
 ramo baixo encolhe, não a origem da vorticidade do vórtice.
 
 — Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
+
+---
+
+## Turno 13 — Claude (sessão `met-h2o-nucleation-cfd-tornado-d5`) — 2026-09-13
+
+Seguimento do Turno 12. A pergunta que lá ficou — porque é que abaixo de 700 m
+o incremento do fecho é positivo enquanto a inclinação resolvida é negativa —
+tem agora um teste de convergência, e **os dados já existiam**. Relatório em
+`docs/CLOSURE_CONVERGENCE_BY_HEIGHT.md`. 15 s de CPU, nenhuma simulação.
+
+### O par que ninguém tinha cruzado por altura
+
+`outputs/vorticity_provenance_long_v4_2790_3300/` (600 m) e
+`outputs/resolution_300m_provenance_20260909/` (300 m): mesmo esquema v4, mesma
+janela 2790–3300 s, mesmo estado inicial, **grade vertical idêntica** — 20
+níveis, primeira célula de 80 m nas duas. Só dx muda.
+
+O `provenance_integrals.csv` da comparação de resolução já integrava por fonte,
+mas sobre uma máscara de vórtice única, **sem estratificar por altura**. Essa é
+precisamente a dimensão que o teste de controle mostrou ser decisiva.
+
+Fecho da partição na minha leitura: soma das nove fontes contra `omega_total`,
+erro relativo máximo **1,50e−14** em 36 leituras.
+
+### Resultado
+
+Quota absoluta da LES na ζ, por nível, fim da janela:
+
+| z (m) | 600 m | 300 m | razão | \|ζ_LES\| razão | total razão |
+|---:|---:|---:|---:|---:|---:|
+| 39,9 | 0,0301 | 0,0468 | **1,56** | **2,72** | 1,40 |
+| 121,7 | 0,0550 | 0,0957 | **1,74** | **2,78** | 1,54 |
+| 297,7 | 0,0628 | 0,0820 | 1,31 | 2,18 | 1,51 |
+| 491,7 | 0,0713 | 0,0724 | 1,02 | 1,37 | 1,34 |
+| 1068,4 | 0,0569 | 0,0443 | 0,78 | 1,32 | 1,23 |
+| 1974,4 | 0,0345 | 0,0223 | **0,65** | **0,89** | 1,23 |
+
+Dividir dx por dois **remove** o fecho em altura, como um termo subgrid deve
+fazer, e **amplifica-o** junto ao solo. A ζ atribuída à LES a 39,9 m quase
+triplica enquanto o total no mesmo nível cresce 1,40×. A inversão dá-se entre
+300 e 500 m — a mesma altura onde o teste de controle encontrou a mudança de
+regime.
+
+O efeito é específico do fecho: no nível mais baixo, sob o mesmo refinamento, a
+quota do arrasto de superfície cai (0,93), a de Coriolis cai (0,59) e a da
+projeção fica igual (0,95). Só a da LES sobe.
+
+**Não é o dt.** O par varia dx e dt juntos e a corrida fina dá 1,26× mais
+passos, mas o efeito **inverte de sinal aos 500 m** sob exatamente a mesma
+diferença de dt. Se fossem os passos, empurrariam no mesmo sentido em todas as
+alturas.
+
+### O que isto significa para o programa
+
+A camada onde o vórtice tenta ligar-se ao solo é a única onde o fecho não está a
+convergir. **Refinar horizontalmente não a vai resolver** — amplifica-a. Isso
+altera o alvo do teste de refinamento que eu próprio propus no Turno 11 e que tu
+tinhas em aberto: a variável a mexer é a grade **vertical** junto à superfície,
+não dx.
+
+Hipótese, e é hipótese: a vertical nunca foi refinada. Ao refinar só na
+horizontal o vórtice concentra-se — o pico de ζ a 121,7 m é 3,10× maior a 300 m,
+com metade da largura — e a deformação resolvida nessa camada cresce mais
+depressa do que Δ² diminui, pelo que um Smagorinsky responde contribuindo mais,
+sobre uma camada limite que continua tão mal resolvida na vertical como antes.
+
+### Proposta, não execução
+
+Previsão pré-registável: refinar a vertical junto à superfície mantendo
+dx = 300 m deve fazer a quota da LES em 39,9–207,5 m **descer**, ao contrário do
+que fez o refinamento horizontal. Se subir ou ficar igual, a hipótese cai e o
+problema é da forma do fecho.
+
+Configuração: mesmo estado de 2790 s, mesma janela de 510 s, dx = 300 m, faces
+verticais explícitas com a primeira célula por volta de 10 m em vez de 80 m,
+mesma instrumentação v4. O botão existe e está comprometido — `z_faces_m` em
+`GridConfig`, validado, em 7c65f7c.
+
+Custo, extrapolado dos tempos de parede reais (600 m: 1978 s; 300 m: 6194 s para
+a mesma janela), não de suposição: da ordem de **2,5 a 3,5 h de GPU**, com o
+ficheiro de proveniência a passar de 6,3 GB para cerca de 9–10 GB. Restam 95 GB
+livres em disco de 932 GB; cabe, com margem estreita, e deve ser reconferido
+antes de autorizar.
+
+— Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
