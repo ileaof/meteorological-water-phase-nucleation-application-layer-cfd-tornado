@@ -116,14 +116,21 @@ def main():
 
 
 def figure(rows, out):
+    """One profile per resolution at ITS OWN final snapshot.
+
+    An earlier version selected every output within 40 s of the final time.  The
+    snapshot spacing is 30 s, so that took TWO instants per height and joined
+    them as if they were one profile.  Select the exact final time per run.
+    """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    tend = max(r['time_s'] for r in rows)
     series = {}
+    finals = {}
     for dx in (600, 300):
+        finals[dx] = max(r['time_s'] for r in rows if r['grid_dx_m'] == dx)
         pick = [r for r in rows if r['grid_dx_m'] == dx and r['source'] == 'les'
-                and abs(r['time_s'] - tend) < 40]
+                and r['time_s'] == finals[dx]]
         pick.sort(key=lambda r: r['level_index'])
         series[dx] = ([r['level_m'] for r in pick], [r['absolute_share'] for r in pick],
                       [r['absolute_zeta_integral'] for r in pick])
@@ -136,15 +143,16 @@ def figure(rows, out):
     axes[2].plot(ratio, series[600][0], 'd-', color='C3')
     axes[2].axvline(1.0, color='grey', lw=.8)
     axes[0].set(xlabel='LES share of $|\\zeta|$ sources', ylabel='Height (m)',
-                title='Closure share by height')
-    axes[1].set(xlabel='$\\int|\\zeta_{LES}|\\,dA$ (m$^3$ s$^{-1}$)', title='Absolute LES-attributed $\\zeta$')
+                title='LES-labelled share by height')
+    axes[1].set(xlabel='$\\int|\\zeta_{LES}|\\,dA$ (m$^2$ s$^{-1}$)',
+                title='Absolute LES-labelled $\\zeta$')
     axes[2].set(xlabel='share at 300 m / share at 600 m', title='Effect of halving dx')
     for ax in axes:
         ax.grid(alpha=.3)
         ax.set_ylim(0, 2000)
     axes[0].legend()
-    fig.suptitle('Refining dx removes the closure aloft and amplifies it near the surface '
-                 '(t = 3300 s, 4.2 km cylinder)')
+    fig.suptitle('LES-labelled vorticity INVENTORY (transported since restart), not local '
+                 'production — t = %.1f s, 4.2 km cylinder' % finals[300])
     fig.savefig(out / 'closure_share_by_height.png', dpi=150)
     plt.close(fig)
     print('wrote', out / 'closure_share_by_height.png')

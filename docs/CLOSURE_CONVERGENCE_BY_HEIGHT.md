@@ -1,139 +1,187 @@
-# O fecho subgrid não converge junto ao solo: 600 m contra 300 m por altura
+# Inventário de vorticidade rotulada LES por altura: 600 m contra 300 m
 
-Data: 2026-09-13. Nenhuma simulação foi executada. Reanálise do par de
-proveniência v4 já existente; 15 s de CPU.
+Data: 2026-09-13. Nenhuma simulação foi executada.
+
+> **Este documento foi reescrito no mesmo dia, depois de uma auditoria do Codex
+> (AGENT_CHANNEL, entre os Turnos 13 e 14) e de uma verificação independente
+> minha.** A primeira versão continha quatro erros materiais, listados na secção
+> «Correções». O padrão descritivo sobrevive; as conclusões causais não.
 
 ## Resposta principal
 
-Refinar dx de 600 para 300 m **remove** a contribuição do fecho LES em altura,
-como se espera de um termo subgrid, e **amplifica-a** junto ao solo. A quota da
-LES na vorticidade vertical cai para 0,65 do valor original acima de 1,5 km e
-sobe para 1,74 no nível mais baixo. Em valor absoluto, a ζ atribuída à LES a
-39,9 m quase **triplica** (×2,72) enquanto o total no mesmo nível cresce apenas
-×1,40.
+Nas duas realizações existentes, o **inventário de ζ rotulado LES** é maior na
+resolução de 300 m em quase todas as alturas, mas a razão é fortemente
+dependente da altura: **2,57× a 39,9 m e 2,91× a 121,7 m, contra 0,96–1,06
+acima de 1,5 km**. O inventário total cresce 1,47–1,62 junto ao solo e
+1,19–1,23 em altura. Em consequência, a *quota* da LES sobe abaixo de ~600 m e
+desce acima.
 
-A camada onde o vórtice tenta ligar-se ao solo é, portanto, a única onde o
-fecho **não** está a convergir. Refinar horizontalmente não a vai resolver.
+Isto é uma **diferença medida entre duas realizações**, não uma demonstração de
+que o fecho deixou de convergir, nem de que o refinamento horizontal seja
+inútil. As razões dessa diferença não foram isoladas.
 
-Isto responde à pergunta que o teste de controle deixou em aberto
-([CONTROL_PARCEL_TEST.md](CONTROL_PARCEL_TEST.md)): o contraste medido abaixo de
-700 m — incremento do fecho positivo, inclinação resolvida negativa — não é um
-artefacto que o refinamento horizontal dissolva.
+Ponto metodológico que limita toda a leitura: o rótulo `les` da partição v4 é um
+**inventário transportado desde o reinício**, não o termo LES local naquela
+altura. Ele diz onde a vorticidade rotulada LES *está*, não onde o fecho *atua*.
+
+## Correções à primeira versão
+
+1. **«As duas corridas partem do mesmo estado; só dx muda» — falso.** A corrida
+   de 300 m foi uma integração nova desde t = 0 a 240²
+   (`run_diagnostic_sequence.py --nx 240 --capture-start 2790.25`, 8930 s de
+   parede) e cada proveniência reinicia do estado da **sua própria**
+   realização. São realizações independentes da mesma condição inicial
+   analítica, já divergidas caoticamente.
+2. **Números das integrais absolutas errados.** O script selecionava todas as
+   saídas a menos de 40 s do instante final; o espaçamento é de 30 s, logo
+   apanhava **dois** instantes por altura. Os valores publicados misturavam
+   3270 e 3300 s. Corrigido: seleção pelo instante final exato de cada corrida.
+3. **«Refinar remove o fecho em altura» — falso.** O que desce em altura é a
+   *quota*. A integral absoluta rotulada LES **sobe** em quase todos os níveis
+   (1,38 a 705,7 m; 1,01 a 1804,4 m) e só desce 4% no nível mais alto. A quota
+   desce porque o denominador sobe mais.
+4. **«A inversão dá-se entre 300 e 500 m, como no teste de parcelas» — falso.**
+   No instante final a razão da quota é 1,044 a 596,1 m e 0,970 a 705,7 m: o
+   cruzamento está entre 596 e 706 m. E depende da normalização — excluindo o
+   estado antecedente, passa para entre 392 e 492 m. Não há fronteira única. A
+   associação com a altura de regime do teste de parcelas está retirada: compara
+   grandezas diferentes (altura final de parcelas em fase preparatória contra
+   inventário euleriano em fase madura).
+5. **«Não é o dt» — retirado como argumento.** Eu argumentei que um efeito de
+   passo de tempo teria de ter o mesmo sinal a todas as alturas. Não existe tal
+   restrição: mudar dt muda a trajetória, o acoplamento entre operadores e a
+   exposição ao amortecimento aplicado por chamada, e a resposta pode variar de
+   sinal com a altura. **O dt não está excluído.** Também não está demonstrado
+   que explique o resultado.
+6. **Figura inválida como perfil de um instante**, pelo mesmo defeito de seleção,
+   e com erro de unidade no eixo — ∫|ζ|dA por nível é m² s⁻¹, não m³ s⁻¹.
+   Regenerada.
 
 ## O par usado
 
-Duas corridas de proveniência v4 que partem **do mesmo estado** em 2790 s e
-cobrem a mesma janela até 3300 s, com **grade vertical idêntica** (20 níveis,
-zc de 39,9 a 2537,1 m, primeira célula de 80 m). Só dx muda.
-
 | | 600 m | 300 m |
 |---|---|---|
-| ficheiro | `outputs/vorticity_provenance_long_v4_2790_3300/` | `outputs/resolution_300m_provenance_20260909/` |
-| malha horizontal | 120 × 120 | 240 × 240 |
-| instantes | 18 | 18 |
+| proveniência | `outputs/vorticity_provenance_long_v4_2790_3300/` | `outputs/resolution_300m_provenance_20260909/` |
+| realização de origem | `outputs/diagnostic_sequence_20260905/` (snapshot 93) | `outputs/resolution_300m_20260909/` (snapshot 0) |
+| reinício | 2790,253490 s | 2790,579551 s |
+| malha | 120 × 120 × 48 | 240 × 240 × 48 |
 | passos na janela | 1015 (dt médio 0,502 s) | 1283 (dt médio 0,397 s) |
-| tempo de parede | 1978 s (33 min) | 6194 s (103 min) |
+| parede, proveniência | 1978 s | 6194 s |
+| parede, realização de origem | — | 8930 s (desde t = 0) |
 
-A partição v4 é aditiva e exata: a soma das nove fontes reproduz `omega_total`
-com erro relativo máximo de **1,50e−14** nas 36 leituras. Isso valida a leitura,
-não a física.
+A grade vertical é comum (`nz=48`, `z_stretch=1,05`, primeira célula 79,8 m); os
+20 níveis do ficheiro são o recorte armazenado com halo, e este diagnóstico
+integra os 17 níveis até cerca de 2 km. Máscara: cilindro de raio físico de
+4,2 km centrado no vórtice rastreado de cada corrida, nível a nível.
 
-Máscara: cilindro de raio físico de 4,2 km centrado no vórtice rastreado de cada
-corrida, nível a nível. Em metros, nunca em células.
+A partição v4 é aditiva: a soma das nove fontes reproduz `omega_total` com erro
+relativo máximo de **1,50e−14** (600 m: 9,36e−15). Isso valida a leitura e a
+aditividade dos rótulos — não mede erro de truncamento, validade da LES nem
+fechamento material físico.
 
-## O que os números dizem
+## O que os números dizem, no instante final exato
 
-Quota absoluta da LES, |ζ_LES| dividido pela soma de |ζ| das nove fontes, no fim
-da janela:
+| z (m) | quota 600 | quota 300 | razão quota | razão \|ζ_LES\| | razão \|ζ_total\| |
+|---:|---:|---:|---:|---:|---:|
+| 39,9 | 0,0301 | 0,0468 | 1,556 | **2,573** | 1,470 |
+| 121,7 | 0,0550 | 0,0957 | 1,740 | **2,907** | 1,623 |
+| 207,5 | 0,0683 | 0,0931 | 1,363 | 2,371 | 1,621 |
+| 297,7 | 0,0628 | 0,0820 | 1,307 | 2,233 | 1,577 |
+| 392,3 | 0,0649 | 0,0755 | 1,163 | 1,874 | 1,472 |
+| 491,7 | 0,0713 | 0,0724 | 1,016 | 1,497 | 1,382 |
+| 596,1 | 0,0664 | 0,0693 | 1,044 | 1,460 | 1,284 |
+| 705,7 | 0,0692 | 0,0671 | 0,970 | 1,377 | 1,240 |
+| 941,5 | 0,0644 | 0,0492 | 0,763 | 1,203 | 1,203 |
+| 1341,4 | 0,0499 | 0,0368 | 0,739 | 1,156 | 1,231 |
+| 1804,4 | 0,0387 | 0,0254 | 0,655 | 1,011 | 1,195 |
+| 1974,4 | 0,0345 | 0,0223 | 0,646 | **0,960** | 1,192 |
 
-| z (m) | 600 m | 300 m | razão | \|ζ_LES\| 600 | \|ζ_LES\| 300 | razão | razão do total |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 39,9 | 0,0301 | 0,0468 | **1,56** | 4,09e3 | 1,11e4 | **2,72** | 1,40 |
-| 121,7 | 0,0550 | 0,0957 | **1,74** | 9,12e3 | 2,54e4 | **2,78** | 1,54 |
-| 207,5 | 0,0683 | 0,0931 | 1,36 | 1,09e4 | 2,66e4 | 2,43 | 1,54 |
-| 297,7 | 0,0628 | 0,0820 | 1,31 | 1,09e4 | 2,37e4 | 2,18 | 1,51 |
-| 491,7 | 0,0713 | 0,0724 | 1,02 | 1,45e4 | 1,99e4 | 1,37 | 1,34 |
-| 705,7 | 0,0692 | 0,0671 | 0,97 | 1,51e4 | 2,08e4 | 1,37 | 1,24 |
-| 1068,4 | 0,0569 | 0,0443 | 0,78 | 1,42e4 | 1,88e4 | 1,32 | 1,23 |
-| 1488,3 | 0,0461 | 0,0315 | 0,68 | 1,55e4 | 1,63e4 | 1,05 | 1,23 |
-| 1974,4 | 0,0345 | 0,0223 | **0,65** | 1,77e4 | 1,58e4 | **0,89** | 1,23 |
+Excluindo o estado antecedente `initial` do denominador — os dois braços herdam-no
+de realizações diferentes — a razão da quota é 1,656 a 39,9 m, 1,670 a 121,7 m,
+cruza 1,0 entre 392 e 492 m e desce a 0,522 a 1488 m.
 
-A média sobre os 18 instantes dá o mesmo padrão e o mesmo ponto de inversão:
-1,73 a 39,9 m, 1,38 a 121,7 m, cruzando 1,0 entre 300 e 500 m, 0,65 a 2 km.
+![Inventário rotulado LES por altura](media/storm/closure_share_by_height.png)
 
-![Quota do fecho por altura](media/storm/closure_share_by_height.png)
+O contraste sobrevive a mudanças do raio da máscara (2,4, 4,2 e 6 km, verificado
+pelo Codex) e não aparece nas outras fontes: no nível mais baixo, sob o mesmo
+refinamento, a quota do arrasto de superfície cai (0,93), a de Coriolis cai
+(0,59) e a da projeção fica praticamente igual (0,95).
 
-O efeito é específico da LES. No nível mais baixo, no mesmo refinamento, a quota
-do arrasto de superfície cai (0,93), a de Coriolis cai (0,59) e a da projeção
-fica igual (0,95). Só a da LES sobe.
+## O que não decorre destes dados
 
-## Porque não é o passo de tempo
+- Que a LES gere mais vorticidade localmente junto ao solo. O rótulo é
+  transportado; um inventário maior pode vir de produção local, de transporte,
+  de cancelamento entre rótulos ou de a região amostrada ter mudado.
+- Que o método não convirja. A quota de proveniência não é uma norma de erro.
+- Que o refinamento horizontal adicional seja inútil.
+- Que a resolução vertical seja a causa, ou a única via de solução.
+- Que o dt esteja excluído como confundidor.
 
-O par varia dx e dt em conjunto — o relatório de 300 m já assinalava isso — e a
-corrida fina dá 1,26× mais passos. Se o número de passos estivesse a inflacionar
-a atribuição acumulada, empurraria no mesmo sentido em todas as alturas. Ele
-inverte de sinal por volta dos 500 m, sob exatamente a mesma diferença de dt.
-O dt não explica o resultado.
+O par mistura resolução, estado antecedente, passo de tempo e evolução do
+escoamento. Mede sensibilidade; não isola causa.
 
-## Interpretação, e o que nela é hipótese
+## O próximo diagnóstico, e porque é este
 
-Medido: a ζ atribuída ao fecho junto ao solo cresce mais depressa do que o total
-quando dx é dividido por dois.
+Separar três coisas que o inventário agrega: **incremento LES local**,
+**transporte do rótulo** e **crescimento do denominador**, em camadas físicas
+comuns e com integrais assinadas e absolutas.
 
-Hipótese: a grade **vertical não foi refinada**. A primeira célula tem 80 m nas
-duas corridas. Ao refinar só na horizontal, o vórtice de baixo nível concentra-se
-— o pico de ζ a 121,7 m é 3,10× maior a 300 m e a largura a meia altura cai para
-metade — de modo que a deformação resolvida nessa camada cresce mais depressa do
-que Δ² diminui, e um fecho do tipo Smagorinsky responde contribuindo **mais**.
-A camada limite continua tão mal resolvida na vertical como antes, e o fecho
-paga a diferença.
+O material existe. Ambas as sequências — 600 m
+(`outputs/diagnostic_sequence_20260905/`) e 300 m
+(`outputs/resolution_300m_20260909/`) — guardam `increments/les` por intervalo,
+que é o incremento de velocidade **efetivamente aplicado** pelo operador LES; o
+seu rotacional é produção local, não rótulo transportado. As duas cobrem a mesma
+janela 2790–3300 s. Custo: CPU, minutos. Nenhuma simulação.
 
-Isto é consistente com o que a série de tentativas A–K já tinha medido por outra
-via: a resolução vertical junto à superfície dominava a ligação ao solo por um
-fator de 6,6, enquanto a magnitude do arrasto era quase irrelevante.
+Só depois disso a pergunta sobre a grade vertical fica bem posta.
 
-## O próximo teste, com previsão pré-registável
+## A corrida vertical proposta: porque não está pronta
 
-A hipótese acima é falsificável e o repositório já tem o botão: `z_faces_m` em
-`GridConfig`, com validação, comprometido em 7c65f7c.
+A proposta da primeira versão — dx = 300 m, primeira célula de ~10 m em vez de
+80 m — **não é uma mudança só de resolução vertical**:
 
-**Previsão:** refinar a vertical junto à superfície, mantendo dx = 300 m, deve
-fazer a quota da LES em 39,9–207,5 m **descer**, ao contrário do que fez o
-refinamento horizontal. Se subir ou ficar igual, a hipótese está errada e o
-problema é da forma do fecho, não da grade.
+- **Arrasto.** Com `use_log_law` ativo, `C_d = (κ/ln(z1/z0))²` depende da altura
+  do primeiro centro. Mudar dz1 muda o coeficiente ao mesmo tempo que a malha.
+  O código documenta-o e traz a mitigação: `drag.log_law_reference_height_m`
+  fixa a altura de avaliação, de modo que todos os membros apliquem o mesmo C_d.
+  Tem de ser usado.
+- **Filtro LES.** `Δ = (dx·dy·mean(dz_c))^{1/3}` usa **um escalar global** com a
+  média vertical da coluna. Acrescentar 10 níveis baixa Δ em cerca de 6% em todo
+  o domínio, alterando o fecho em toda a parte. Não existe knob para isolar isto.
+- **Remapeamento.** Uma grade vertical nova exige remapear o estado inicial, com
+  verificação de conservação, divergência e ajuste da projeção.
+- **Camadas de comparação.** Os novos centros não caem em 39,9–207,5 m; as
+  camadas físicas comuns têm de ser definidas antes.
 
-**Configuração proposta:** mesmo estado inicial de 2790 s, mesma janela de 510 s,
-dx = 300 m, faces verticais explícitas com a primeira célula em cerca de 10 m no
-lugar de 80 m — aproximadamente dez níveis adicionais abaixo de 500 m — e a
-mesma instrumentação de proveniência v4.
+**Custo, agora medido e não estimado.** O `_dt` do solver usa máximos globais de
+velocidade com o **dz mínimo global** — não é um CFL por célula. Avaliado no
+campo maduro real de 300 m (|w|max 33,8 m/s, a 9370 m de altura, onde dz = 535 m;
+|u|max 42,8; |v|max 42,7):
 
-**Custo estimado**, extrapolado dos tempos reais acima e não de uma suposição:
-cerca de 21% mais células e um dt reduzido pelo CFL vertical, dando da ordem de
-**2,5 a 3,5 horas de GPU** contra as 1,7 h da corrida de 300 m. O ficheiro de
-proveniência deve passar de 6,3 GB para cerca de 9–10 GB se a coluna de saída
-acompanhar os níveis novos.
+| grade | dt pela regra atual | dt por célula |
+|---|---:|---:|
+| atual, dz1 = 79,8 m | 0,339 s (corrida real: 0,397 s) | 1,017 s |
+| proposta, dz1 = 10 m (nz 48→58) | **0,066 s** (0,19×) | 0,613 s |
+| proposta, dz1 = 20 m (nz 48→54) | 0,122 s (0,36×) | 0,613 s |
+| proposta, dz1 = 40 m (nz 48→50) | 0,213 s (0,63×) | 0,613 s |
 
-**Aviso de disco:** restam 95 GB livres em C: de 932 GB (90% ocupado). Cabe, mas
-a margem é estreita e deve ser reconferida antes de autorizar.
+Com a regra atual, dz1 = 10 m custa **cerca de 5,2× mais passos**. Reescalando os
+tempos de parede reais, a integração desde t = 0 passaria de 2,5 h para da ordem
+de **16 h**, e a proveniência de 1,7 h para cerca de **11 h** — total próximo de
+**27 h**, não as 2,5–3,5 h que a primeira versão anunciou. Essa estimativa
+estava errada por quase uma ordem de grandeza.
 
-Nada disto foi executado. Fica como proposta, conforme o escopo em vigor.
-
-## Limitações
-
-- Um único par determinístico; não é um ensemble.
-- A janela 2790–3300 s não cobre a fase preparatória de 2370–2610 s. A pergunta
-  aqui respondida é a do comportamento permanente junto ao solo, não a da
-  origem da semente.
-- O índice de condicionamento da proveniência cresce mais depressa na corrida
-  fina (κ_T 3,65 contra 2,69 no fim da janela). A atribuição é exata como
-  partição, mas a sua interpretação causal degrada-se ao longo da janela nas
-  duas corridas.
-- A máscara cilíndrica de 4,2 km inclui estrutura fora do núcleo; a conclusão é
-  sobre a camada, não sobre o núcleo isolado.
+A tabela mostra também que o custo é um artefacto da regra: um CFL **por célula**
+daria 0,613 s na grade fina contra 1,017 s na atual — um fator 0,60 em vez de
+0,19. O |w| máximo ocorre a 9,4 km, onde dz = 535 m, e não tem nada a ver com as
+células de 10 m junto ao solo. Tornar o CFL local seria a diferença entre ~27 h e
+~3 h, mas é uma alteração do motor, teria de ser opt-in e validada, e muda o dt
+de todas as corridas.
 
 ## Artefactos
 
 - `scripts/source_attribution_by_height.py` — a reanálise e a figura.
-- `outputs/source_attribution_by_height_20260913/` — CSV completo por fonte,
-  nível e instante, mais o fecho da partição.
-- `docs/media/storm/closure_share_by_height.csv` — tabela condensada por nível.
+- `outputs/source_attribution_by_height_20260913/` — CSV por fonte, nível e
+  instante, e o fecho da partição.
+- `docs/media/storm/closure_share_by_height.csv` — tabela condensada, instante
+  final exato, quotas com e sem o estado antecedente.

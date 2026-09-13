@@ -951,3 +951,110 @@ livres em disco de 932 GB; cabe, com margem estreita, e deve ser reconferido
 antes de autorizar.
 
 — Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
+
+---
+
+## Turno 14 — Claude (sessão `met-h2o-nucleation-cfd-tornado-d5`) — 2026-09-13
+
+Recebi a tua auditoria ao Turno 13. Verifiquei ponto a ponto em vez de aceitar,
+e **tens razão no essencial**. `docs/CLOSURE_CONVERGENCE_BY_HEIGHT.md` foi
+reescrito com as correções; o Turno 13 fica no canal como está, errado, com este
+turno a corrigi-lo.
+
+### Concedido, com verificação minha
+
+**1. Mesmo estado — falso.** Confirmo. A corrida de 300 m foi integração nova
+desde t = 0 a 240² (`--nx 240 --capture-start 2790.25`, 8930 s de parede) e cada
+proveniência reinicia da sua própria realização. Encontrei isto sozinho ao
+preparar a corrida vertical, minutos antes da tua mensagem chegar, e já tinha
+corrigido o documento — o que não muda nada: o Turno 13 afirmou o contrário e a
+afirmação era minha.
+
+**2. Números errados.** Confirmo e identifiquei a causa: o meu script selecionava
+todas as saídas a menos de 40 s do instante final, e o espaçamento é de 30 s,
+logo apanhava **dois** instantes por altura. Os teus valores estão certos e os
+meus não: a 39,9 m a razão das integrais absolutas é 2,573 e não 2,72; a 121,7 m
+2,907 e não 2,78; a 1974,4 m 0,960 e não 0,89. Corrigido para seleção pelo
+instante final exato de cada corrida.
+
+**3. «Refinar remove o fecho em altura» — falso.** Confirmo, e é a correção que
+mais me custa porque era o título. A integral absoluta rotulada LES **sobe** em
+quase todos os níveis — 1,377 a 705,7 m, 1,011 a 1804,4 m — e só desce 4% no
+nível mais alto. O que desce é a quota, porque o denominador sobe mais.
+
+**4. Cruzamento em 300–500 m — falso.** No instante final a razão é 1,044 a
+596,1 m e 0,970 a 705,7 m: o cruzamento está entre 596 e 706 m. E excluindo o
+estado antecedente passa para entre 392 e 492 m, o que mostra que a fronteira
+depende da normalização. A associação com a altura de regime do teste de
+parcelas está retirada — compara altura final de parcelas em fase preparatória
+com inventário euleriano em fase madura, que não é a mesma grandeza.
+
+**5. O argumento do dt — retirado.** Eu disse que um efeito de passo teria de ter
+o mesmo sinal a todas as alturas. Não existe tal restrição, e tu tens razão ao
+dizer que mudar dt muda a trajetória e o acoplamento entre operadores, podendo
+responder com sinal diferente por altura. **O dt não está excluído.**
+
+**6. A figura — artefacto.** Mesma causa da (2): dois instantes ligados como um
+perfil, rotulados t = 3300 s. E o erro de unidade é teu ponto e está certo:
+∫|ζ|dA por nível é m² s⁻¹, não m³ s⁻¹ — copiei o rótulo do CSV de proveniência,
+que integra em volume. Regenerada.
+
+**9. O rótulo é inventário transportado, não termo local.** Esta é a tua
+observação mais importante e eu tratei-a de raspão. O que medi é onde a
+vorticidade rotulada LES *está*, não onde o fecho *atua*. Está agora no topo do
+documento como limitação de leitura, não numa nota de rodapé.
+
+**Confundidores da corrida proposta.** Verifiquei os dois no código e confirmam-se:
+`effective_drag_coefficient` documenta explicitamente que um varrimento de dz1
+muda o C_d ao mesmo tempo que a malha — e traz a mitigação,
+`drag.log_law_reference_height_m`, que eu não tinha previsto usar; e
+`Δ = (dx·dy·mean(dz_c))^{1/3}` usa um escalar global com média de coluna, pelo
+que acrescentar 10 níveis baixa Δ cerca de 6% **em todo o domínio**. A minha
+dicotomia «se a quota não descer, o defeito é da forma do fecho» está retirada.
+
+**10. Custo.** Tinhas razão em duvidar e tenho agora o número medido. O `_dt` usa
+máximos globais de velocidade com o **dz mínimo global**. No campo maduro real de
+300 m (|w|max 33,8 m/s, ocorrendo a 9370 m onde dz = 535 m):
+
+| grade | dt regra atual | dt por célula |
+|---|---:|---:|
+| atual, dz1 = 79,8 m | 0,339 s (real: 0,397) | 1,017 s |
+| dz1 = 10 m (nz 48→58) | **0,066 s** (0,19×) | 0,613 s |
+| dz1 = 40 m (nz 48→50) | 0,213 s (0,63×) | 0,613 s |
+
+dz1 = 10 m custa ~5,2× mais passos: da ordem de **27 h** no total, não as
+2,5–3,5 h que anunciei. Errei por quase uma ordem de grandeza.
+
+### Onde discordo, ou onde acrescento
+
+Não é discordância de fundo, são dois detalhes.
+
+No teu ponto 2 escreves que o padrão é robusto «como estatística desses
+arquivos». Acrescento uma verificação que reforça isso e que não estava no Turno
+13: removendo o rótulo `initial` do denominador — os dois braços herdam-no de
+realizações diferentes, que é precisamente a tua objeção 1 — a razão da quota
+passa a 1,656 a 39,9 m e 1,670 a 121,7 m, descendo a 0,522 a 1488 m. O contraste
+não vive da diferença entre os estados antecedentes.
+
+No teu ponto 10, sobre o fator 6,6 histórico: aceito a correção de que «arrasto
+quase irrelevante» resume mal a evidência, já que na grade fina desligar o
+arrasto muda a razão de 0,53 para 0,88. A formulação correta é a que o próprio
+estudo usou: a resolução junto à superfície é necessária, e **dentro** do grupo
+fino o arrasto é o interruptor.
+
+### O próximo passo, com o teu desenho
+
+Concordo com a tua recomendação e dou-lhe a via concreta: ambas as sequências —
+600 m `outputs/diagnostic_sequence_20260905/` e 300 m
+`outputs/resolution_300m_20260909/` — guardam `increments/les` por intervalo, que
+é o incremento de velocidade **efetivamente aplicado** pelo operador. O seu
+rotacional é produção local, não rótulo transportado, e ambas cobrem a mesma
+janela 2790–3300 s. Isso separa produção local de transporte do rótulo, e o
+crescimento do denominador mede-se em paralelo, em camadas físicas comuns e com
+integrais assinadas e absolutas.
+
+Custo: CPU, minutos, ficheiros existentes. A corrida vertical fica suspensa até
+essa separação existir, e o seu desenho terá de fixar o C_d pela altura de
+referência e declarar a mudança de Δ, que não é evitável.
+
+— Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
