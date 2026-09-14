@@ -7,6 +7,14 @@ Data: 2026-09-13. Nenhuma simulação foi executada.
 > minha.** A primeira versão continha quatro erros materiais, listados na secção
 > «Correções». O padrão descritivo sobrevive; as conclusões causais não.
 
+> **Desfecho, 2026-09-13 (mais tarde no mesmo dia).** A separação pedida pela
+> auditoria foi feita — `scripts/les_local_vs_transported.py` — e **fecha esta
+> linha contra a hipótese que a abriu**. Resumo na secção final; o essencial é
+> que a atividade bruta do fecho cresce com o refinamento **em toda a coluna**,
+> com o maior aumento a 1341 m (2,82×) e não junto ao solo (2,51×), e que a
+> contribuição líquida é um resíduo pequeno de um termo que quase se cancela.
+> Não há base para dizer que o fecho age preferencialmente junto ao solo.
+
 ## Resposta principal
 
 Nas duas realizações existentes, o **inventário de ζ rotulado LES** é maior na
@@ -178,8 +186,75 @@ células de 10 m junto ao solo. Tornar o CFL local seria a diferença entre ~27 
 ~3 h, mas é uma alteração do motor, teria de ser opt-in e validada, e muda o dt
 de todas as corridas.
 
+## Separação: produção local, transporte do rótulo, denominador
+
+Feita em `scripts/les_local_vs_transported.py`. Usa `increments/les` — o
+incremento de velocidade **efetivamente aplicado** pelo operador em cada
+intervalo, cujo rotacional é produção local na célula onde aconteceu — contra a
+variação do inventário v4 com a **mesma máscara nos dois instantes**, para que o
+movimento da máscara não entre na diferença. O transporte é o resíduo.
+
+A combinação é legítima porque as corridas de proveniência reproduzem o seu
+controlo **bit a bit nos 12 campos prognósticos** (verificado em cada
+`summary.json`, secção `neutrality`): as duas leituras descrevem a mesma
+trajetória.
+
+Somado na janela, por nível (m² s⁻¹):
+
+| z (m) | prod. bruta 600 | 300 | razão | \|ΣP\|/Σ\|P\| 600 | 300 | quota transporte 600 | 300 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 39,9 | 6,86e3 | 1,72e4 | 2,51 | 0,036 | 0,006 | 0,16 | 0,17 |
+| 121,7 | 5,38e4 | 1,02e5 | 1,89 | 0,111 | 0,009 | 0,11 | 0,04 |
+| 297,7 | 4,68e4 | 8,38e4 | 1,79 | 0,012 | 0,214 | 0,12 | 0,07 |
+| 596,1 | 5,67e4 | 7,86e4 | 1,39 | 0,110 | 0,030 | 0,05 | 0,01 |
+| 1068,4 | 3,66e4 | 7,62e4 | 2,08 | 0,396 | 0,205 | 0,24 | 0,16 |
+| **1341,4** | 2,20e4 | 6,19e4 | **2,82** | 0,118 | 0,040 | 0,18 | 0,04 |
+| 1974,4 | 3,87e4 | 5,18e4 | 1,34 | 0,203 | 0,072 | 0,11 | 0,07 |
+
+![Produção local contra transporte](media/storm/les_local_vs_transported.png)
+
+Três conclusões, e as duas primeiras favorecem o meu argumento original enquanto
+a terceira o destrói:
+
+1. **O transporte é um termo menor.** Quota mediana 0,113 a 600 m e 0,069 a
+   300 m, máximo 0,30. O inventário maior junto ao solo é, de facto, produzido
+   localmente — a explicação alternativa por transporte, levantada na auditoria,
+   é mensurável e não se confirma.
+2. **A produção local é maior a 300 m em todos os níveis**, entre 1,32× e 2,82×.
+3. **Mas o maior aumento não é junto ao solo.** O pico está a 1341 m (2,82×) e
+   1201 m (2,64×); o nível mais baixo dá 2,51× e o de 121,7 m apenas 1,89×.
+   A afirmação «o fecho não converge *junto ao solo*» perde a sua base: a
+   atividade cresce em toda a coluna, com máximo a meio.
+
+E um quarto facto que enquadra tudo o resto: **a produção da LES quase se
+cancela**. `|ΣP|/Σ|P|` fica entre 0,006 e 0,48, tipicamente 0,03–0,22. O efeito
+líquido do fecho sobre ζ no cilindro é 1 a 20% da sua magnitude bruta — que é o
+comportamento de um termo difusivo redistributivo. Junto ao solo o resíduo
+líquido é tão pequeno que **muda de sinal entre as duas corridas**: −5,97e3 a
+121,7 m em 600 m contra +8,87e2 em 300 m, e −6,72e3 contra +1,13e4 a 207,5 m.
+Entre duas realizações independentes, isso é ruído sobre um cancelamento grande,
+não um sinal.
+
+**Conclusão da linha de investigação:** o contraste de inventário é real e é de
+produção local, mas não sustenta que o fecho aja preferencialmente junto ao solo
+nem que esteja a impedir a ligação à superfície. A corrida vertical proposta
+perde a sua justificação e fica cancelada, não apenas suspensa.
+
+Precisão: no par de 600 m, o emparelhamento entre os intervalos da sequência e
+os da proveniência tem um desfasamento máximo de 0,576 s, ou 1,9% de um
+intervalo de 30 s; quotas de transporte abaixo de ~0,02 estão no piso de
+precisão. No par de 300 m o alinhamento é exato (0 s).
+
+Nota deliberada: isto **não** é comparável com o resultado Lagrangiano de
+`CONTROL_PARCEL_TEST.md`. Aquele é material, na janela 2370–2610 s, e este é
+euleriano, em 2790–3300 s. Juntá-los seria repetir o erro de associação que a
+auditoria assinalou.
+
 ## Artefactos
 
+- `scripts/les_local_vs_transported.py` — a separação, a tabela e a figura.
+- `outputs/les_local_vs_transported_20260913/` — CSV por nível e intervalo.
+- `docs/media/storm/les_local_vs_transported.csv` — tabela condensada.
 - `scripts/source_attribution_by_height.py` — a reanálise e a figura.
 - `outputs/source_attribution_by_height_20260913/` — CSV por fonte, nível e
   instante, e o fecho da partição.

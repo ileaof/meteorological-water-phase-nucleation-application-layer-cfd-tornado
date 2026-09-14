@@ -1058,3 +1058,72 @@ essa separação existir, e o seu desenho terá de fixar o C_d pela altura de
 referência e declarar a mudança de Δ, que não é evitável.
 
 — Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
+
+---
+
+## Turno 15 — Claude (sessão `met-h2o-nucleation-cfd-tornado-d5`) — 2026-09-13
+
+A separação que pediste está feita — `scripts/les_local_vs_transported.py`, 10 s
+de CPU, ficheiros existentes — e **fecha a linha contra a hipótese que eu abri**.
+
+### Como
+
+`increments/les` da sequência dá o incremento de velocidade **efetivamente
+aplicado** pelo operador em cada intervalo; o seu rotacional é produção local, na
+célula onde aconteceu. Contra isso, a variação do inventário v4 com a **mesma
+máscara nos dois instantes**, para que o movimento da máscara não entre na
+diferença. O transporte é o resíduo, `T = ΔI − P`.
+
+A combinação é legítima porque verifiquei o que a torna possível: as corridas de
+proveniência reproduzem o seu controlo **bit a bit nos 12 campos prognósticos**
+(`summary.json`, secção `neutrality`, `max_abs` 0,0 em ambas). As duas leituras
+descrevem a mesma trajetória.
+
+### Resultado
+
+| z (m) | prod. bruta 600 | 300 | razão | \|ΣP\|/Σ\|P\| 600 | 300 | quota transp. 600 | 300 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 39,9 | 6,86e3 | 1,72e4 | 2,51 | 0,036 | 0,006 | 0,16 | 0,17 |
+| 121,7 | 5,38e4 | 1,02e5 | 1,89 | 0,111 | 0,009 | 0,11 | 0,04 |
+| 596,1 | 5,67e4 | 7,86e4 | 1,39 | 0,110 | 0,030 | 0,05 | 0,01 |
+| **1341,4** | 2,20e4 | 6,19e4 | **2,82** | 0,118 | 0,040 | 0,18 | 0,04 |
+| 1974,4 | 3,87e4 | 5,18e4 | 1,34 | 0,203 | 0,072 | 0,11 | 0,07 |
+
+**1.** O transporte é menor: quota mediana 0,113 a 600 m e 0,069 a 300 m, máximo
+0,30. A tua alternativa por transporte era mensurável e **não** se confirma — o
+inventário maior junto ao solo é mesmo produzido localmente.
+
+**2.** A produção local é maior a 300 m em **todos** os níveis, 1,32× a 2,82×.
+
+**3.** Mas — e é isto que destrói o meu argumento — **o maior aumento não é junto
+ao solo**. O pico está a 1341 m (2,82×) e 1201 m (2,64×); o nível mais baixo dá
+2,51× e o de 121,7 m apenas 1,89×. A atividade do fecho cresce em toda a coluna,
+com máximo a meio. «O fecho não converge *junto ao solo*» perde a base.
+
+**4.** E o enquadramento de tudo: **a produção quase se cancela**. `|ΣP|/Σ|P|`
+fica entre 0,006 e 0,48, tipicamente 0,03–0,22 — o efeito líquido é 1 a 20% da
+magnitude bruta, que é o comportamento de um termo difusivo redistributivo.
+Junto ao solo o resíduo é tão pequeno que **muda de sinal entre as corridas**:
+−5,97e3 contra +8,87e2 a 121,7 m; −6,72e3 contra +1,13e4 a 207,5 m. Entre duas
+realizações independentes, isso é ruído sobre um cancelamento grande.
+
+### O que concluo
+
+O contraste de inventário é real e é de produção local — nisso o Turno 13
+acertou, e a tua hipótese de transporte não se sustenta. Mas não sustenta que o
+fecho aja preferencialmente junto ao solo, nem que esteja a impedir a ligação à
+superfície.
+
+**A corrida vertical fica cancelada, não suspensa.** Perdeu a justificação, e
+não valia 27 h de GPU mesmo que a tivesse.
+
+Fica por dizer o que não fiz de propósito: não liguei isto ao resultado
+Lagrangiano de `CONTROL_PARCEL_TEST.md`. Aquele é material, em 2370–2610 s; este
+é euleriano, em 2790–3300 s. Juntá-los seria repetir exatamente o erro de
+associação que apanhaste no teu ponto 4.
+
+Precisão declarada: no par de 600 m o emparelhamento dos intervalos tem
+desfasamento máximo de 0,576 s, 1,9% de um intervalo de 30 s, pelo que quotas de
+transporte abaixo de ~0,02 estão no piso. No par de 300 m o alinhamento é exato.
+
+— Claude, sessão `met-h2o-nucleation-cfd-tornado-d5`
