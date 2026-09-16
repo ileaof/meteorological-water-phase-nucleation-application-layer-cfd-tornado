@@ -1,5 +1,90 @@
 # Continuidade da análise de tornadogênese
 
+## Atualização 2026-09-15, segunda etapa: balanço discreto coincidente
+
+Somente pós-processamento autorizado; nenhuma simulação, alteração de física
+ou retomada do refinamento vertical. O diagnóstico de déficit de concentração/
+alinhamento acompanhado de perda de circulação é preservado como descrição,
+sem ser promovido a causa física.
+
+Dez estados de 600 m coincidem exatamente entre sequência e proveniência.
+Agregando os intervalos entre eles, foi possível analisar toda a janela em
+nove blocos sem interpolar campos nem estimar erro a partir de desfasamento.
+Os mesmos índices foram agrupados em 300 m. Zeta do arquivo e do replay é
+idêntica nas pontas utilizadas; a soma dos operadores totais fecha com erro
+RMS relativo máximo 8,07e-15. Essa checagem não é comparação dos 12 campos
+entre replay e arquivo original: a neutralidade arquivada dos 12 prognósticos
+continua se referindo ao replay observado e seu controle.
+
+No disco móvel de 4,2 km, a 121,7 m, o incremento MUSCL total é negativo em
+9/9 blocos nas duas grades e nas convenções final e simétrica; também no
+disco fixo no centro inicial. Na convenção final, as somas em m²/s são:
+
+| termo | 600 m | 300 m |
+|---|---:|---:|
+| MUSCL total | -19.312 | -22.516 |
+| LES local | -5.667 | +869 |
+| mudança da máscara, circulação total | +162 | -13.513 |
+| mudança total, incluindo todos os operadores | -19.277 | -28.857 |
+| evolução inferida do rótulo LES | +6.254 | +3.911 |
+| mudança da máscara, rótulo LES | +2.756 | +257 |
+| mudança total do inventário LES | +3.342 | +5.037 |
+
+O rótulo cresce mesmo com LES local assinada negativa em 600 m. A evolução
+do rótulo é inferida por diferença sob a convenção v4; **não é um fluxo de
+vorticidade medido independentemente**. A soma por partes discreta dos
+incrementos nativos foi verificada, mas representa a borda do operador
+rotacional, não exportação/importação física de zeta. Fluxos de momento por
+face e incrementos do rótulo durante cada etapa não foram salvos.
+
+A perda de circulação no anel de 1,2–4,2 km é -15.556 e -27.704 m²/s,
+contra -3.721 e -1.153 no disco interno. Em 300 m, o núcleo estreita e o eixo
+fica menos deslocado entre as pontas enquanto a circulação cai; não há
+evidência de piora monotônica do alinhamento como explicação da perda.
+As atribuições em 1,2 km são sensíveis à convenção da máscara. Nenhuma razão
+de magnitudes foi interpretada como fração causal.
+
+**Conclusões explicitamente substituídas:** a origem exclusivamente local do
+inventário LES e a exclusão do transporte no texto de 13/09; a descrição de
+mudança de sinal como ruído estatístico; o piso de erro de 2% deduzido apenas
+do desfasamento. A afirmação histórica de que o desfasamento só afeta pressão/
+termodinâmica não vale para o balanço de injeção/inventário do script de 13/09.
+Esta etapa supera essa lacuna com blocos coincidentes. A análise continua
+restrita à fase madura; `initial` não identifica a origem pré-2790 s.
+
+Próximo passo mínimo **proposto, não autorizado nem executado**: captura
+passiva dos incrementos e fluxos MUSCL no replay de 600 m, com a agenda
+arquivada, máscaras conhecidas e controle de neutralidade. Referência de custo:
+33 min de replay; overhead da captura ainda não medido. Não iniciar simulação
+com base nesta nota ou nas instruções operacionais históricas abaixo.
+
+Relatório: [LES_DISCRETE_BALANCE_RESULTS.md](LES_DISCRETE_BALANCE_RESULTS.md).
+Definições: [LES_DISCRETE_BALANCE_METHOD.md](LES_DISCRETE_BALANCE_METHOD.md).
+Script: `scripts/analyze_les_discrete_balance.py`; resultados em
+`outputs/les_discrete_balance_20260915_v2/`; síntese e figura em
+`outputs/les_discrete_balance_synthesis_20260915/`. Cinco testes analíticos
+passaram; novos artefatos têm manifestos de proveniência. Histórico preservado.
+
+## Atualização 2026-09-15: cancelamento LES e estado do topo
+
+A reanálise do CSV de 13 de setembro mostra que a quota mediana do resíduo
+LES, antes de cancelamento temporal, é 20,04% em 600 m e 11,30% em 300 m,
+contra 11,28% e 6,93% após cancelamento. Em relação à produção líquida por
+intervalo, as quotas são 49,79% e 49,32%. Não são frações causais: o resíduo
+não mede diretamente fluxo pela fronteira. A exclusão anterior do transporte
+como explicação do inventário é forte demais. O argumento de LES
+preferencialmente superficial continua sem suporte; o refinamento vertical
+cancelado não foi retomado.
+
+O piloto HIGH-TOP-20 foi abortado por CFL em 1287,331589 s, sem quadros da
+janela 2790–3300 s; CONTROL-15 terminou. Portanto, não há comparação causal
+completa do topo. Não interpretar a existência da pasta como execução concluída.
+
+Próximo diagnóstico: separar injeção local e evolução do rótulo sob MUSCL em
+intervalos coincidentes, com contabilização da máscara e dos termos de fronteira.
+Detalhes, limitações e reprodução:
+[LES_RESIDUAL_CANCELLATION_AUDIT.md](LES_RESIDUAL_CANCELLATION_AUDIT.md).
+
 ## Reparação e proveniência validadas — 9 de setembro, consolidação
 
 A simulação de 300 m terminou em 3300,023494218 s, passo 7397. O primeiro

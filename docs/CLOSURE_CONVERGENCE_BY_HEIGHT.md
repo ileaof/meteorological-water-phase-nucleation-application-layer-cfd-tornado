@@ -1,5 +1,19 @@
 # Inventário de vorticidade rotulada LES por altura: 600 m contra 300 m
 
+> Segunda etapa de 2026-09-15: o [balanço discreto em intervalos coincidentes](LES_DISCRETE_BALANCE_RESULTS.md)
+> separou injeção LES, evolução inferida do rótulo e movimento da máscara.
+> No disco de 4,2 km a 121,7 m, o inventário LES cresce apesar da injeção local
+> assinada negativa em 600 m. Ficam substituídas as conclusões históricas abaixo
+> de origem exclusivamente local, exclusão do transporte, mudança de sinal como
+> ruído e piso de erro de 2% deduzido só do desfasamento. O texto anterior foi
+> preservado como histórico; o refinamento vertical cancelado não foi retomado.
+
+> Atualização de 2026-09-15: a exclusão do transporte como explicação do
+> inventário não é sustentada pela quota líquida usada abaixo. A auditoria em
+> [LES_RESIDUAL_CANCELLATION_AUDIT.md](LES_RESIDUAL_CANCELLATION_AUDIT.md)
+> quantifica o cancelamento temporal e distingue resíduo de fluxo medido.
+> A hipótese de atuação preferencial junto ao solo continua sem suporte.
+
 Data: 2026-09-13. Nenhuma simulação foi executada.
 
 > **Este documento foi reescrito no mesmo dia, depois de uma auditoria do Codex
