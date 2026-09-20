@@ -1,5 +1,34 @@
 # Continuidade da análise de tornadogênese
 
+## Atualização 2026-09-20: passagem entre agentes e testes de fluxos
+
+Documento autocontido para compartilhar o estado da pesquisa:
+[TORNADOGENESIS_RESEARCH_HANDOFF.md](TORNADOGENESIS_RESEARCH_HANDOFF.md).
+Ele separa evidência dos campos simulados, atribuição numérica e causalidade;
+registra resultados concluídos, hipóteses abertas, artefatos e próximos passos.
+Não acrescenta evidência física de uma nova realização.
+
+As rotinas de momento e do tracer receberam saídas opcionais para fluxos
+de momento u,v nas três direções, sem mudar a ordem das somas de tendência.
+Oito testes novos em `tests/test_momentum_flux_capture.py` verificam passividade
+bit a bit, preservação das entradas e reconstrução por divergência dos fluxos,
+para u/v, ordens 1/2 e contornos periódicos/não periódicos em grade esticada.
+Esses oito testes e os cinco do balanço discreto passaram: 13 no total.
+Também passaram os 29 testes existentes de proveniência/propagador, incluindo
+CPU/GPU, totalizando 42 testes aprovados nesta etapa.
+
+**Estado operacional:** observador completo, executor com gates, piloto maduro
+e replay diagnóstico novo ainda não foram concluídos nem executados. Testes de
+rotinas isoladas não comprovam neutralidade do replay. A redação do protocolo
+que parecia anunciar essa validação foi corrigida para distinguir proposta de
+execução. O próximo passo técnico é completar a captura e o executor; o piloto
+de 69 passos deve preceder a janela completa. Inversão de sinal entre raios é
+resultado científico possível, não motivo para reprovar um gate numérico.
+
+O commit `f3460b6`, já publicado, contém a análise discreta anterior. Os HDF5
+permanecem locais; o remoto contém uma cópia compacta dos resultados. A cópia
+avulsa `docs/TORNADOGENESIS_FINDINGS - Copia.md` não foi usada nem modificada.
+
 ## Atualização 2026-09-15, segunda etapa: balanço discreto coincidente
 
 Somente pós-processamento autorizado; nenhuma simulação, alteração de física

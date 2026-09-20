@@ -1,5 +1,8 @@
 # Water-Phase Nucleation & Flow
 
+**Tornadogenesis research handoff (Portuguese, 2026-09-20):**
+[Current evidence, limitations, artifacts, and next steps](docs/TORNADOGENESIS_RESEARCH_HANDOFF.md).
+
 ## Project at a glance
 
 This open-source atmospheric simulation framework connects

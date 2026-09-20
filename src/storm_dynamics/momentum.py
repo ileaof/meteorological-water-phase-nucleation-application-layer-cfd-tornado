@@ -129,6 +129,9 @@ def _u_tendency(st, g, order, periodic, fluxes=None):
     Fz = xp.zeros((g.nx + 1, g.ny, g.nz + 1))
     Fz[:, :, 1:-1] = Wc * u_zcorner                        # zero flux through z-walls
     tend += -(Fz[:, :, 1:] - Fz[:, :, :-1]) / dz
+    if fluxes is not None:
+        fluxes["Fy_u"] = Fy if periodic else Fy_full
+        fluxes["Fz_u"] = Fz
     return tend
 
 
@@ -196,6 +199,9 @@ def _v_tendency(st, g, order, periodic, fluxes=None):
     Fz = xp.zeros((g.nx, g.ny + 1, g.nz + 1))
     Fz[:, :, 1:-1] = Wc * v_zcorner
     tend += -(Fz[:, :, 1:] - Fz[:, :, :-1]) / dz
+    if fluxes is not None:
+        fluxes["Fx_v"] = Fx if periodic else Fx_full
+        fluxes["Fz_v"] = Fz
     return tend
 
 

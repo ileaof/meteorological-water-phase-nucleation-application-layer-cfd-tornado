@@ -255,7 +255,7 @@ def _frozen_face(qm, qp, velocity, slope_m, slope_p, xp, order):
     return xp.where(velocity > 0.0, qm, qp)
 
 
-def _frozen_u_tendency(label, total, grid, order, periodic):
+def _frozen_u_tendency(label, total, grid, order, periodic, fluxes=None):
     xp = grid.xp
     lu, _, _ = label
     u, v, w = total
@@ -331,10 +331,14 @@ def _frozen_u_tendency(label, total, grid, order, periodic):
         order,
     )
     tendency += -(flux_z[:, :, 1:] - flux_z[:, :, :-1]) / spacing_z
+    if fluxes is not None:
+        fluxes["Fx_u"] = flux_x
+        fluxes["Fy_u"] = flux_y if periodic else flux_full
+        fluxes["Fz_u"] = flux_z
     return tendency
 
 
-def _frozen_v_tendency(label, total, grid, order, periodic):
+def _frozen_v_tendency(label, total, grid, order, periodic, fluxes=None):
     xp = grid.xp
     _, lv, _ = label
     u, v, w = total
@@ -410,6 +414,10 @@ def _frozen_v_tendency(label, total, grid, order, periodic):
         order,
     )
     tendency += -(flux_z[:, :, 1:] - flux_z[:, :, :-1]) / spacing_z
+    if fluxes is not None:
+        fluxes["Fx_v"] = flux_x if periodic else flux_full
+        fluxes["Fy_v"] = flux_y
+        fluxes["Fz_v"] = flux_z
     return tendency
 
 
