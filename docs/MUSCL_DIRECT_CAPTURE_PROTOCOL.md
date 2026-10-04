@@ -3,7 +3,7 @@
 2026-09-15. Replay de 600 m autorizado pelo prompt anexado pelo usuário.
 Nenhuma mudança de física, malha, limitador ou agenda temporal.
 
-## Estado em 2026-09-20
+## Estado inicial em 2026-09-20 (superado pela execução abaixo)
 
 Este é um protocolo proposto, não um relatório de execução. Existem saídas
 opcionais de fluxos nas rotinas de momento e do tracer; o observador completo,
@@ -81,3 +81,34 @@ passo, mais menos de 2 MB por blocos e verificações; compressão não é assum
 Reservar pelo menos 1 GiB livre. A referência histórica é 33 min para replay
 com controle; o piloto medirá o custo com a instrumentação nova. Não salvar
 campos completos novos: apenas acumuladores temporários em memória e escalares.
+
+## Implementação e validação preliminar em 2026-09-20
+
+O observador e o executor foram implementados em `muscl_capture.py` e
+`scripts/run_muscl_direct_capture.py`. Os fluxos são recalculados pelas rotinas
+nativas sobre o estado anterior imutável, e comparados com mudanças efetivas.
+O primeiro teste integrado detectou cancelamento na subtração de velocidades:
+erro máximo 1,78e-15 m/s, relativo 2,46e-9 para um incremento muito pequeno.
+Isso foi resolvido separando explicitamente duas verificações, sem alterar
+tolerâncias: dt vezes a tendência contra a soma dos fluxos; e mudança efetiva
+contra `fl(U + dt*tendencia) - U`. A diferença entre a atualização efetiva e
+a soma dos fluxos permanece registrada como arredondamento, não difusão.
+Os três testes integrados, incluindo CPU/GPU, passaram após essa correção.
+Isso libera o piloto, não demonstra ainda reprodução da tempestade madura.
+
+## Execução concluída em 2026-09-20
+
+O piloto de 69 passos passou e liberou automaticamente os 1015 passos.
+Todos os gates passaram sem alterar tolerâncias. Os 12 prognósticos foram
+neutros bit a bit em cada passo e iguais aos 18 snapshots originais disponíveis.
+O fechamento por passo teve erro relativo máximo 5,58e-13; a reconstrução
+dos fluxos, 1,91e-16; a comparação direta/inferida do MUSCL LES, 1,06e-15.
+Tempo medido: 1285,99 s; captura HDF5: 46.422.995 bytes.
+
+Esta entrada substitui o estado pendente no início deste documento. Fluxos
+foram recalculados pela rotina nativa no estado anterior, não extraídos de
+uma chamada independente da fórmula. A interpretação e todos os resultados
+estão em [MUSCL_DIRECT_CAPTURE_RESULTS.md](MUSCL_DIRECT_CAPTURE_RESULTS.md).
+Manifestos locais: `outputs/muscl_direct_capture_20260920/manifest.json` e
+`outputs/muscl_direct_analysis_20260920/manifest.json`. Não repetir o replay
+por uma instrução histórica deste protocolo.

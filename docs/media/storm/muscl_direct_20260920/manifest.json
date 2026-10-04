@@ -1,0 +1,37 @@
+{
+  "input_sha256": {
+    "outputs\\muscl_direct_capture_20260920\\metadata.json": "026679b5632e84b3bf26dc888149013ff8ee77beb0002fa5cd1877c70bfe4f96",
+    "outputs\\muscl_direct_capture_20260920\\capture.h5": "f7448816bda9fda99a36be08213b30b80b7d48f0477dfe6b86341b8cf3e44394"
+  },
+  "script_sha256": "3eb35662df25fad02ea9760286b0321fde85a425a60363ba98c65e5cb79c01ba",
+  "artifacts": {
+    "annular_contributions.csv": {
+      "bytes": 155030,
+      "sha256": "6e838a1f7f4aebbacd656b0b3edf902ed92894061f08d8028a3e6ff47306e370"
+    },
+    "directional_and_cancellation.csv": {
+      "bytes": 547844,
+      "sha256": "6d128ecbddc838ee70aac5ac619d6b3a12313adab9b8ab68364608c29c495c88"
+    },
+    "directional_circulation.png": {
+      "bytes": 318767,
+      "sha256": "0b29ee4495ef1be461366ea245a9bc93f38d413100b4c98549ca994927400720"
+    },
+    "inventory_and_mask_motion.csv": {
+      "bytes": 45591,
+      "sha256": "56ef55cad2278e62013beada3c334d6f77fe45684820724a65a153f694514407"
+    },
+    "low_level_all_radii.csv": {
+      "bytes": 32743,
+      "sha256": "3bb07059592a2ee482b27334011da60f9b8658639d6574ebc58ea3802519266b"
+    },
+    "summary.json": {
+      "bytes": 108682,
+      "sha256": "411e77066312925cbbd53582bd509d7cdf50ed7bce6f6997a811946deb06cc64"
+    },
+    "terms_by_block.csv": {
+      "bytes": 2223035,
+      "sha256": "d11aed382ec6b71249fd0e795fb459979a0ee5203f4a22a2f8006ef1f08e7467"
+    }
+  }
+}

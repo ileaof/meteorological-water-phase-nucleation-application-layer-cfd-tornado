@@ -414,3 +414,92 @@ as faces da malha abaixo de 15 km; mudar `Lz` mantendo `nz=48` confundiria altur
 e resolução vertical. Uma afirmação causal forte ainda requer ensemble pareado.
 
 Relatório completo: `docs/LATERAL_DOMAIN_RESULTS.md`.
+
+## 2026-09-20: captura direta MUSCL concluída, 600 m
+
+Esta atualização preserva o histórico acima e substitui explicitamente o
+estado "observador/piloto/replay pendentes" do documento de passagem e do
+protocolo inicial de 20/09. Substitui também, somente para 600 m, a limitação
+"evolução LES apenas inferida por diferença": agora há medição por estágio
+e reconstrução pelos fluxos. Não reabilita a antiga interpretação do resíduo
+R como fluxo físico de fronteira, corrigida em 15/09.
+
+Escopo efetivamente executado: replay diagnóstico autorizado no prompt
+anexado, snapshot 93, 1015 dt arquivados, 2790,253490--3300,023494 s,
+mesma física e malha. O piloto de 69 passos passou antes da continuação.
+Não foram lançados casos desde t=0, varreduras ou refinamento vertical.
+
+Implementados `src/storm_dynamics/muscl_capture.py`,
+`scripts/run_muscl_direct_capture.py`, `scripts/analyze_muscl_direct_capture.py`
+e três testes do observador, aprovados incluindo CPU/GPU. Os oito testes
+das saídas opcionais de fluxo também passaram. A correção da contabilidade
+de arredondamento após uma falha inicial de teste está registrada no protocolo;
+nenhuma tolerância ou física foi alterada para aprovar o caso.
+
+Verificações finais: 12 prognósticos neutros bit a bit em todos os passos,
+18 snapshots originais reproduzidos bit a bit, nove pontas de proveniência
+total/LES iguais. Maior erro relativo de fechamento por passo: 5,58e-13;
+fluxos reconstruídos: 1,91e-16; projeção adjunta: 3,72e-15. Maior diferença
+entre termos escalares novos e antigos: 2,91e-11 m²/s. Gates de 1e-10
+mantidos com escalas dimensionais explícitas. Custo: 21,43 min e 44,27 MiB.
+
+Resultado central em z=121,6591 m, raio 4,2 km, ponta final (m²/s):
+x=-24.769,69; y=-22.388,27; z=+27.846,31; MUSCL total=-19.311,65.
+O total é negativo nos 1015 passos nas três convenções de máscara.
+Anel 1,2--4,2 km: -21.785,77; anel 4,2--6 km: +10.168,67.
+Não há perda universal: o núcleo muda de sinal com a convenção, e em
+6 km a máscara fixa é positiva. Em 4,2 km/ponta final, a soma passa a
+positiva nos quatro níveis de 1488,29 a 1974,38 m.
+
+LES local=-5.667,45; evolução direta MUSCL do rótulo=+6.254,03;
+movimento da máscara LES=+2.755,61; mudança do inventário LES=+3.342,19.
+A evolução direta confirma a inferida, diferença máxima de 5,46e-12 m²/s
+nas comparações por bloco/nível/máscara. A soma MUSCL total não cancela
+temporalmente nesse disco, mas sua integral tem forte cancelamento espacial:
+19.311,65 de módulo integrado contra 174.054,60 de módulo espacial acumulado.
+Essas magnitudes não representam porcentagens causais.
+
+Limites: direções de fluxos de momento não são mecanismos cinemáticos;
+fluxos foram recalculados pelas rotinas nativas e confrontados com a atualização
+efetiva, não validam independentemente a fórmula. Máscaras são fixas dentro
+dos nove blocos; outros operadores permanecem agrupados. Não há ensemble,
+convergência ou teste contrafactual. Nada aqui identifica a gênese anterior
+a 2790 s, nem a causa física definitiva do déficit de concentração/alinhamento.
+
+Próximo passo mínimo proposto, ainda não executado: decompor fluxos em
+referência centrada e correção MUSCL nos 18 estados congelados disponíveis,
+com controles e interpretação do relatório. Não exige nova integração;
+eventual captura adicional por passo exige nova autorização.
+
+Relatório: `docs/MUSCL_DIRECT_CAPTURE_RESULTS.md`. Passagem autocontida:
+`docs/TORNADOGENESIS_RESEARCH_HANDOFF.md`. Saídas locais com manifestos:
+`outputs/muscl_direct_capture_20260920/` e
+`outputs/muscl_direct_analysis_20260920/`. Tabelas/figura compartilháveis:
+`docs/media/storm/muscl_direct_20260920/`.
+
+## 2026-10-04: revisão independente dos dados salvos, sem simulação
+
+Auditoria `scripts/audit_muscl_saved_capture.py`: PASS para hashes, agenda,
+continuidade dos inventários, soma direcional, adjunto, fechamento, máscaras
+aninhadas e desigualdades de módulos. Saída:
+`outputs/muscl_saved_audit_20261004/audit.json`. Revisão científica adicional
+por agente não encontrou contradição numérica material. Onze testes focados
+de instrumentação aprovados. Nenhum replay novo foi executado nesta revisão.
+
+Avanço interpretativo: no núcleo de 1,2 km/ponta final, operadores somam
++4.378,74 m²/s; movimento da máscara=-8.099,35; inventário=-3.720,61.
+Logo, a queda observada nesse recorte não equivale a retirada assinada pelos
+operadores. Em 4,2 km, a inversão vertical depende da máscara: em 1488,29 m
+ponta final=+3.200,46, simétrica=-9.024,31 e fixa=-131.039,62 m²/s.
+Não identificar uma altura crítica física a partir dessa inversão.
+
+Correção explícita da proposta de 20/09: MUSCL menos referência centrada
+não isola o limitador; inclui reconstrução/upwinding relativamente à referência.
+Usar "correção relativa à referência centrada". Eventual avaliação nos 18
+snapshots de fim de passo é diagnóstico instantâneo, não reconstituição dos
+1015 estados pré-MUSCL. A robustez à agregação temporal não testa a cadência
+de atualização dos centros das máscaras. Histórico preservado.
+
+Relatório: `docs/MUSCL_DATA_REVIEW_20261004.md`. Passagem entre agentes
+atualizada. Próximo diagnóstico permanece pós-processamento congelado,
+sem nova integração ou mudança na física.

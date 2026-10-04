@@ -1,6 +1,6 @@
 # Tornadogênese: estado da pesquisa e passagem entre agentes
 
-Atualizado em **2026-09-20**. Este documento é autocontido para leitura inicial.
+Atualizado em **2026-10-04**. Este documento é autocontido para leitura inicial.
 Resume o estado deste projeto, não uma revisão geral da literatura científica.
 
 ## Resumo em um minuto
@@ -12,13 +12,24 @@ acompanhado de perda de circulação. Ainda não se identificou a causa física.
 O avanço mais recente localizou uma contribuição negativa do estágio advectivo
 MUSCL no balanço de circulação de baixo nível. Isso não demonstra dissipação
 artificial: transporte e deformação físicos também passam por esse estágio.
-A evolução do rótulo LES ainda é inferida por diferença, sem medição direta
-dos seus fluxos. A próxima pergunta é como reconstruí-la a partir dos fluxos
-de momento e distingui-la da injeção local e do movimento da região amostrada.
+A captura direta de 600 m confirmou a evolução do rótulo LES antes inferida
+por diferença. Em 4,2 km e 121,7 m, x e y contribuem negativamente, enquanto
+z compensa parte da perda; o MUSCL total é negativo nos 1015 passos nas três
+convenções de máscara. São direções de fluxo de momento, não mecanismos
+cinemáticos nem fluxos físicos de vorticidade demonstrados.
 
-**Última etapa científica concluída:** pós-processamento em intervalos coincidentes.
-**Etapa em preparação:** instrumentação passiva dos fluxos MUSCL.
-**Ainda não executados:** piloto e replay diagnóstico novo de 600 m.
+**Última etapa científica concluída:** captura direta MUSCL de 600 m e análise.
+**Validação:** piloto e 1015 passos aprovados; 18 snapshots com os 12 campos
+bit a bit iguais; observador neutro em todos os passos.
+**Próxima etapa proposta, não executada:** decompor o fluxo nativo em referência
+centrada e correção relativa em estados congelados, sem nova integração.
+Relatório: [captura direta](MUSCL_DIRECT_CAPTURE_RESULTS.md).
+
+**Revisão de 04/10:** auditoria independente dos arquivos aprovada, sem nova
+simulação. No núcleo de 1,2 km/ponta final, operadores somam +4.378,74 m²/s,
+mas máscara contribui -8.099,35, resultando em perda de inventário. A inversão
+vertical de sinal depende da máscara, não define altura crítica física.
+Detalhes e correções: [revisão dos dados](MUSCL_DATA_REVIEW_20261004.md).
 
 ## Localização e escopo
 
@@ -31,8 +42,8 @@ de momento e distingui-la da injeção local e do movimento da região amostrada
 - Região diagnóstica: 17 níveis até aproximadamente 2 km; raios de 1,2; 2,4;
   4,2 e 6 km. O disco é centrado no rastreador de baixo nível.
 
-O prompt anterior autorizou um replay de 600 m com piloto e gates. Ele não foi
-iniciado. Este arquivo registra contexto e não é uma ordem de execução:
+O replay de 600 m autorizado pelo prompt anexado foi concluído em 2026-09-20,
+sem alterar física, malha ou agenda. Este arquivo não autoriza nova execução:
 seguir o escopo da mensagem que ativar o próximo agente. Não alterar física,
 amortecimento, LES, malha ou dt; não retomar o refinamento vertical cancelado.
 
@@ -84,7 +95,7 @@ Acumulados em m²/s, a 121,7 m, disco móvel de 4,2 km, convenção de ponta fin
 | arrasto | -1.563 | +215 |
 | movimento da máscara, circulação total | +162 | -13.513 |
 | mudança da circulação total | **-19.277** | **-28.857** |
-| evolução inferida do rótulo LES | +6.254 | +3.911 |
+| evolução do rótulo LES (direta confirmada em 600 m; inferida em 300 m) | +6.254 | +3.911 |
 | movimento da máscara, inventário LES | +2.756 | +257 |
 | mudança do inventário LES | **+3.342** | **+5.037** |
 
@@ -115,9 +126,11 @@ L e A são incrementos de vorticidade em s^-1. As três integrais têm m²/s.
 O último termo mede mudança de seleção espacial. A convenção simétrica usa
 a média das máscaras para L,A e a média dos campos para o termo de máscara.
 
-Pelo código v4, A é interpretado como evolução acumulada do rótulo sob MUSCL,
-mas permanece inferido por diferença. Não é medição independente de fluxo
-através da superfície. A soma por partes do rotacional já foi verificada;
+Pelo código v4, A foi interpretado como evolução acumulada do rótulo sob MUSCL.
+A captura de 20/09 confirmou essa interpretação em 600 m por incrementos
+efetivos e reconstrução pelos fluxos; 300 m permanece sem essa captura direta.
+Não é medição independente de fluxo físico através da superfície. A soma por
+partes do rotacional já foi verificada;
 ela representa a borda desse operador, não automaticamente fluxo físico de zeta.
 
 Não somar essa atribuição por operadores com tilting/stretching cinemáticos:
@@ -134,10 +147,11 @@ são decomposições diferentes. Não chamar um resto de fechamento de difusão.
 - Cinco testes analíticos do pós-processamento passaram.
 - Manifestos registram hashes dos produtos, scripts e seleções HDF5 lidas.
 
-**Não confundir:** a neutralidade anterior dos 12 prognósticos foi medida
-entre replay observado e seu controle. A checagem nova contra o arquivo original
-comparou zeta nas pontas, não os 12 prognósticos. O próximo replay deve fazer
-explicitamente ambas as verificações. Fechamento aditivo não valida a física.
+**Atualização de 20/09:** a captura direta acrescentou comparação bit a bit dos
+12 prognósticos em 18 snapshots originais, além da neutralidade por passo.
+O maior erro relativo de fechamento por passo foi 5,58e-13, abaixo de 1e-10.
+A diferença máxima da evolução LES direta para a inferida foi 5,46e-12 m²/s.
+Fechamento aditivo não valida a física.
 
 ## Estado da implementação
 
@@ -151,13 +165,15 @@ Em 20/09, os oito casos novos e os cinco testes do balanço discreto passaram
 (13 testes). As verificações usam campos sintéticos em CPU, não o replay maduro.
 Também passaram 29 testes existentes de proveniência e propagador, incluindo
 passividade do tracer em CPU/GPU: **42 testes aprovados nesta etapa**. Isso
-protege o comportamento existente, mas não valida o futuro observador completo.
+protege o comportamento existente, mas naquela etapa não validava o observador completo.
 
-Ainda faltam: observador completo conectado aos estágios; gravação das projeções
-por passo; reconstrução independente pela divergência dos fluxos; executor
-com agenda/gates; relatório do piloto; replay completo e sua interpretação.
+Depois desses testes, foram concluídos o observador, executor, piloto e replay.
+Três testes adicionais do observador passaram, incluindo CPU/GPU. Os fluxos
+são recalculados pelas rotinas nativas no estado anterior imutável; a mudança
+efetivamente aplicada é verificada separadamente, com arredondamento explícito.
+Não é uma validação independente da fórmula do esquema.
 
-## Próximos passos, na ordem
+## Etapas concluídas em 20/09
 
 1. **Fechar o protocolo.** Separar gates numéricos de hipóteses científicas;
    fixar escalas de tolerância por unidade; registrar se os fluxos foram
@@ -175,9 +191,31 @@ com agenda/gates; relatório do piloto; replay completo e sua interpretação.
    examinar discos e anéis, máscaras e cadências. Esclarecer o que é robusto
    antes de propor qualquer intervenção física ou estudo de convergência.
 
-Referência histórica: 33 min para o replay de 600 m com controle. Estimativa
-atual de armazenamento escalar: aproximadamente 65 MB brutos, ainda sem
-medição pelo executor novo. Não anunciar tempo ou espaço como benchmarks.
+Todas as cinco etapas acima foram executadas. Custo medido do novo replay:
+21,43 min e 44,27 MiB de HDF5, sem novos campos completos. Preservar a lista
+como registro do que foi feito, não como ordem para repetir a execução.
+
+## Próximo passo mínimo
+
+Pós-processar os 18 estados arquivados, sem integração: definir um fluxo
+centrado de referência nas mesmas faces e a correção MUSCL menos referência;
+verificar a reconstrução e comparar suas projeções assinadas e módulos nos
+mesmos discos/anéis. Essa diferença inclui reconstrução e upwinding: não isola
+o limitador nem identifica automaticamente erro ou dissipação artificial.
+Uma referência upwind de primeira ordem pode ajudar a distinguir essas parcelas.
+Estados arquivados não são todos os estados pré-MUSCL: não tratar a amostragem
+esparsa como integral exata da janela. Protocolo, critérios de interpretação
+e estimativa de custo estão no relatório novo. Nenhum novo replay está autorizado
+por este documento.
+
+## Resultado novo em números
+
+Em 121,7 m, disco móvel de 4,2 km, ponta final, m²/s: x=-24.769,69;
+y=-22.388,27; z=+27.846,31; MUSCL=-19.311,65. O total é negativo nos
+1015 passos nas três convenções. No anel 1,2--4,2 km, MUSCL=-21.785,77;
+em 4,2--6 km, +10.168,67. O sinal depende de raio/altura: não há perda
+universal. O cancelamento espacial do MUSCL total é forte, mas não há
+cancelamento temporal da integral assinada nesse disco de referência.
 
 ## Perguntas que essa captura pode responder
 
@@ -210,7 +248,8 @@ Textos antigos foram preservados como histórico; priorizar as atualizações de
 | [Resultados discretos](LES_DISCRETE_BALANCE_RESULTS.md) | relatório científico completo, tabelas e limitações |
 | [Método discreto](LES_DISCRETE_BALANCE_METHOD.md) | definições matemáticas e unidades |
 | [Auditoria de cancelamento](LES_RESIDUAL_CANCELLATION_AUDIT.md) | correção da interpretação de resíduos |
-| [Protocolo da captura](MUSCL_DIRECT_CAPTURE_PROTOCOL.md) | desenho da etapa ainda pendente |
+| [Protocolo da captura](MUSCL_DIRECT_CAPTURE_PROTOCOL.md) | desenho e critérios da etapa concluída |
+| [Resultados da captura](MUSCL_DIRECT_CAPTURE_RESULTS.md) | direções, máscaras, cancelamentos e próximo diagnóstico |
 | [Continuidade](TORNADOGENESIS_ANALYSIS_CONTINUITY.md) | histórico datado; contém propostas antigas |
 | [Análise por altura](CLOSURE_CONVERGENCE_BY_HEIGHT.md) | contraste LES e correções sucessivas |
 
