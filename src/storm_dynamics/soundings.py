@@ -216,8 +216,8 @@ def bunkers_storm_motion(base: BaseState, deviation: float = 7.5):
 
 
 def storm_relative_helicity(base: BaseState, z_top: float = 3000.0,
-                            storm_motion=None) -> float:
-    """Storm-relative helicity SRH [m^2/s^2] over 0..``z_top`` (Davies-Jones 1984).
+                            storm_motion=None, z_bot: float = 0.0) -> float:
+    """Storm-relative helicity SRH [m^2/s^2] over ``z_bot``..``z_top`` (Davies-Jones 1984).
 
         SRH = - integral_0^h k . [ (V - C) x dV/dz ]  dz
             =   integral_0^h [ (v-cy) du/dz - (u-cx) dv/dz ] dz
@@ -225,12 +225,17 @@ def storm_relative_helicity(base: BaseState, z_top: float = 3000.0,
     ``storm_motion`` ``(cx, cy)``; None -> :func:`bunkers_storm_motion` (right-mover).
     Positive SRH (right-moving supercell in the NH) for a clockwise-curving
     (veering) hodograph.
+
+    ``z_bot`` (default 0, i.e. unchanged) opens up *shallow* layers.  That matters here:
+    attempt E measured that raising 0-3 km SRH by +67% moved low-level ``V_rot`` by ~0%,
+    while the decisive misalignment diagnosed in the vorticity budget sat in the lowest
+    few hundred metres -- so ``z_top=500`` is the layer to interrogate, not 3000.
     """
     z = np.asarray(base.zc, dtype=float)
     u = np.asarray(base.u0, dtype=float)
     v = np.asarray(base.v0, dtype=float)
     cx, cy = storm_motion if storm_motion is not None else bunkers_storm_motion(base)
-    sel = z <= z_top
+    sel = (z <= z_top) & (z >= z_bot)
     if sel.sum() < 2:
         return 0.0
     zc = z[sel]; uc = u[sel]; vc = v[sel]
@@ -241,8 +246,89 @@ def storm_relative_helicity(base: BaseState, z_top: float = 3000.0,
     return float(_trapz(integrand, zc))
 
 
+# ---------------------------------------------------------------------------
+# low-level hodograph GEOMETRY (the quantity the A-L study isolated)
+# ---------------------------------------------------------------------------
+# The investigation eliminated the *amount* of environmental helicity as the lever
+# (attempt E: +67% SRH -> ~0% change in low-level rotation) and localised the
+# bottleneck to GEOMETRY: tilting = |omega_h| |grad_h w| cos(theta), with cos(theta)
+# measured at only +0.04..+0.09 and NEGATIVE (-0.146) right at the surface, so tilting
+# there was generating ANTIcyclonic vorticity.  The free-evolution test (attempt I)
+# then showed the streamwise fraction climbing 0.40 -> 0.64 as the storm occluded.
+#
+# cos(theta) itself needs the 3-D w field (model or dual-Doppler) and has no sounding
+# proxy.  The *streamwise fraction* does: for shear-generated horizontal vorticity,
+# omega_h is the layer shear rotated 90 deg, so the angle between the shear vector and
+# the storm-relative wind -- Esterheld & Giuliano's (2008) "critical angle" -- fixes it
+# exactly.  90 deg means the low-level vorticity is purely streamwise.
+def _layer_shear_and_sr_wind(base: BaseState, z_top: float, storm_motion=None):
+    """``(shear_vector, storm_relative_surface_wind)`` for the 0..``z_top`` layer."""
+    z = np.asarray(base.zc, dtype=float)
+    u = np.asarray(base.u0, dtype=float)
+    v = np.asarray(base.v0, dtype=float)
+    cx, cy = storm_motion if storm_motion is not None else bunkers_storm_motion(base)
+    u_lo, u_hi = np.interp([0.0, z_top], z, u)
+    v_lo, v_hi = np.interp([0.0, z_top], z, v)
+    shear = np.array([u_hi - u_lo, v_hi - v_lo])
+    sr_wind = np.array([u_lo - cx, v_lo - cy])
+    return shear, sr_wind
+
+
+def critical_angle(base: BaseState, z_top: float = 500.0, storm_motion=None) -> float:
+    """Critical angle [deg] -- angle between the 0..``z_top`` shear vector and the
+    storm-relative *surface* wind (Esterheld & Giuliano 2008).
+
+    ~90 deg means the storm-relative inflow is parallel to the low-level horizontal
+    vorticity, i.e. that vorticity is purely **streamwise** and is tilted straight into
+    the updraft.  Departures from 90 deg leave a crosswise component that tilting cannot
+    convert into cyclonic vertical vorticity.  Returns NaN for a degenerate hodograph
+    (zero shear or zero storm-relative wind).
+    """
+    shear, sr_wind = _layer_shear_and_sr_wind(base, z_top, storm_motion)
+    ns, nw = np.hypot(*shear), np.hypot(*sr_wind)
+    if ns < 1e-9 or nw < 1e-9:
+        return float("nan")
+    cos = float(np.dot(shear, sr_wind) / (ns * nw))
+    return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+
+def streamwise_vorticity_fraction(base: BaseState, z_top: float = 500.0,
+                                  storm_motion=None) -> float:
+    """Fraction of the 0..``z_top`` horizontal vorticity that is **streamwise**, in [0, 1].
+
+    Shear-generated horizontal vorticity is ``omega_h = (-dv/dz, du/dz)`` -- the shear
+    vector rotated 90 deg -- so this is ``|cos(angle(omega_h, V_storm_relative))|``, which
+    reduces exactly to ``|sin(critical_angle)|``.  It is the sounding-side counterpart of
+    the streamwise fraction that :func:`vorticity_budget.tilting_efficiency` measures on
+    model fields (0.40 -> 0.64 as the attempt-I supercell occluded); 1.0 is purely
+    streamwise, 0.0 purely crosswise.  NaN for a degenerate hodograph.
+    """
+    shear, sr_wind = _layer_shear_and_sr_wind(base, z_top, storm_motion)
+    ns, nw = np.hypot(*shear), np.hypot(*sr_wind)
+    if ns < 1e-9 or nw < 1e-9:
+        return float("nan")
+    omega_h = np.array([-shear[1], shear[0]])          # shear rotated +90 deg
+    return float(abs(np.dot(omega_h, sr_wind)) / (ns * nw))
+
+
+def low_level_geometry_report(base: BaseState, z_top: float = 500.0, storm_motion=None):
+    """Bundle the low-level geometry discriminators for one sounding."""
+    cx, cy = storm_motion if storm_motion is not None else bunkers_storm_motion(base)
+    return {
+        "layer_top_m": float(z_top),
+        "storm_motion_ms": (float(cx), float(cy)),
+        "critical_angle_deg": critical_angle(base, z_top, (cx, cy)),
+        "streamwise_fraction": streamwise_vorticity_fraction(base, z_top, (cx, cy)),
+        "SRH_layer_m2_s2": storm_relative_helicity(base, z_top=z_top, storm_motion=(cx, cy)),
+        "SRH_0_3km_m2_s2": storm_relative_helicity(base, z_top=3000.0, storm_motion=(cx, cy)),
+        "shear_layer_m_s": bulk_shear(base, 0.0, z_top),
+        "shear_0_6km_m_s": bulk_shear(base, 0.0, 6000.0),
+    }
+
+
 __all__ = [
     "build_sounding", "from_observed_sounding", "example_observed_sounding",
     "bulk_shear", "bunkers_storm_motion", "storm_relative_helicity",
-    "bulk_richardson_number",
+    "bulk_richardson_number", "critical_angle", "streamwise_vorticity_fraction",
+    "low_level_geometry_report",
 ]

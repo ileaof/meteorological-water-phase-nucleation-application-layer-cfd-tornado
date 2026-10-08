@@ -34,8 +34,11 @@ def download_sounding(station="KOUN", when="2013-05-21T00:00:00Z", cache=None, o
         if offline:
             raise FileNotFoundError("offline: RAOB %s %s not cached" % (station, when))
         import requests
+
+        from . import _tls
         url = "https://mesonet.agron.iastate.edu/json/raob.py?ts=%s&station=%s" % (when, station)
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "met_h2o research (educational)"})
+        r = requests.get(url, timeout=timeout, headers={"User-Agent": "met_h2o research (educational)"},
+                         verify=_tls.ca_bundle())
         r.raise_for_status()
         raw = r.json()
         if cache is not None:

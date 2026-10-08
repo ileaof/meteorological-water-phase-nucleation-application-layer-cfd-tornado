@@ -16,8 +16,8 @@ simulated winds against Doppler radar in **radial‑velocity space**.
 | A | **NOAA HRRR** | 3‑D T, p, q, wind, w, CAPE/CIN, reflectivity, terrain (GRIB2) | `cfgrib`+`eccodes`; download from AWS Open Data (no key) |
 | B | **ERA5 / Copernicus** | global synoptic environment (NetCDF/GRIB) | `xarray` (read); `cdsapi`+`~/.cdsapirc` (download) |
 | C | **NEXRAD Level II** | reflectivity, radial velocity, ZDR, ρhv, φdp (validation) | `arm_pyart` / `xradar`; download from AWS (no key) |
-| D | **Radiosondes** | vertical profiles → base state + CAPE/shear/SRH | `pandas` (CSV/text) |
-| E | **METAR/ASOS** | surface T, Td, p, wind (surface validation) | `pandas` (CSV) |
+| D | **Radiosondes** | vertical profiles → base state + CAPE/shear/SRH | `pandas` (CSV/text); IEM RAOB download (no key, **US‑only** — see *Regional coverage*) |
+| E | **METAR/ASOS** | surface T, Td, p, wind (surface validation) | `pandas` (CSV); live `download_metar` (no key, **global**) |
 | F | **Storm Events / SWDI** | tornado track, EF rating, LSRs (case selection + track validation) | `pandas` (CSV/JSON); `geopandas` (shapefile) |
 
 Only `numpy scipy xarray netCDF4 pandas pyyaml` are **required**; every heavy reader is
@@ -109,6 +109,61 @@ CFD `(u,v,w)` to the radar gates and projects onto the beam, then scores against
 `V_r` (RMSE, MAE, bias, correlation) and reflectivity (CSI, FSS), and estimates the mesocyclone
 displacement. See [NEXRAD_VALIDATION](NEXRAD_VALIDATION.md).
 
+## Regional coverage (measured 2026-10-08, not assumed)
+
+The download sources were written around a US case (Moore 2013) and their coverage is
+**not** global. Probed directly while trying to diagnose a live Brazilian (Centro-Oeste)
+severe-weather case:
+
+| Source | Probe | Result |
+|---|---|---|
+| IEM RAOB (source D) | `SBCG SBCY SBBR SGAS 83612 83362 83378 86218` | `{"profiles": []}` — **no Brazilian coverage** |
+| IEM RAOB (control) | `KOUN`, same day | 164–165 levels — plumbing is fine, the archive is US-only |
+| Wyoming global archive | `weather.uwyo.edu/cgi-bin/sounding?region=samer&…` | HTTP **404** — endpoint moved/gone |
+| Live METAR (source E) | `SBCG SBBR SBCY SBGO SBDN SBLO SBCA` | **works** — global coverage |
+| HRRR (A), NEXRAD (C) | — | **US-only** by construction |
+| ERA5 (B) | — | global, but needs CDS credentials and runs **~5 days behind** |
+
+**Consequence:** outside the US there is currently **no real-time IC/BC source and no
+sounding**. A surface report cannot give a wind *profile*, so shear and SRH stay
+unmeasurable from METAR alone — only boundary-layer moisture and hence the LCL
+(`metar.lcl_estimate_m`, Lawrence 2005). Closing this gap needs a real-time global-model
+source (GFS/ECMWF open data) in `sources/`; that would feed `ic_bc.py` (limited-area) and
+supply the wind profile the geometry diagnostics below require.
+
+## TLS through an inspecting middlebox
+
+A consumer antivirus or corporate proxy (here: `CN=Norton Web/Mail Shield Root`) terminates
+HTTPS locally and re-signs every certificate with a **private root**. That root lives in the
+OS trust store, so `curl` succeeds, but it is absent from `certifi`, which is what `requests`
+uses — so every Python download failed on a URL the shell could fetch:
+
+```
+SSLError: CERTIFICATE_VERIFY_FAILED - unable to get local issuer certificate
+```
+
+`sources/_tls.ca_bundle()` resolves this by handing `requests` a bundle of **`certifi` plus
+the roots the OS already trusts** (`ssl.enum_certificates`, stdlib, no new dependency).
+Verification is never disabled. Overrides: `MET_H2O_CA_BUNDLE` (explicit PEM) and
+`MET_H2O_EXTRA_CA_DIR` (a directory of extra PEMs). `sources/_tls.describe()` prints what
+was resolved. On Linux/macOS OpenSSL already reads the system store, so the merge is a no-op.
+
+## Low-level hodograph geometry (`storm_dynamics.soundings`)
+
+The A–L investigation eliminated the *amount* of environmental helicity as the lever
+(attempt E: +67 % SRH → ~0 % change in low-level rotation) and localised the bottleneck to
+**geometry**. The sounding-side diagnostics for that:
+
+| Function | Quantity |
+|---|---|
+| `critical_angle(base, z_top=500)` | angle between the 0–`z_top` shear vector and the storm-relative surface wind (Esterheld & Giuliano 2008); ~90° ⇒ purely **streamwise** low-level vorticity |
+| `streamwise_vorticity_fraction(base, z_top=500)` | that fraction in [0, 1]; identically `|sin(critical_angle)|` — the sounding counterpart of the streamwise share `vorticity_budget.tilting_efficiency` measures on model fields (0.40 → 0.64 as the attempt-I supercell occluded) |
+| `storm_relative_helicity(..., z_bot=0)` | SRH over an arbitrary layer, so the **shallow** layer where the misalignment was measured can be interrogated instead of 0–3 km |
+| `low_level_geometry_report(base, z_top=500)` | all of the above bundled |
+
+The misalignment actually diagnosed — `cos θ` between ω_h and ∇_h w — needs the 3-D `w`
+field (model or dual-Doppler) and has **no sounding proxy**; the streamwise fraction does.
+
 ## Scientific limitations (must stay documented)
 
 1. **HRRR does not resolve the tornado core** — it sets the storm‑scale environment.
@@ -120,7 +175,10 @@ displacement. See [NEXRAD_VALIDATION](NEXRAD_VALIDATION.md).
    it is not imposed.
 6. **Δx ≈ 100–150 m** represents the tornadic circulation only in a limited way, not the full
    vortex sub‑structure.
-7. **Direct radar assimilation** is a separate problem (3D/4D‑Var, EnKF) — this module does
+7. **Coverage is regional, not global** — the sounding and real-time gridded sources are
+   US-only (measured above). A non-US case can currently be scored on surface observations
+   and the synoptic environment, not on a measured wind profile.
+8. **Direct radar assimilation** is a separate problem (3D/4D‑Var, EnKF) — this module does
    ingestion + a radial observation operator, not DA. Interpolation is not assimilation.
 
 ## References
