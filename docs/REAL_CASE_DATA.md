@@ -18,6 +18,7 @@ simulated winds against Doppler radar in **radial‑velocity space**.
 | C | **NEXRAD Level II** | reflectivity, radial velocity, ZDR, ρhv, φdp (validation) | `arm_pyart` / `xradar`; download from AWS (no key) |
 | D | **Radiosondes** | vertical profiles → base state + CAPE/shear/SRH | `pandas` (CSV/text); IEM RAOB download (no key, **US‑only** — see *Regional coverage*) |
 | E | **METAR/ASOS** | surface T, Td, p, wind (surface validation) | `pandas` (CSV); live `download_metar` (no key, **global**) |
+| G | **NOAA GFS (THREDDS NCSS)** | real-time **global** 0.25° profiles + gridded subsets (T, RH, q, u, v, geopotential height, CAPE/CIN/SRH) | `requests` (CSV profiles) / `netCDF4` (grids) — **no key, no GRIB** |
 | F | **Storm Events / SWDI** | tornado track, EF rating, LSRs (case selection + track validation) | `pandas` (CSV/JSON); `geopandas` (shapefile) |
 
 Only `numpy scipy xarray netCDF4 pandas pyyaml` are **required**; every heavy reader is
@@ -124,12 +125,21 @@ severe-weather case:
 | HRRR (A), NEXRAD (C) | — | **US-only** by construction |
 | ERA5 (B) | — | global, but needs CDS credentials and runs **~5 days behind** |
 
-**Consequence:** outside the US there is currently **no real-time IC/BC source and no
-sounding**. A surface report cannot give a wind *profile*, so shear and SRH stay
-unmeasurable from METAR alone — only boundary-layer moisture and hence the LCL
-(`metar.lcl_estimate_m`, Lawrence 2005). Closing this gap needs a real-time global-model
-source (GFS/ECMWF open data) in `sources/`; that would feed `ic_bc.py` (limited-area) and
-supply the wind profile the geometry diagnostics below require.
+| GFS via THREDDS NCSS (source G) | `Best` dataset, point + bbox | **works globally** — 41 isobaric levels, no key, no GRIB |
+
+**Consequence (resolved for profiles).** `sources/gfs.py` closes the wind-profile gap: GFS
+0.25° over THREDDS NCSS gives a real-time **global** profile in the dict shape
+`sounding.profile_to_basestate` already consumes, so CAPE/CIN/LCL and the low-level geometry
+diagnostics work on any point on Earth. `download_grid` fetches a bbox as NetCDF for IC/BC;
+wiring that into the `real_case` CLI is **not** done yet. METAR remains the only *observed*
+(non-model) source outside the US — surface only, hence LCL but no profile.
+
+Two routes were tried and rejected, recorded so they are not retried:
+
+* **GRIB2** (NOMADS filter, AWS `noaa-gfs-bdp-pds`) — needs `cfgrib`/`eccodes`, absent on
+  plain Windows installs here.
+* **NOMADS OPeNDAP** — **retired** (NWS SCN25-81); `/dods/` returns an HTML notice, which
+  surfaces through netCDF4 as an opaque `NetCDF: I/O failure`, easily mistaken for a TLS fault.
 
 ## TLS through an inspecting middlebox
 
@@ -164,6 +174,52 @@ The A–L investigation eliminated the *amount* of environmental helicity as the
 The misalignment actually diagnosed — `cos θ` between ω_h and ∇_h w — needs the 3-D `w`
 field (model or dual-Doppler) and has **no sounding proxy**; the streamwise fraction does.
 
+## Southern hemisphere and below-ground levels
+
+Two traps that only appear once the pipeline leaves the US case it was written for.
+
+**The favoured supercell is the left-mover south of the equator.** `bunkers_storm_motion`
+deviated to the *right* unconditionally — the northern-hemisphere convention — so every
+storm-relative quantity (SRH, critical angle, streamwise fraction) was computed for the
+*opposite* storm. It now takes `hemisphere="south"` or infers it from `latitude_deg`
+(negative → south); omitting both keeps the northern default byte-identical. GFS itself
+reports **negative** `Storm_relative_helicity` in the southern hemisphere for this reason, so
+`low_level_geometry_report` returns both the raw integral and a `*_cyclonic_*` value with the
+sign normalised for cross-hemisphere comparison. **Compare magnitudes, never raw signs.**
+
+**GFS isobaric levels below the terrain are extrapolation, not atmosphere.** At Campo Grande
+(terrain 477 m, surface pressure 95 800 Pa) the 1000 and 975 hPa levels are underground; at
+Brasília (1051 m) more are. `download_profile` drops levels with `p > p_surface` by default
+and raises rather than returning a two-level column. Keeping them would invent a boundary
+layer — and the boundary layer is exactly where the tornadogenesis geometry lives.
+
+## Two measurement traps found on the first real non-US case (2026-10-08)
+
+**CAPE depends on the grid the profile is interpolated onto, by a factor of 7.** Measured at
+Dourados (GFS reported 970 J/kg) with the same profile on different vertical grids:
+
+| `dz` | CAPE (J/kg) |
+|---|---|
+| 200 m | **100** |
+| 100 m | 729 |
+| 50 m | 640 |
+| 25 m | 726 |
+
+Converged for `dz <= 100 m`; at `dz = 200 m` the value is not conservative, it is wrong.
+Use `dz <= 100 m` whenever CAPE from a real profile matters, and distrust any CAPE quoted
+without its grid spacing.
+
+**The low-level geometry diagnostics go ill-conditioned in weak shear.** The critical angle
+is a *direction*, so when the 0–500 m shear vector is only 1–2 m/s its direction swings on
+noise while the function still returns a confident-looking number (179.5° was reported at
+Campo Grande off a 1.4 m/s shear). `low_level_geometry_report` now emits a `RuntimeWarning`
+and sets `geometry_is_ill_conditioned` when the layer shear is below
+`soundings.WELL_POSED_SHEAR_MS` (2 m/s) or the storm-relative inflow below
+`WELL_POSED_SR_WIND_MS`; below `MIN_SHEAR_MS` (0.5 m/s) the angle is NaN outright. **Check
+that flag before quoting either number** — a finite return is not a claim of meaning. This
+is the same defect class as the cells-vs-metres family: a quantity that looks physical and
+is not.
+
 ## Scientific limitations (must stay documented)
 
 1. **HRRR does not resolve the tornado core** — it sets the storm‑scale environment.
@@ -175,9 +231,9 @@ field (model or dual-Doppler) and has **no sounding proxy**; the streamwise frac
    it is not imposed.
 6. **Δx ≈ 100–150 m** represents the tornadic circulation only in a limited way, not the full
    vortex sub‑structure.
-7. **Coverage is regional, not global** — the sounding and real-time gridded sources are
-   US-only (measured above). A non-US case can currently be scored on surface observations
-   and the synoptic environment, not on a measured wind profile.
+7. **Observed coverage is regional; model coverage is global** — radiosondes (IEM), HRRR and
+   NEXRAD are US-only, so a non-US case is scored against a **model** profile (GFS, source G)
+   plus surface observations, never against an observed sounding or radar.
 8. **Direct radar assimilation** is a separate problem (3D/4D‑Var, EnKF) — this module does
    ingestion + a radial observation operator, not DA. Interpolation is not assimilation.
 

@@ -192,12 +192,39 @@ def bulk_richardson_number(base: BaseState, cape: float = None) -> float:
     return float(cape / shear2) if shear2 > 1e-6 else float("inf")
 
 
-def bunkers_storm_motion(base: BaseState, deviation: float = 7.5):
-    """Right-moving supercell motion estimate (Bunkers et al. 2000, simplified).
+def _hemisphere_sign(hemisphere=None, latitude_deg=None) -> float:
+    """``+1`` for a right-deviating (northern) mover, ``-1`` for a left-deviating (southern).
 
-    Mean 0-6 km wind plus a ``deviation`` [m/s] offset to the RIGHT of the 0-6 km
-    shear vector.  Returns ``(cx, cy)`` [m/s].
+    Default is ``+1`` -- the northern-hemisphere convention this module was written with --
+    so omitting both arguments reproduces the original behaviour exactly.
     """
+    if hemisphere is not None:
+        h = str(hemisphere).strip().lower()
+        if h.startswith("s"):
+            return -1.0
+        if h.startswith("n"):
+            return 1.0
+        raise ValueError("hemisphere must be 'north' or 'south', got %r" % (hemisphere,))
+    if latitude_deg is not None and float(latitude_deg) < 0.0:
+        return -1.0
+    return 1.0
+
+
+def bunkers_storm_motion(base: BaseState, deviation: float = 7.5, hemisphere=None,
+                         latitude_deg=None):
+    """Deviant supercell motion estimate (Bunkers et al. 2000, simplified).
+
+    Mean 0-6 km wind plus a ``deviation`` [m/s] offset perpendicular to the 0-6 km shear
+    vector: to the **RIGHT** in the northern hemisphere (the default, unchanged), to the
+    **LEFT** in the southern, where cyclonic rotation is clockwise and the favoured
+    supercell is the left-mover.
+
+    Give ``hemisphere="south"`` explicitly, or ``latitude_deg`` to have it inferred
+    (negative latitude -> south).  Getting this wrong does not just flip a sign: it
+    computes every storm-relative quantity -- SRH, critical angle, streamwise fraction --
+    for the *opposite* storm, i.e. for the member that is not the one being studied.
+    """
+    sign = _hemisphere_sign(hemisphere, latitude_deg)
     z = np.asarray(base.zc)
     sel = z <= 6000.0
     if sel.sum() < 2:
@@ -210,8 +237,9 @@ def bunkers_storm_motion(base: BaseState, deviation: float = 7.5):
     shx, shy = u[1] - u[0], v[1] - v[0]
     smag = np.hypot(shx, shy) + 1e-9
     # unit vector 90 deg to the RIGHT of the shear (clockwise): (shy, -shx)/|sh|
-    cx = um + deviation * (shy / smag)
-    cy = vm + deviation * (-shx / smag)
+    # sign = -1 mirrors it to the LEFT for the southern-hemisphere mover.
+    cx = um + sign * deviation * (shy / smag)
+    cy = vm + sign * deviation * (-shx / smag)
     return cx, cy
 
 
@@ -274,26 +302,47 @@ def _layer_shear_and_sr_wind(base: BaseState, z_top: float, storm_motion=None):
     return shear, sr_wind
 
 
-def critical_angle(base: BaseState, z_top: float = 500.0, storm_motion=None) -> float:
+#: Below this layer shear [m/s] the shear *direction* is numerically degenerate, so the
+#: critical angle carries no information at all and NaN is returned.
+MIN_SHEAR_MS = 0.5
+
+#: Below this layer shear [m/s] the angle is computable but ILL-CONDITIONED: a 1-2 m/s
+#: shear vector's direction swings wildly on tiny perturbations, so a confident-looking
+#: angle would be noise.  Esterheld & Giuliano's critical angle was established on
+#: supercell environments with substantial low-level shear, not on near-calm hodographs.
+WELL_POSED_SHEAR_MS = 2.0
+
+#: Same idea for the storm-relative inflow: a near-zero one makes "streamwise" undefined.
+WELL_POSED_SR_WIND_MS = 2.0
+
+
+def critical_angle(base: BaseState, z_top: float = 500.0, storm_motion=None,
+                   min_shear_ms: float = MIN_SHEAR_MS) -> float:
     """Critical angle [deg] -- angle between the 0..``z_top`` shear vector and the
     storm-relative *surface* wind (Esterheld & Giuliano 2008).
 
     ~90 deg means the storm-relative inflow is parallel to the low-level horizontal
     vorticity, i.e. that vorticity is purely **streamwise** and is tilted straight into
     the updraft.  Departures from 90 deg leave a crosswise component that tilting cannot
-    convert into cyclonic vertical vorticity.  Returns NaN for a degenerate hodograph
-    (zero shear or zero storm-relative wind).
+    convert into cyclonic vertical vorticity.
+
+    Returns NaN when the hodograph is degenerate -- layer shear below ``min_shear_ms`` or a
+    vanishing storm-relative wind.  **A finite return is not a promise the number is
+    meaningful**: between ``min_shear_ms`` and :data:`WELL_POSED_SHEAR_MS` the angle is
+    ill-conditioned.  :func:`low_level_geometry_report` flags that case explicitly; prefer
+    it over calling this directly.
     """
     shear, sr_wind = _layer_shear_and_sr_wind(base, z_top, storm_motion)
     ns, nw = np.hypot(*shear), np.hypot(*sr_wind)
-    if ns < 1e-9 or nw < 1e-9:
+    if ns < min_shear_ms or nw < 1e-9:
         return float("nan")
     cos = float(np.dot(shear, sr_wind) / (ns * nw))
     return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
 
 def streamwise_vorticity_fraction(base: BaseState, z_top: float = 500.0,
-                                  storm_motion=None) -> float:
+                                  storm_motion=None,
+                                  min_shear_ms: float = MIN_SHEAR_MS) -> float:
     """Fraction of the 0..``z_top`` horizontal vorticity that is **streamwise**, in [0, 1].
 
     Shear-generated horizontal vorticity is ``omega_h = (-dv/dz, du/dz)`` -- the shear
@@ -301,28 +350,74 @@ def streamwise_vorticity_fraction(base: BaseState, z_top: float = 500.0,
     reduces exactly to ``|sin(critical_angle)|``.  It is the sounding-side counterpart of
     the streamwise fraction that :func:`vorticity_budget.tilting_efficiency` measures on
     model fields (0.40 -> 0.64 as the attempt-I supercell occluded); 1.0 is purely
-    streamwise, 0.0 purely crosswise.  NaN for a degenerate hodograph.
+    streamwise, 0.0 purely crosswise.
+
+    Same conditioning caveat as :func:`critical_angle` -- NaN when degenerate, and a finite
+    value between ``min_shear_ms`` and :data:`WELL_POSED_SHEAR_MS` is noise.
     """
     shear, sr_wind = _layer_shear_and_sr_wind(base, z_top, storm_motion)
     ns, nw = np.hypot(*shear), np.hypot(*sr_wind)
-    if ns < 1e-9 or nw < 1e-9:
+    if ns < min_shear_ms or nw < 1e-9:
         return float("nan")
     omega_h = np.array([-shear[1], shear[0]])          # shear rotated +90 deg
     return float(abs(np.dot(omega_h, sr_wind)) / (ns * nw))
 
 
-def low_level_geometry_report(base: BaseState, z_top: float = 500.0, storm_motion=None):
-    """Bundle the low-level geometry discriminators for one sounding."""
-    cx, cy = storm_motion if storm_motion is not None else bunkers_storm_motion(base)
+def low_level_geometry_report(base: BaseState, z_top: float = 500.0, storm_motion=None,
+                              hemisphere=None, latitude_deg=None):
+    """Bundle the low-level geometry discriminators for one sounding.
+
+    ``hemisphere``/``latitude_deg`` select the deviant mover (see
+    :func:`bunkers_storm_motion`); both omitted keeps the northern-hemisphere default.
+
+    SRH is reported twice on purpose.  ``SRH_*_m2_s2`` is the raw Davies-Jones integral,
+    which for the favoured southern-hemisphere (left-moving) supercell comes out
+    **negative** -- GFS reports it that way too.  ``SRH_*_cyclonic_m2_s2`` flips that sign
+    in the southern hemisphere so the number is directly comparable with the
+    northern-hemisphere values quoted in the literature and elsewhere in this project.
+    Compare magnitudes across hemispheres, never raw signs.
+    """
+    import warnings
+
+    sign = _hemisphere_sign(hemisphere, latitude_deg)
+    cx, cy = (storm_motion if storm_motion is not None
+              else bunkers_storm_motion(base, hemisphere=hemisphere, latitude_deg=latitude_deg))
+    srh_layer = storm_relative_helicity(base, z_top=z_top, storm_motion=(cx, cy))
+    srh_3km = storm_relative_helicity(base, z_top=3000.0, storm_motion=(cx, cy))
+
+    shear_vec, sr_wind = _layer_shear_and_sr_wind(base, z_top, (cx, cy))
+    shear_mag = float(np.hypot(*shear_vec))
+    sr_mag = float(np.hypot(*sr_wind))
+    reasons = []
+    if shear_mag < WELL_POSED_SHEAR_MS:
+        reasons.append("0-%.0f m shear is only %.2f m/s (< %.1f)"
+                       % (z_top, shear_mag, WELL_POSED_SHEAR_MS))
+    if sr_mag < WELL_POSED_SR_WIND_MS:
+        reasons.append("storm-relative inflow is only %.2f m/s (< %.1f)"
+                       % (sr_mag, WELL_POSED_SR_WIND_MS))
+    if reasons:
+        warnings.warn(
+            "low-level geometry is ILL-CONDITIONED: %s. The critical angle and streamwise "
+            "fraction are reported but carry no information at this shear -- the shear "
+            "direction swings on noise. They have NOT been silently presented as valid; "
+            "check 'geometry_is_ill_conditioned' before quoting them."
+            % "; ".join(reasons), RuntimeWarning, stacklevel=2)
+
     return {
         "layer_top_m": float(z_top),
+        "hemisphere": "south" if sign < 0 else "north",
         "storm_motion_ms": (float(cx), float(cy)),
         "critical_angle_deg": critical_angle(base, z_top, (cx, cy)),
         "streamwise_fraction": streamwise_vorticity_fraction(base, z_top, (cx, cy)),
-        "SRH_layer_m2_s2": storm_relative_helicity(base, z_top=z_top, storm_motion=(cx, cy)),
-        "SRH_0_3km_m2_s2": storm_relative_helicity(base, z_top=3000.0, storm_motion=(cx, cy)),
+        "SRH_layer_m2_s2": srh_layer,
+        "SRH_0_3km_m2_s2": srh_3km,
+        "SRH_layer_cyclonic_m2_s2": sign * srh_layer,
+        "SRH_0_3km_cyclonic_m2_s2": sign * srh_3km,
         "shear_layer_m_s": bulk_shear(base, 0.0, z_top),
         "shear_0_6km_m_s": bulk_shear(base, 0.0, 6000.0),
+        "storm_relative_inflow_m_s": sr_mag,
+        "geometry_is_ill_conditioned": bool(reasons),
+        "ill_conditioned_reason": "; ".join(reasons) if reasons else "",
     }
 
 
