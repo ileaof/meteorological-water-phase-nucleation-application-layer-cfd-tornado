@@ -112,8 +112,14 @@ def plot_rotation_slices(sim, outdir, z_mid=4000.0, z_near=500.0, tag="") -> str
     return path
 
 
-def plot_hodograph(base, outdir, tag="") -> str:
-    """Environmental hodograph (u vs v) with SRH / shear annotated (PNG)."""
+def plot_hodograph(base, outdir, tag="", hemisphere=None, latitude_deg=None) -> str:
+    """Environmental hodograph (u vs v) with SRH / shear annotated (PNG).
+
+    ``hemisphere``/``latitude_deg`` pick the deviant mover the star marks (see
+    :func:`soundings.bunkers_storm_motion`); both omitted keeps the northern-hemisphere
+    right-mover.  Passing them matters for a southern-hemisphere case: the favoured storm
+    is the LEFT-mover, and marking the right-mover would annotate the wrong storm.
+    """
     from . import soundings as snd
     os.makedirs(outdir, exist_ok=True)
     z = np.asarray(base.zc); u = np.asarray(base.u0); v = np.asarray(base.v0)
@@ -121,8 +127,9 @@ def plot_hodograph(base, outdir, tag="") -> str:
     fig, ax = plt.subplots(figsize=(6.2, 6.0), constrained_layout=True)
     sc = ax.scatter(u[sel], v[sel], c=z[sel] / 1000.0, cmap="viridis", s=18, zorder=3)
     ax.plot(u[sel], v[sel], "-", color="0.5", lw=1, zorder=2)
-    cx, cy = snd.bunkers_storm_motion(base)
-    ax.plot(cx, cy, "r*", ms=16, label="storm motion (right-mover)", zorder=4)
+    cx, cy = snd.bunkers_storm_motion(base, hemisphere=hemisphere, latitude_deg=latitude_deg)
+    mover = "left" if snd._hemisphere_sign(hemisphere, latitude_deg) < 0 else "right"
+    ax.plot(cx, cy, "r*", ms=16, label="storm motion (%s-mover)" % mover, zorder=4)
     for h in (1000.0, 3000.0, 6000.0):
         k = int(np.argmin(np.abs(z - h)))
         ax.annotate("%.0f km" % (h / 1000.0), (u[k], v[k]),
